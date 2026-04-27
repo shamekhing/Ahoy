@@ -47,9 +47,10 @@ class BleTransport implements TransportInterface {
     _myUuid = uuid;
     if (!Platform.isAndroid) return;
 
-    // Build a compact identity payload that fits in 20 bytes of service data.
-    // Format: shortId (6 bytes ASCII) + null + displayName (truncated).
-    final nameBytes = displayName.codeUnits.take(13).toList();
+    // Payload goes in the BLE scan response alongside the service UUID.
+    // Scan response budget: 31 bytes - 2 (field overhead) - 16 (128-bit UUID) = 13 bytes.
+    // Format: shortId (6 bytes) + 0x00 + displayName (up to 6 bytes) = 13 bytes max.
+    final nameBytes = displayName.codeUnits.take(6).toList();
     final payload = Uint8List.fromList([
       ...shortId.codeUnits.take(6),
       0x00,
@@ -78,6 +79,7 @@ class BleTransport implements TransportInterface {
   }
 
   bool _scanning = false;
+  Timer? _scanRestartTimer;
 
   @override
   Future<void> startScanning() async {
@@ -86,9 +88,18 @@ class BleTransport implements TransportInterface {
     // Restart the scan whenever Flutter Blue Plus reports it has stopped,
     // so discovery stays live indefinitely (the SDK stops after its timeout).
     _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
-      if (!active && _scanning) _restartScan();
+      if (!active && _scanning) _scheduleScanRestart();
     });
     await _restartScan();
+  }
+
+  Future<void> _scheduleScanRestart() async {
+    // Cancel any pending restart
+    _scanRestartTimer?.cancel();
+    // Wait 2 seconds before restarting to avoid Android's scan frequency limits
+    _scanRestartTimer = Timer(const Duration(seconds: 2), () async {
+      if (_scanning) await _restartScan();
+    });
   }
 
   Future<void> _restartScan() async {
@@ -98,12 +109,16 @@ class BleTransport implements TransportInterface {
       );
     } catch (e) {
       debugPrint('[BLE] Scan failed: $e');
+      // If scan fails, schedule a restart with backoff
+      if (_scanning) _scheduleScanRestart();
     }
   }
 
   @override
   Future<void> stopScanning() async {
     _scanning = false;
+    _scanRestartTimer?.cancel();
+    _scanRestartTimer = null;
     await _scanStateSub?.cancel();
     _scanStateSub = null;
     await FlutterBluePlus.stopScan();
