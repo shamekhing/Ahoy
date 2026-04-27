@@ -65,6 +65,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Center(
+                child: Column(
+                  children: [
+                    Image.asset('assets/app_icon.png', width: 64, height: 64),
+                    const SizedBox(height: 12),
+                    Text('Create your Ahoy profile', style: Theme.of(context).textTheme.headlineSmall),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
               TextFormField(
                 controller: _usernameCtrl,
                 decoration: const InputDecoration(
