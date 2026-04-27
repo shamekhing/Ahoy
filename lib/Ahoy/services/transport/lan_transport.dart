@@ -19,6 +19,8 @@ class LanTransport implements TransportInterface {
   Stream<PeerAnnouncement> get announcementStream => _announcementController.stream;
 
   RawDatagramSocket? _udpSocket;
+  // Dedicated send socket so we don't hold up the receive socket between sends.
+  RawDatagramSocket? _sendSocket;
   ServerSocket? _tcpServer;
   Timer? _broadcastTimer;
   bool _advertising = false;
@@ -66,6 +68,15 @@ class LanTransport implements TransportInterface {
       debugPrint('[LAN] UDP bind failed: $e');
     }
 
+    // Shared send socket — reused across all broadcast calls to avoid
+    // creating a new socket per target per interval.
+    try {
+      _sendSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      _sendSocket!.broadcastEnabled = true;
+    } catch (e) {
+      debugPrint('[LAN] UDP send socket bind failed: $e');
+    }
+
     try {
       _tcpServer = await ServerSocket.bind(InternetAddress.anyIPv4, AhoyConstants.lanMessagingPort);
       _tcpServer!.listen(_onTcpConnection);
@@ -78,6 +89,8 @@ class LanTransport implements TransportInterface {
   Future<void> stopScanning() async {
     _udpSocket?.close();
     _udpSocket = null;
+    _sendSocket?.close();
+    _sendSocket = null;
     _tcpServer?.close();
     _tcpServer = null;
   }
@@ -93,45 +106,41 @@ class LanTransport implements TransportInterface {
 
   Future<void> _broadcast() async {
     if (!_advertising || _myUuid == null) return;
-    try {
-      final data = utf8.encode(jsonEncode({
-        'type': 'ahoy_announce',
-        'uuid': _myUuid,
-        'shortId': _myShortId,
-        'displayName': _myDisplayName,
-        'statusMessage': _myStatusMessage,
-        'publicKeyPEM': _myPublicKeyPEM,
-        'port': AhoyConstants.lanMessagingPort,
-      }));
+    final data = utf8.encode(jsonEncode({
+      'type': 'ahoy_announce',
+      'uuid': _myUuid,
+      'shortId': _myShortId,
+      'displayName': _myDisplayName,
+      'statusMessage': _myStatusMessage,
+      'publicKeyPEM': _myPublicKeyPEM,
+      'port': AhoyConstants.lanMessagingPort,
+    }));
 
-      // Collect broadcast targets: the limited broadcast + each interface's
-      // directed /24 subnet broadcast (more reliable when AP isolation is on).
-      final targets = <String>{'255.255.255.255'};
-      try {
-        final ifaces = await NetworkInterface.list(
-          includeLoopback: false,
-          type: InternetAddressType.IPv4,
-        );
-        for (final iface in ifaces) {
-          for (final addr in iface.addresses) {
-            final parts = addr.address.split('.');
-            if (parts.length == 4) {
-              targets.add('${parts[0]}.${parts[1]}.${parts[2]}.255');
-            }
+    // Collect broadcast targets: limited broadcast + each interface's /24 subnet.
+    final targets = <String>{'255.255.255.255'};
+    try {
+      final ifaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      for (final iface in ifaces) {
+        for (final addr in iface.addresses) {
+          final parts = addr.address.split('.');
+          if (parts.length == 4) {
+            targets.add('${parts[0]}.${parts[1]}.${parts[2]}.255');
           }
         }
-      } catch (_) {}
-
-      for (final target in targets) {
-        try {
-          final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-          socket.broadcastEnabled = true;
-          socket.send(data, InternetAddress(target), AhoyConstants.lanDiscoveryPort);
-          socket.close();
-        } catch (_) {}
       }
-    } catch (e) {
-      debugPrint('[LAN] Broadcast failed: $e');
+    } catch (_) {}
+
+    final sock = _sendSocket;
+    if (sock == null) return;
+    for (final target in targets) {
+      try {
+        sock.send(data, InternetAddress(target), AhoyConstants.lanDiscoveryPort);
+      } catch (e) {
+        debugPrint('[LAN] Broadcast to $target failed: $e');
+      }
     }
   }
 
@@ -160,24 +169,31 @@ class LanTransport implements TransportInterface {
 
   void _onTcpConnection(Socket socket) {
     final buffer = StringBuffer();
-    socket.listen((bytes) {
-      buffer.write(utf8.decode(bytes, allowMalformed: true));
-      final raw = buffer.toString();
-      final lines = raw.split('\n');
-      for (int i = 0; i < lines.length - 1; i++) {
-        _processMessage(lines[i]);
-      }
-      buffer.clear();
-      buffer.write(lines.last);
-    }, onDone: socket.destroy);
+    socket.listen(
+      (bytes) {
+        buffer.write(utf8.decode(bytes, allowMalformed: true));
+        final raw = buffer.toString();
+        final lines = raw.split('\n');
+        for (int i = 0; i < lines.length - 1; i++) {
+          _processMessage(lines[i]);
+        }
+        buffer.clear();
+        buffer.write(lines.last);
+      },
+      onDone: socket.destroy,
+      onError: (_) => socket.destroy(),
+    );
   }
 
   void _processMessage(String raw) {
     if (raw.trim().isEmpty) return;
     try {
       final json = jsonDecode(raw) as Map<String, dynamic>;
+      final from = json['from'] as String?;
+      // Drop packets that claim to be from ourselves.
+      if (from == null || from == _myUuid) return;
       _packetController.add(InboundPacket(
-        peerUuid: json['from'] as String,
+        peerUuid: from,
         peerShortId: json['fromShortId'] as String? ?? '',
         peerDisplayName: json['fromName'] as String? ?? 'Unknown',
         payload: raw,
@@ -190,8 +206,9 @@ class LanTransport implements TransportInterface {
   Future<bool> send(String peerUuid, String payload) async {
     final conn = _peerConns[peerUuid];
     if (conn == null) return false;
+    Socket? socket;
     try {
-      final socket = await Socket.connect(conn.address, conn.port,
+      socket = await Socket.connect(conn.address, conn.port,
           timeout: const Duration(seconds: 5));
       socket.write('$payload\n');
       await socket.flush();
@@ -199,7 +216,11 @@ class LanTransport implements TransportInterface {
       return true;
     } catch (e) {
       debugPrint('[LAN] Send to $peerUuid failed: $e');
+      // Remove stale entry — the next UDP announcement will re-add it.
+      _peerConns.remove(peerUuid);
       return false;
+    } finally {
+      try { await socket?.close(); } catch (_) {}
     }
   }
 
@@ -207,6 +228,7 @@ class LanTransport implements TransportInterface {
   Future<void> dispose() async {
     await stopAdvertising();
     await stopScanning();
+    _peerConns.clear();
     _packetController.close();
     _announcementController.close();
   }

@@ -47,6 +47,7 @@ class MainActivity : FlutterActivity() {
     private var bleAdvertiser: BluetoothLeAdvertiser? = null
     private var bleGattServer: BluetoothGattServer? = null
     private var bleAdvertising = false
+    private var bleChannel: MethodChannel? = null
 
     private lateinit var methodChannel: MethodChannel
     private lateinit var wifiP2pManager: WifiP2pManager
@@ -81,8 +82,8 @@ class MainActivity : FlutterActivity() {
         methodChannel.setMethodCallHandler(::handleMethodCall)
 
         // BLE advertiser channel
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BLE_CHANNEL)
-            .setMethodCallHandler(::handleBleMethodCall)
+        bleChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BLE_CHANNEL)
+        bleChannel!!.setMethodCallHandler(::handleBleMethodCall)
     }
 
     override fun onResume() {
@@ -147,6 +148,33 @@ class MainActivity : FlutterActivity() {
         bleGattServer = btManager.openGattServer(this, object : BluetoothGattServerCallback() {
             override fun onConnectionStateChange(device: android.bluetooth.BluetoothDevice, status: Int, newState: Int) {
                 Log.d(TAG, "BLE GATT connection: ${device.address} state=$newState")
+            }
+
+            override fun onCharacteristicWriteRequest(
+                device: android.bluetooth.BluetoothDevice,
+                requestId: Int,
+                characteristic: BluetoothGattCharacteristic,
+                preparedWrite: Boolean,
+                responseNeeded: Boolean,
+                offset: Int,
+                value: ByteArray?
+            ) {
+                if (responseNeeded) {
+                    bleGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                }
+                if (value != null && value.isNotEmpty()) {
+                    try {
+                        val chunk = String(value, Charsets.UTF_8)
+                        runOnUiThread {
+                            bleChannel?.invokeMethod("onBleChunkReceived", mapOf(
+                                "chunk" to chunk,
+                                "deviceAddress" to device.address
+                            ))
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "BLE GATT write parse error: $e")
+                    }
+                }
             }
         })
         bleGattServer?.addService(

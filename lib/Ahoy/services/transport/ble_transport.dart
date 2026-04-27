@@ -33,7 +33,9 @@ class BleTransport implements TransportInterface {
   final Map<String, DateTime> _chunkTimestamps = {};
   Timer? _chunkCleanupTimer;
 
-  // Connected devices for sending
+  // Devices seen in scan results — keyed by remoteId (BT MAC).
+  final Map<String, BluetoothDevice> _scannedDevices = {};
+  // Active GATT connections for sending — keyed by remoteId.
   final Map<String, BluetoothDevice> _connectedDevices = {};
 
   // Used to filter out our own device from BLE scan results.
@@ -48,6 +50,9 @@ class BleTransport implements TransportInterface {
     String? publicKeyPEM,
   }) async {
     _myUuid = uuid;
+    // Wire up the Kotlin→Dart callback for inbound GATT writes.
+    _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
+
     if (!Platform.isAndroid) return;
 
     // Payload goes in the BLE scan response alongside the service UUID.
@@ -71,6 +76,15 @@ class BleTransport implements TransportInterface {
     }
   }
 
+  Future<dynamic> _onBleMethodCall(MethodCall call) async {
+    if (call.method == 'onBleChunkReceived') {
+      final args = Map<String, dynamic>.from(call.arguments as Map);
+      final chunk = args['chunk'] as String? ?? '';
+      final deviceAddress = args['deviceAddress'] as String? ?? '';
+      if (chunk.isNotEmpty) _receiveChunk(chunk, deviceAddress);
+    }
+  }
+
   @override
   Future<void> stopAdvertising() async {
     if (!Platform.isAndroid) return;
@@ -84,25 +98,39 @@ class BleTransport implements TransportInterface {
   bool _scanning = false;
   Timer? _scanRestartTimer;
 
+  // Android allows at most 5 scan starts in 30 s.  We start conservatively at
+  // 8 s and double on each consecutive failure, so we never exceed the limit
+  // even during repeated registration errors.
+  int _backoffSeconds = 8;
+  static const int _backoffMax = 120;
+
+  // Set to true only after startScan() returns without throwing.
+  // The isScanning listener uses this to distinguish "scan ended naturally"
+  // (should restart) from "scan failed to start" (catch block already
+  // scheduled the restart — don't schedule a second one).
+  bool _lastStartSucceeded = false;
+
   @override
   Future<void> startScanning() async {
     _scanning = true;
     _scanSub ??= FlutterBluePlus.onScanResults.listen(_onScanResult);
     _chunkCleanupTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _evictStaleChunks());
-    // Restart the scan whenever Flutter Blue Plus reports it has stopped,
-    // so discovery stays live indefinitely (the SDK stops after its timeout).
     _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
-      if (!active && _scanning) _scheduleScanRestart();
+      // Only react to the scan stopping when the PREVIOUS start actually
+      // succeeded.  If it failed, the catch block in _restartScan() already
+      // scheduled a backoff retry — reacting here would create a second timer.
+      if (!active && _scanning && _lastStartSucceeded) {
+        _lastStartSucceeded = false;
+        _scheduleScanRestart();
+      }
     });
     await _restartScan();
   }
 
-  Future<void> _scheduleScanRestart() async {
-    // Cancel any pending restart
+  void _scheduleScanRestart() {
     _scanRestartTimer?.cancel();
-    // Wait 2 seconds before restarting to avoid Android's scan frequency limits
-    _scanRestartTimer = Timer(const Duration(seconds: 2), () async {
-      if (_scanning) await _restartScan();
+    _scanRestartTimer = Timer(Duration(seconds: _backoffSeconds), () {
+      if (_scanning) _restartScan();
     });
   }
 
@@ -111,9 +139,14 @@ class BleTransport implements TransportInterface {
       await FlutterBluePlus.startScan(
         withServices: [Guid(AhoyConstants.bleServiceUuid)],
       );
+      // Success — reset backoff so the next natural restart uses the minimum.
+      _lastStartSucceeded = true;
+      _backoffSeconds = 8;
+      debugPrint('[BLE] Scan started (backoff reset to ${_backoffSeconds}s)');
     } catch (e) {
-      debugPrint('[BLE] Scan failed: $e');
-      // If scan fails, schedule a restart with backoff
+      _lastStartSucceeded = false;
+      _backoffSeconds = (_backoffSeconds * 2).clamp(8, _backoffMax);
+      debugPrint('[BLE] Scan failed, retrying in ${_backoffSeconds}s: $e');
       if (_scanning) _scheduleScanRestart();
     }
   }
@@ -148,6 +181,8 @@ class BleTransport implements TransportInterface {
 
   void _onScanResult(List<ScanResult> results) {
     for (final result in results) {
+      // Cache the device so send() can connect to it later.
+      _scannedDevices[result.device.remoteId.str] = result.device;
       _parseAnnouncement(result);
     }
   }
@@ -183,9 +218,9 @@ class BleTransport implements TransportInterface {
 
   @override
   Future<bool> send(String peerUuid, String payload) async {
-    final device = _connectedDevices[peerUuid];
-    if (device == null) return false;
     try {
+      final device = await _getOrConnect(peerUuid);
+      if (device == null) return false;
       final services = await device.discoverServices();
       final service = services.firstWhere(
         (s) => s.uuid == Guid(AhoyConstants.bleServiceUuid),
@@ -199,7 +234,39 @@ class BleTransport implements TransportInterface {
       return true;
     } catch (e) {
       debugPrint('[BLE] Send failed: $e');
+      _connectedDevices.remove(peerUuid);
       return false;
+    }
+  }
+
+  Future<BluetoothDevice?> _getOrConnect(String peerUuid) async {
+    // Return cached connection if still connected.
+    final existing = _connectedDevices[peerUuid];
+    if (existing != null && existing.isConnected) return existing;
+
+    // Find device from scan cache or connected system devices.
+    BluetoothDevice? device = _scannedDevices[peerUuid];
+    device ??= FlutterBluePlus.connectedDevices
+        .where((d) => d.remoteId.str == peerUuid)
+        .firstOrNull;
+
+    if (device == null) {
+      debugPrint('[BLE] Device $peerUuid not in scan cache');
+      return null;
+    }
+
+    try {
+      await device.connect(timeout: const Duration(seconds: 10));
+      _connectedDevices[peerUuid] = device;
+      device.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _connectedDevices.remove(peerUuid);
+        }
+      });
+      return device;
+    } catch (e) {
+      debugPrint('[BLE] Connect to $peerUuid failed: $e');
+      return null;
     }
   }
 
@@ -224,7 +291,7 @@ class BleTransport implements TransportInterface {
     }
   }
 
-  void receiveChunk(String rawChunk, String peerUuid, String peerShortId, String peerName) {
+  void _receiveChunk(String rawChunk, String deviceAddress) {
     try {
       final json = jsonDecode(rawChunk) as Map<String, dynamic>;
       final msgId = json['m'] as String;
@@ -248,6 +315,18 @@ class BleTransport implements TransportInterface {
         _chunkTotal.remove(msgId);
         _chunkTimestamps.remove(msgId);
 
+        // Parse peer identity from the assembled payload so the packet
+        // carries the real Ahoy UUID rather than the BT MAC address.
+        String peerUuid = deviceAddress;
+        String peerShortId = '';
+        String peerName = 'Unknown';
+        try {
+          final pJson = jsonDecode(payload) as Map<String, dynamic>;
+          peerUuid = pJson['from'] as String? ?? deviceAddress;
+          peerShortId = pJson['fromShortId'] as String? ?? '';
+          peerName = pJson['fromName'] as String? ?? 'Unknown';
+        } catch (_) {}
+
         _packetController.add(InboundPacket(
           peerUuid: peerUuid,
           peerShortId: peerShortId,
@@ -263,11 +342,13 @@ class BleTransport implements TransportInterface {
 
   @override
   Future<void> dispose() async {
+    _advertiserChannel.setMethodCallHandler(null);
     await stopScanning();
     for (final d in _connectedDevices.values) {
       await d.disconnect();
     }
     _connectedDevices.clear();
+    _scannedDevices.clear();
     _chunkBuffer.clear();
     _chunkTotal.clear();
     _chunkTimestamps.clear();
