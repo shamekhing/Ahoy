@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_provider.dart';
@@ -76,9 +78,30 @@ class _RootScreenState extends State<RootScreen> {
     }
   }
 
+  /// Request all runtime permissions the transports need.
+  /// Silently continues if any are denied — each transport handles
+  /// its own failure gracefully.
+  Future<void> _requestPermissions() async {
+    if (!Platform.isAndroid) return;
+    await [
+      // Location — required for BLE scan on Android < 12 and
+      // for WiFi Direct on Android < 13.
+      Permission.locationWhenInUse,
+      // Android 12+ granular Bluetooth permissions.
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.bluetoothAdvertise,
+      // Android 13+ scoped WiFi permission for WiFi Direct / P2P.
+      Permission.nearbyWifiDevices,
+    ].request();
+  }
+
   Future<void> _startTransports(String myUuid) async {
     if (!mounted) return;
     try {
+      await _requestPermissions();
+      if (!mounted) return;
+
       final user = _auth.user!;
       final transport = context.read<TransportManager>();
       final discovery = context.read<DiscoveryProvider>();
@@ -104,7 +127,7 @@ class _RootScreenState extends State<RootScreen> {
 
       context.read<ChatProvider>().init(
         myUuid: user.id,
-        receiveOff: discovery.receiveOff,
+        receiveOff: () => context.read<DiscoveryProvider>().receiveOff,
         blockedUuids: discovery.blockedUuids,
       );
     } catch (e) {

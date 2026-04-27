@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/nearby_peer.dart';
 import '../services/discovery/discovery_service.dart';
 import '../services/transport_manager.dart';
+import '../services/transport/transport_interface.dart';
 import '../services/storage/prefs_store.dart';
 import '../core/constants.dart';
 
@@ -43,7 +44,7 @@ class DiscoveryProvider extends ChangeNotifier {
     _discovery.startCleanupTimer();
   }
 
-  void onAnnouncement(dynamic announcement) {
+  void onAnnouncement(PeerAnnouncement announcement) {
     _discovery.onAnnouncement(announcement, blockedUuids);
   }
 

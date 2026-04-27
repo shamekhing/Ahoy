@@ -94,9 +94,7 @@ class LanTransport implements TransportInterface {
   Future<void> _broadcast() async {
     if (!_advertising || _myUuid == null) return;
     try {
-      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-      socket.broadcastEnabled = true;
-      final payload = jsonEncode({
+      final data = utf8.encode(jsonEncode({
         'type': 'ahoy_announce',
         'uuid': _myUuid,
         'shortId': _myShortId,
@@ -104,10 +102,34 @@ class LanTransport implements TransportInterface {
         'statusMessage': _myStatusMessage,
         'publicKeyPEM': _myPublicKeyPEM,
         'port': AhoyConstants.lanMessagingPort,
-      });
-      final data = utf8.encode(payload);
-      socket.send(data, InternetAddress('255.255.255.255'), AhoyConstants.lanDiscoveryPort);
-      socket.close();
+      }));
+
+      // Collect broadcast targets: the limited broadcast + each interface's
+      // directed /24 subnet broadcast (more reliable when AP isolation is on).
+      final targets = <String>{'255.255.255.255'};
+      try {
+        final ifaces = await NetworkInterface.list(
+          includeLoopback: false,
+          type: InternetAddressType.IPv4,
+        );
+        for (final iface in ifaces) {
+          for (final addr in iface.addresses) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              targets.add('${parts[0]}.${parts[1]}.${parts[2]}.255');
+            }
+          }
+        }
+      } catch (_) {}
+
+      for (final target in targets) {
+        try {
+          final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+          socket.broadcastEnabled = true;
+          socket.send(data, InternetAddress(target), AhoyConstants.lanDiscoveryPort);
+          socket.close();
+        } catch (_) {}
+      }
     } catch (e) {
       debugPrint('[LAN] Broadcast failed: $e');
     }

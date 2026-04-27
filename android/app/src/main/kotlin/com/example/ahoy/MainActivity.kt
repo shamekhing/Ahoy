@@ -1,5 +1,16 @@
 package com.example.ahoy
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattServer
+import android.bluetooth.BluetoothGattServerCallback
+import android.bluetooth.BluetoothGattService
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.AdvertiseCallback
+import android.bluetooth.le.AdvertiseData
+import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,6 +19,7 @@ import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDeviceList
 import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
+import android.os.ParcelUuid
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -18,16 +30,23 @@ import java.io.DataOutputStream
 import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.UUID
 import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
 
     companion object {
-        private const val WD_CHANNEL = "wifi_direct"
-        private const val TAG = "WiFiDirect"
+        private const val WD_CHANNEL  = "wifi_direct"
+        private const val BLE_CHANNEL = "ble_advertiser"
+        private const val TAG = "Ahoy"
         private const val P2P_PORT = 8765
         private const val MAX_PAYLOAD = 10 * 1024 * 1024 // 10 MB guard
     }
+
+    // ── BLE advertiser state ──────────────────────────────────────────────────
+    private var bleAdvertiser: BluetoothLeAdvertiser? = null
+    private var bleGattServer: BluetoothGattServer? = null
+    private var bleAdvertising = false
 
     private lateinit var methodChannel: MethodChannel
     private lateinit var wifiP2pManager: WifiP2pManager
@@ -60,6 +79,10 @@ class MainActivity : FlutterActivity() {
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WD_CHANNEL)
         methodChannel.setMethodCallHandler(::handleMethodCall)
+
+        // BLE advertiser channel
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BLE_CHANNEL)
+            .setMethodCallHandler(::handleBleMethodCall)
     }
 
     override fun onResume() {
@@ -78,6 +101,105 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
         serverSocket?.close()
         serverSocket = null
+        stopBleAdvertising()
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // BLE advertising (peripheral / GATT server)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private fun handleBleMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "startAdvertising" -> {
+                val serviceUuid = call.argument<String>("serviceUuid") ?: run {
+                    result.error("INVALID_ARGS", "serviceUuid required", null); return
+                }
+                val payload = call.argument<ByteArray>("payload")
+                startBleAdvertising(serviceUuid, payload, result)
+            }
+            "stopAdvertising" -> {
+                stopBleAdvertising()
+                result.success(null)
+            }
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun startBleAdvertising(serviceUuid: String, payload: ByteArray?, result: MethodChannel.Result) {
+        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val btAdapter = btManager?.adapter
+        if (btAdapter == null || !btAdapter.isEnabled) {
+            result.error("BT_UNAVAILABLE", "Bluetooth adapter not available or off", null)
+            return
+        }
+
+        val advertiser = btAdapter.bluetoothLeAdvertiser
+        if (advertiser == null) {
+            result.error("BLE_NOT_SUPPORTED", "BLE advertising not supported on this device", null)
+            return
+        }
+
+        stopBleAdvertising() // stop any existing session first
+
+        val uuid = UUID.fromString(serviceUuid)
+
+        // Open a GATT server so the service is discoverable
+        bleGattServer = btManager.openGattServer(this, object : BluetoothGattServerCallback() {
+            override fun onConnectionStateChange(device: android.bluetooth.BluetoothDevice, status: Int, newState: Int) {
+                Log.d(TAG, "BLE GATT connection: ${device.address} state=$newState")
+            }
+        })
+        bleGattServer?.addService(
+            BluetoothGattService(uuid, BluetoothGattService.SERVICE_TYPE_PRIMARY).also { svc ->
+                svc.addCharacteristic(
+                    BluetoothGattCharacteristic(
+                        UUID.fromString("12345678-1234-1234-1234-123456789def"),
+                        BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_WRITE,
+                        BluetoothGattCharacteristic.PERMISSION_READ or BluetoothGattCharacteristic.PERMISSION_WRITE
+                    )
+                )
+            }
+        )
+
+        val settings = AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
+            .setConnectable(true)
+            .setTimeout(0)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .build()
+
+        val dataBuilder = AdvertiseData.Builder()
+            .addServiceUuid(ParcelUuid(uuid))
+            .setIncludeDeviceName(false)
+
+        if (payload != null && payload.size <= 20) {
+            dataBuilder.addServiceData(ParcelUuid(uuid), payload)
+        }
+
+        bleAdvertiser = advertiser
+        bleAdvertising = true
+
+        advertiser.startAdvertising(settings, dataBuilder.build(), object : AdvertiseCallback() {
+            override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+                Log.d(TAG, "BLE advertising started")
+                runOnUiThread { result.success(true) }
+            }
+            override fun onStartFailure(errorCode: Int) {
+                Log.e(TAG, "BLE advertising failed: errorCode=$errorCode")
+                bleAdvertising = false
+                runOnUiThread { result.error("ADV_FAILED", "errorCode=$errorCode", null) }
+            }
+        })
+    }
+
+    private fun stopBleAdvertising() {
+        if (bleAdvertising) {
+            bleAdvertiser?.stopAdvertising(object : AdvertiseCallback() {})
+            bleAdvertising = false
+        }
+        bleGattServer?.close()
+        bleGattServer = null
+        bleAdvertiser = null
     }
 
     // ──────────────────────────────────────────────────────────────────────────

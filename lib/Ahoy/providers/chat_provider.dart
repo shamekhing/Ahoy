@@ -27,7 +27,7 @@ class ChatProvider extends ChangeNotifier {
 
   void init({
     required String myUuid,
-    required bool receiveOff,
+    required bool Function() receiveOff,
     required Set<String> blockedUuids,
   }) {
     _conversations = _convStore.loadAll();
@@ -41,7 +41,7 @@ class ChatProvider extends ChangeNotifier {
         peerDisplayName: packet.peerDisplayName,
         myUuid: myUuid,
         transport: packet.transport,
-        receiveOff: receiveOff,
+        receiveOff: receiveOff(),
         blockedUuids: blockedUuids,
       );
       if (msg != null) {

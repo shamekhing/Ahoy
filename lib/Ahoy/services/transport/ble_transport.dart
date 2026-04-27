@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
@@ -8,6 +10,8 @@ import 'transport_interface.dart';
 
 /// BLE transport with sequenced chunking for out-of-order delivery.
 class BleTransport implements TransportInterface {
+  static const _advertiserChannel = MethodChannel('ble_advertiser');
+
   @override
   TransportMode get mode => TransportMode.ble;
 
@@ -20,6 +24,7 @@ class BleTransport implements TransportInterface {
   Stream<PeerAnnouncement> get announcementStream => _announcementController.stream;
 
   StreamSubscription? _scanSub;
+  StreamSubscription? _scanStateSub;
 
   // Chunk reassembly: msgId → { seqNo → base64Chunk }
   final Map<String, Map<int, String>> _chunkBuffer = {};
@@ -40,26 +45,57 @@ class BleTransport implements TransportInterface {
     String? publicKeyPEM,
   }) async {
     _myUuid = uuid;
-    // flutter_blue_plus does not expose an API to set advertisement payload
-    // from Dart on iOS/Android — the OS controls the BLE advertisement.
-    // shortId/displayName/statusMessage are not cached here; they are embedded
-    // in the BLE service-data payload by the platform layer at scan time.
-    debugPrint('[BLE] Advertising as $displayName ($shortId)');
+    if (!Platform.isAndroid) return;
+
+    // Build a compact identity payload that fits in 20 bytes of service data.
+    // Format: shortId (6 bytes ASCII) + null + displayName (truncated).
+    final nameBytes = displayName.codeUnits.take(13).toList();
+    final payload = Uint8List.fromList([
+      ...shortId.codeUnits.take(6),
+      0x00,
+      ...nameBytes,
+    ]);
+
+    try {
+      await _advertiserChannel.invokeMethod<bool>('startAdvertising', {
+        'serviceUuid': AhoyConstants.bleServiceUuid,
+        'payload': payload,
+      });
+      debugPrint('[BLE] Advertising started ($shortId)');
+    } catch (e) {
+      debugPrint('[BLE] startAdvertising failed: $e');
+    }
   }
 
   @override
   Future<void> stopAdvertising() async {
-    debugPrint('[BLE] Stopped advertising');
+    if (!Platform.isAndroid) return;
+    try {
+      await _advertiserChannel.invokeMethod('stopAdvertising');
+    } catch (e) {
+      debugPrint('[BLE] stopAdvertising failed: $e');
+    }
   }
+
+  bool _scanning = false;
 
   @override
   Future<void> startScanning() async {
+    _scanning = true;
+    _scanSub ??= FlutterBluePlus.onScanResults.listen(_onScanResult);
+    // Restart the scan whenever Flutter Blue Plus reports it has stopped,
+    // so discovery stays live indefinitely (the SDK stops after its timeout).
+    _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
+      if (!active && _scanning) _restartScan();
+    });
+    await _restartScan();
+  }
+
+  Future<void> _restartScan() async {
     try {
       await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 30),
         withServices: [Guid(AhoyConstants.bleServiceUuid)],
       );
-      _scanSub = FlutterBluePlus.onScanResults.listen(_onScanResult);
     } catch (e) {
       debugPrint('[BLE] Scan failed: $e');
     }
@@ -67,6 +103,9 @@ class BleTransport implements TransportInterface {
 
   @override
   Future<void> stopScanning() async {
+    _scanning = false;
+    await _scanStateSub?.cancel();
+    _scanStateSub = null;
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
     _scanSub = null;
@@ -84,14 +123,24 @@ class BleTransport implements TransportInterface {
       final serviceData = adData.serviceData;
       final bytes = serviceData[Guid(AhoyConstants.bleServiceUuid)];
       if (bytes == null || bytes.isEmpty) return;
-      final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-      final uuid = json['uuid'] as String?;
-      if (uuid == null || uuid == _myUuid) return;
+
+      // Compact format: shortId(6) + 0x00 + displayName
+      final nullIdx = bytes.indexOf(0x00);
+      if (nullIdx < 0) return;
+      final shortId = String.fromCharCodes(bytes.sublist(0, nullIdx));
+      final displayName = bytes.length > nullIdx + 1
+          ? String.fromCharCodes(bytes.sublist(nullIdx + 1))
+          : 'Unknown';
+
+      // Use the remote device address as a stable peer identifier when
+      // scanning — we learn the real UUID on first message exchange.
+      final deviceId = result.device.remoteId.str;
+      if (deviceId == _myUuid) return;
+
       _announcementController.add(PeerAnnouncement(
-        uuid: uuid,
-        shortId: json['shortId'] as String? ?? '',
-        displayName: json['displayName'] as String? ?? 'Unknown',
-        statusMessage: json['statusMessage'] as String?,
+        uuid: deviceId,
+        shortId: shortId,
+        displayName: displayName,
         transport: TransportMode.ble,
       ));
     } catch (_) {}
