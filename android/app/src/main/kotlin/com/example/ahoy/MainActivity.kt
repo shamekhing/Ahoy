@@ -168,18 +168,27 @@ class MainActivity : FlutterActivity() {
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
             .build()
 
-        val dataBuilder = AdvertiseData.Builder()
+        // Main advertisement packet: service UUID only (3 flags + 18 UUID = 21 bytes, fits in 31).
+        val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(uuid))
             .setIncludeDeviceName(false)
+            .build()
 
-        if (payload != null && payload.size <= 20) {
-            dataBuilder.addServiceData(ParcelUuid(uuid), payload)
-        }
+        // Scan response carries the identity payload (max 13 bytes with 128-bit UUID).
+        // Dart side already truncates to 13 bytes: shortId(6) + 0x00 + name(6).
+        val scanResponse = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
+            .also { b ->
+                if (payload != null && payload.size <= 13) {
+                    b.addServiceData(ParcelUuid(uuid), payload)
+                }
+            }
+            .build()
 
         bleAdvertiser = advertiser
         bleAdvertising = true
 
-        advertiser.startAdvertising(settings, dataBuilder.build(), object : AdvertiseCallback() {
+        val callback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
                 Log.d(TAG, "BLE advertising started")
                 runOnUiThread { result.success(true) }
@@ -189,7 +198,8 @@ class MainActivity : FlutterActivity() {
                 bleAdvertising = false
                 runOnUiThread { result.error("ADV_FAILED", "errorCode=$errorCode", null) }
             }
-        })
+        }
+        advertiser.startAdvertising(settings, advData, scanResponse, callback)
     }
 
     private fun stopBleAdvertising() {
