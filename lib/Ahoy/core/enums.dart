@@ -1,0 +1,9 @@
+enum TransportMode { wifiDirect, lan, ble, none }
+
+enum MessageType { text, image, voice }
+
+enum MessageStatus { sending, sent, failed }
+
+enum Gender { male, female, unspecified }
+
+enum PeerStatus { available, busy, offGrid }

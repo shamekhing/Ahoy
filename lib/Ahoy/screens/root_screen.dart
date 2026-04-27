@@ -1,0 +1,142 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/profile_provider.dart';
+import '../providers/chat_provider.dart';
+import '../providers/discovery_provider.dart';
+import '../services/transport_manager.dart';
+import 'auth/sign_in_screen.dart';
+import 'auth/sign_up_screen.dart';
+import 'main_shell.dart';
+
+class RootScreen extends StatefulWidget {
+  const RootScreen({super.key});
+
+  @override
+  State<RootScreen> createState() => _RootScreenState();
+}
+
+class _RootScreenState extends State<RootScreen> {
+  bool _checkingSession = true;
+  bool _showSignUp = false;
+  bool _transportsStarted = false;
+  bool _authInitialized = false;
+
+  late final AuthProvider _auth;
+  StreamSubscription? _announcementSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Attach listener after first frame so providers are in the tree.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _auth = context.read<AuthProvider>();
+      _authInitialized = true;
+      // Listener fires on every auth state change — the guard inside
+      // _maybeStartTransports() ensures it only runs once per session.
+      _auth.addListener(_maybeStartTransports);
+      _bootstrap();
+    });
+  }
+
+  @override
+  void dispose() {
+    if (_authInitialized) _auth.removeListener(_maybeStartTransports);
+    _announcementSub?.cancel();
+    super.dispose();
+  }
+
+  // Called whenever AuthProvider notifies — safe to call multiple times.
+  void _maybeStartTransports() {
+    if (!mounted) return;
+    if (_auth.isSignedIn && _auth.user != null && !_transportsStarted) {
+      // Load profile so ProfileProvider is populated for the main shell.
+      context.read<ProfileProvider>().setUser(_auth.user!);
+      _transportsStarted = true;
+      _startTransports(_auth.user!.id);
+    }
+  }
+
+  // Cold-start: check for an existing session stored from a previous run.
+  Future<void> _bootstrap() async {
+    try {
+      await _auth.checkSession();
+      if (!mounted) return;
+
+      if (_auth.isSignedIn && _auth.user == null) {
+        // Attempt biometric fast-path; falls through to password screen if denied.
+        await _auth.signInWithBiometric();
+      }
+      // _maybeStartTransports() will have fired via the listener if signIn succeeded.
+    } catch (e) {
+      debugPrint('[RootScreen] bootstrap error: $e');
+    } finally {
+      if (mounted) setState(() => _checkingSession = false);
+    }
+  }
+
+  Future<void> _startTransports(String myUuid) async {
+    if (!mounted) return;
+    try {
+      final user = _auth.user!;
+      final transport = context.read<TransportManager>();
+      final discovery = context.read<DiscoveryProvider>();
+
+      await transport.start(
+        uuid: user.id,
+        shortId: user.shortId,
+        displayName: user.username,
+        statusMessage: user.statusMessage,
+        publicKeyPEM: user.publicKeyPEM,
+        bleEnabled: discovery.bleEnabled,
+        lanEnabled: discovery.lanEnabled,
+        wifiDirectEnabled: discovery.wifiDirectEnabled,
+      );
+
+      if (!mounted) return;
+
+      _announcementSub = transport.announcementStream.listen((a) {
+        if (mounted) context.read<DiscoveryProvider>().onAnnouncement(a);
+      });
+
+      if (!mounted) return;
+
+      context.read<ChatProvider>().init(
+        myUuid: user.id,
+        receiveOff: discovery.receiveOff,
+        blockedUuids: discovery.blockedUuids,
+      );
+    } catch (e) {
+      debugPrint('[RootScreen] startTransports error: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checkingSession) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final auth = context.watch<AuthProvider>();
+
+    if (auth.isSignedIn && auth.user != null) {
+      return const MainShell();
+    }
+
+    if (_showSignUp) {
+      return SignUpScreen(
+        onSignIn: () => setState(() => _showSignUp = false),
+        // onSignedUp is a no-op here — the AuthProvider listener in initState
+        // handles transport start as soon as signUp() sets state to signedIn.
+        onSignedUp: () async {},
+      );
+    }
+
+    return SignInScreen(
+      onSignUp: () => setState(() => _showSignUp = true),
+      // Same: listener handles everything; callback kept for interface consistency.
+      onSignedIn: () async {},
+    );
+  }
+}
