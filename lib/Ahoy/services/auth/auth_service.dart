@@ -39,7 +39,7 @@ class AuthService {
     await _keyStore.save(keys['privateKey']!, keys['publicKey']!);
     await _keyStore.load(); // activates CryptoService
 
-    final hash = _cryptoService.hashPassword(password);
+    final hash = await _cryptoService.hashPassword(password);
     await _secureStore.write(AhoyConstants.keyUserId, id);
     await _secureStore.write(AhoyConstants.keyPasswordHash, hash);
 
@@ -62,7 +62,7 @@ class AuthService {
     final storedHash = await _secureStore.read(AhoyConstants.keyPasswordHash);
     if (storedHash == null) throw const AuthFailed('No account found on this device');
 
-    if (!_cryptoService.verifyPassword(password, storedHash)) {
+    if (!await _cryptoService.verifyPassword(password, storedHash)) {
       throw const AuthFailed('Incorrect password');
     }
 

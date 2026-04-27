@@ -9,7 +9,7 @@ import '../../models/nearby_peer.dart';
 import '../../models/message.dart';
 import '../../core/enums.dart';
 import '../../services/media/media_service.dart';
-import '../../widgets/common/transport_badge.dart';
+import '../../widgets/common/transport_badge.dart'; // TransportBadge + TransportBadges
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/message_input_bar.dart';
 import '../../widgets/chat/reply_preview.dart';
@@ -187,12 +187,19 @@ class _ChatScreenState extends State<ChatScreen> {
     final auth = context.read<AuthProvider>();
     final chat = context.watch<ChatProvider>();
     final transport = context.watch<TransportProvider>();
+    final discovery = context.watch<DiscoveryProvider>();
     final media = context.read<MediaService>();
 
     final myUuid = auth.user?.id ?? '';
     final messages = chat.messagesFor(_conv.id);
-    final mode = transport.modeFor(_conv.peerUuid);
     final canMedia = transport.canSendMedia(_conv.peerUuid);
+
+    // Use live discovery data if the peer is currently visible, so transport
+    // badges update in real-time as new transports are discovered.
+    final livePeer = discovery.peers.firstWhere(
+      (p) => p.uuid == _conv.peerUuid,
+      orElse: () => widget.peer,
+    );
 
     // Update conversation reference if provider has updated version
     final updated = chat.conversations.firstWhere(
@@ -207,7 +214,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(_conv.peerDisplayName),
-            TransportBadge(mode: mode),
+            TransportBadges(transports: livePeer.transports),
           ],
         ),
         actions: [

@@ -23,8 +23,13 @@ class TransportManager {
   bool _lanEnabled = true;
   bool _wifiDirectEnabled = true;
 
-  // Track which transports have seen each peer for live mode resolution
+  /// peerUuid → set of transports that have seen this peer.
   final Map<String, Set<TransportMode>> _peerTransports = {};
+
+  /// tempId → canonicalId alias table.
+  /// When a BT MAC or WFD address is resolved to a real Ahoy UUID, we record
+  /// the mapping here so sends and incoming packets are routed to the right peer.
+  final Map<String, String> _peerAliases = {};
 
   TransportManager()
       : _wifiDirect = WiFiDirectTransport(),
@@ -45,22 +50,20 @@ class TransportManager {
     _lanEnabled = lanEnabled;
     _wifiDirectEnabled = wifiDirectEnabled;
 
-    // Wire packet streams
     _subs.add(_wifiDirect.packetStream.listen(_onPacket));
     _subs.add(_lan.packetStream.listen(_onPacket));
     _subs.add(_ble.packetStream.listen(_onPacket));
 
-    // Wire announcement streams — tag with transport priority
     _subs.add(_wifiDirect.announcementStream.listen((a) {
-      _peerTransports.putIfAbsent(a.uuid, () => {}).add(TransportMode.wifiDirect);
+      _recordTransport(a.uuid, TransportMode.wifiDirect);
       _announcementController.add(a);
     }));
     _subs.add(_lan.announcementStream.listen((a) {
-      _peerTransports.putIfAbsent(a.uuid, () => {}).add(TransportMode.lan);
+      _recordTransport(a.uuid, TransportMode.lan);
       _announcementController.add(a);
     }));
     _subs.add(_ble.announcementStream.listen((a) {
-      _peerTransports.putIfAbsent(a.uuid, () => {}).add(TransportMode.ble);
+      _recordTransport(a.uuid, TransportMode.ble);
       _announcementController.add(a);
     }));
 
@@ -86,15 +89,18 @@ class TransportManager {
   }) async {
     if (_wifiDirectEnabled) {
       await _wifiDirect.startAdvertising(
-          uuid: uuid, shortId: shortId, displayName: displayName, statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
+          uuid: uuid, shortId: shortId, displayName: displayName,
+          statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
     }
     if (_lanEnabled) {
       await _lan.startAdvertising(
-          uuid: uuid, shortId: shortId, displayName: displayName, statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
+          uuid: uuid, shortId: shortId, displayName: displayName,
+          statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
     }
     if (_bleEnabled) {
       await _ble.startAdvertising(
-          uuid: uuid, shortId: shortId, displayName: displayName, statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
+          uuid: uuid, shortId: shortId, displayName: displayName,
+          statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
     }
   }
 
@@ -134,15 +140,50 @@ class TransportManager {
     }
   }
 
+  void _recordTransport(String uuid, TransportMode mode) {
+    _peerTransports.putIfAbsent(uuid, () => {}).add(mode);
+  }
+
   void _onPacket(InboundPacket packet) {
-    _peerTransports.putIfAbsent(packet.peerUuid, () => {}).add(packet.transport);
-    _packetController.add(packet);
+    // Resolve any alias so the packet carries the canonical peer UUID.
+    final canonical = _peerAliases[packet.peerUuid] ?? packet.peerUuid;
+    _recordTransport(canonical, packet.transport);
+    if (canonical == packet.peerUuid) {
+      _packetController.add(packet);
+    } else {
+      _packetController.add(InboundPacket(
+        peerUuid: canonical,
+        peerShortId: packet.peerShortId,
+        peerDisplayName: packet.peerDisplayName,
+        payload: packet.payload,
+        transport: packet.transport,
+      ));
+    }
+  }
+
+  /// Register that [tempId] (a BT/WFD MAC address) is the same physical device
+  /// as [canonicalId] (the real Ahoy UUID learned from a higher-fidelity transport).
+  /// Merges any accumulated transport info and routes all future traffic correctly.
+  void registerAlias({required String tempId, required String canonicalId}) {
+    if (tempId == canonicalId) return;
+    _peerAliases[tempId] = canonicalId;
+    final tempTransports = _peerTransports.remove(tempId);
+    if (tempTransports != null) {
+      _peerTransports.putIfAbsent(canonicalId, () => {}).addAll(tempTransports);
+    }
+  }
+
+  /// Remove a peer that has gone stale, freeing routing state.
+  void removePeer(String peerUuid) {
+    _peerTransports.remove(peerUuid);
+    // Remove reverse alias entries that pointed to this uuid.
+    _peerAliases.removeWhere((_, v) => v == peerUuid);
   }
 
   /// Returns the best currently available transport for a peer.
-  /// Computed live — never cached.
   TransportMode currentModeFor(String peerUuid) {
-    final modes = _peerTransports[peerUuid];
+    final canonical = _peerAliases[peerUuid] ?? peerUuid;
+    final modes = _peerTransports[canonical];
     if (modes == null || modes.isEmpty) return TransportMode.none;
     if (modes.contains(TransportMode.wifiDirect)) return TransportMode.wifiDirect;
     if (modes.contains(TransportMode.lan)) return TransportMode.lan;
@@ -151,16 +192,18 @@ class TransportManager {
   }
 
   /// Send payload to peer, selecting the best available transport.
-  Future<bool> send(String peerUuid, String fromUuid, String fromShortId, String fromName, Map<String, dynamic> data) async {
+  Future<bool> send(String peerUuid, String fromUuid, String fromShortId, String fromName,
+      Map<String, dynamic> data) async {
+    final canonical = _peerAliases[peerUuid] ?? peerUuid;
     final payload = jsonEncode({...data, 'from': fromUuid, 'fromShortId': fromShortId, 'fromName': fromName});
-    final mode = currentModeFor(peerUuid);
+    final mode = currentModeFor(canonical);
     switch (mode) {
       case TransportMode.wifiDirect:
-        return _wifiDirect.send(peerUuid, payload);
+        return _wifiDirect.send(canonical, payload);
       case TransportMode.lan:
-        return _lan.send(peerUuid, payload);
+        return _lan.send(canonical, payload);
       case TransportMode.ble:
-        return _ble.send(peerUuid, payload);
+        return _ble.send(canonical, payload);
       case TransportMode.none:
         return false;
     }
@@ -176,6 +219,7 @@ class TransportManager {
     }
     _subs.clear();
     _peerTransports.clear();
+    _peerAliases.clear();
   }
 
   Future<void> dispose() async {

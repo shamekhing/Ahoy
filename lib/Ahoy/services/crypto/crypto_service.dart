@@ -29,20 +29,47 @@ class CryptoService {
     if (!_isReady) throw const CryptoNotInitialized();
   }
 
-  // --- Password hashing (fast — stays on main thread) ---
+  // --- Password hashing ---
+  //
+  // New passwords use PBKDF2-HMAC-SHA256 (100 000 iterations) run in an
+  // isolate so the UI thread is never blocked.  Stored format:
+  //   "pbkdf2:<saltHex>:<dkHex>"
+  //
+  // Passwords hashed before this change used SHA-256 with a 16-byte salt:
+  //   "<saltHex>:<sha256Hex>"
+  // Those are still verified correctly so existing accounts keep working.
 
-  String hashPassword(String password) {
+  Future<String> hashPassword(String password) async {
     final salt = _randomBytes(16);
     final saltHex = _bytesToHex(salt);
-    final hash = sha256.convert(utf8.encode(saltHex + password));
-    return '$saltHex:${hash.toString()}';
+    final dkHex = await Isolate.run(() => _pbkdf2Hex(saltHex, password));
+    return 'pbkdf2:$saltHex:$dkHex';
   }
 
-  bool verifyPassword(String password, String storedHash) {
+  Future<bool> verifyPassword(String password, String storedHash) async {
+    if (storedHash.startsWith('pbkdf2:')) {
+      final parts = storedHash.split(':');
+      if (parts.length != 3) return false;
+      final saltHex = parts[1];
+      final expectedDkHex = parts[2];
+      final dkHex = await Isolate.run(() => _pbkdf2Hex(saltHex, password));
+      return _constantTimeEquals(dkHex, expectedDkHex);
+    }
+    // Legacy SHA-256 format — verify without blocking the UI (fast).
     final parts = storedHash.split(':');
     if (parts.length != 2) return false;
     final hash = sha256.convert(utf8.encode(parts[0] + password));
     return hash.toString() == parts[1];
+  }
+
+  /// Constant-time string comparison to prevent timing attacks.
+  bool _constantTimeEquals(String a, String b) {
+    if (a.length != b.length) return false;
+    var result = 0;
+    for (var i = 0; i < a.length; i++) {
+      result |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return result == 0;
   }
 
   // --- RSA key generation (runs in a separate isolate — never blocks UI) ---
@@ -119,6 +146,23 @@ class CryptoService {
       ..init(false, pc.PrivateKeyParameter<pc.RSAPrivateKey>(_privateKey!));
     return cipher.process(data);
   }
+}
+
+// ── PBKDF2 (top-level so it can run in an isolate) ────────────────────────
+
+/// Derives a 32-byte key from [password] and [saltHex] using PBKDF2-HMAC-SHA256
+/// with 100 000 iterations and returns the result as a lowercase hex string.
+String _pbkdf2Hex(String saltHex, String password) {
+  final saltBytes = Uint8List.fromList([
+    for (var i = 0; i < saltHex.length; i += 2)
+      int.parse(saltHex.substring(i, i + 2), radix: 16),
+  ]);
+  final passwordBytes = utf8.encode(password);
+
+  final params = pc.Pbkdf2Parameters(saltBytes, 100000, 32);
+  final kdf = pc.PBKDF2KeyDerivator(pc.HMac(pc.SHA256Digest(), 64))..init(params);
+  final dk = kdf.process(Uint8List.fromList(passwordBytes));
+  return dk.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
 // Top-level function — required for Isolate.run / compute.

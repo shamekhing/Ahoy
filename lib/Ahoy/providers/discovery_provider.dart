@@ -38,14 +38,19 @@ class DiscoveryProvider extends ChangeNotifier {
     _lanEnabled = _prefs.getBool(AhoyConstants.prefLanEnabled, defaultValue: true);
     _wifiDirectEnabled = _prefs.getBool(AhoyConstants.prefWifiDirectEnabled, defaultValue: true);
 
-    // Restore blocked UUIDs so blocks survive app restarts.
     _loadBlockedUuids();
 
     _sub = _discovery.peerStream.listen((peers) {
       _peers = peers;
       notifyListeners();
     });
-    _discovery.startCleanupTimer();
+
+    // When stale peers are cleaned up, remove their routing state from TransportManager.
+    _discovery.startCleanupTimer(onRemoved: (removed) {
+      for (final uuid in removed) {
+        _transport.removePeer(uuid);
+      }
+    });
   }
 
   void _loadBlockedUuids() {
@@ -63,7 +68,12 @@ class DiscoveryProvider extends ChangeNotifier {
   }
 
   void onAnnouncement(PeerAnnouncement announcement) {
-    _discovery.onAnnouncement(announcement, blockedUuids);
+    final alias = _discovery.onAnnouncement(announcement, blockedUuids);
+    if (alias != null) {
+      // A temporary identifier (BT/WFD MAC) was resolved to a canonical Ahoy UUID.
+      // Tell TransportManager so it routes sends/receives correctly.
+      _transport.registerAlias(tempId: alias.tempId, canonicalId: alias.canonicalId);
+    }
   }
 
   Future<void> setOffGrid(bool value) async {

@@ -32,7 +32,7 @@ class PeerCard extends StatelessWidget {
             if (peer.statusMessage != null && peer.statusMessage!.isNotEmpty)
               Text(peer.statusMessage!, style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 4),
-            TransportBadge(mode: peer.transport),
+            TransportBadges(transports: peer.transports),
           ],
         ),
         isThreeLine: peer.statusMessage != null && peer.statusMessage!.isNotEmpty,

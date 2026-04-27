@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/enums.dart';
 
+/// A single badge for one transport mode.
 class TransportBadge extends StatelessWidget {
   final TransportMode mode;
 
@@ -39,4 +40,25 @@ class TransportBadge extends StatelessWidget {
         TransportMode.ble => Colors.indigo.shade400,
         TransportMode.none => Colors.grey,
       };
+}
+
+/// Renders one [TransportBadge] per transport in [transports], ordered by
+/// priority (WiFiDirect → LAN → BLE). Use this wherever a peer may be
+/// reachable via multiple transports simultaneously.
+class TransportBadges extends StatelessWidget {
+  final Set<TransportMode> transports;
+
+  const TransportBadges({super.key, required this.transports});
+
+  @override
+  Widget build(BuildContext context) {
+    const order = [TransportMode.wifiDirect, TransportMode.lan, TransportMode.ble];
+    final visible = order.where((m) => transports.contains(m)).toList();
+    if (visible.isEmpty) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 4,
+      runSpacing: 2,
+      children: visible.map((m) => TransportBadge(mode: m)).toList(),
+    );
+  }
 }
