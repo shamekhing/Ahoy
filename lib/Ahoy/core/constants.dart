@@ -31,4 +31,8 @@ class AhoyConstants {
   static const int shortIdLength = 6;
   static const int maxStatusLength = 80;
   static const int maxBioLength = 200;
+  static const int peerStaleSeconds = 30;
+
+  // Blocked peers
+  static const String prefBlockedUuids = 'ahoy_blocked_uuids';
 }

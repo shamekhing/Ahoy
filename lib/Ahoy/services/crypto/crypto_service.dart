@@ -9,17 +9,20 @@ import '../../core/errors.dart';
 
 class CryptoService {
   bool _isReady = false;
+  pc.RSAPrivateKey? _privateKey;
 
   bool get isReady => _isReady;
 
   void activate(String privateKeyPEM, String publicKeyPEM) {
-    enc.RSAKeyParser().parse(privateKeyPEM) as pc.RSAPrivateKey;
+    _privateKey = enc.RSAKeyParser().parse(privateKeyPEM) as pc.RSAPrivateKey;
+    // Parse public key to validate it; it's re-parsed on demand from the PEM string.
     enc.RSAKeyParser().parse(publicKeyPEM) as pc.RSAPublicKey;
     _isReady = true;
   }
 
   void deactivate() {
     _isReady = false;
+    _privateKey = null;
   }
 
   void _assertReady() {
@@ -48,29 +51,39 @@ class CryptoService {
     return Isolate.run(_generateKeyPairInIsolate);
   }
 
-  // --- AES-GCM message encryption ---
+  // --- E2E hybrid encryption: RSA-OAEP wraps a per-message AES-256-GCM key ---
+  //
+  // Envelope (v=2): { v:2, ek:<RSA-OAEP(aesKey) in base64>, iv:<12 bytes in base64>, ct:<AES-GCM ciphertext in base64> }
+  // Whole envelope is base64(utf8(jsonEncode(envelope))).
+  //
+  // encryptForPeer requires the peer's public key.
+  // decryptFromPeer uses this device's loaded private key.
 
-  String encryptMessage(String plaintext) {
+  String encryptForPeer(String plaintext, String peerPublicKeyPEM) {
     _assertReady();
-    final key = enc.Key(_randomBytes(32));
+    final peerPublicKey = enc.RSAKeyParser().parse(peerPublicKeyPEM) as pc.RSAPublicKey;
+    final aesKey = _randomBytes(32);
     final iv = enc.IV(_randomBytes(12));
-    final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.gcm));
-    final encrypted = encrypter.encrypt(plaintext, iv: iv);
-    final envelope = {
-      'k': base64.encode(key.bytes),
+    final encrypter = enc.Encrypter(enc.AES(enc.Key(aesKey), mode: enc.AESMode.gcm));
+    final ct = encrypter.encrypt(plaintext, iv: iv);
+    final encryptedKey = _rsaOaepEncrypt(aesKey, peerPublicKey);
+    return base64.encode(utf8.encode(jsonEncode({
+      'v': 2,
+      'ek': base64.encode(encryptedKey),
       'iv': base64.encode(iv.bytes),
-      'ct': encrypted.base64,
-    };
-    return base64.encode(utf8.encode(jsonEncode(envelope)));
+      'ct': ct.base64,
+    })));
   }
 
-  String decryptMessage(String encryptedBase64) {
+  String decryptFromPeer(String encryptedBase64) {
     _assertReady();
     final envelope = jsonDecode(utf8.decode(base64.decode(encryptedBase64))) as Map;
-    final key = enc.Key(base64.decode(envelope['k'] as String));
+    if (envelope['v'] != 2) throw const CryptoNotInitialized();
+    final encryptedKey = base64.decode(envelope['ek'] as String);
+    final aesKey = _rsaOaepDecrypt(encryptedKey);
     final iv = enc.IV(base64.decode(envelope['iv'] as String));
     final ct = enc.Encrypted.fromBase64(envelope['ct'] as String);
-    final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.gcm));
+    final encrypter = enc.Encrypter(enc.AES(enc.Key(aesKey), mode: enc.AESMode.gcm));
     return encrypter.decrypt(ct, iv: iv);
   }
 
@@ -94,6 +107,18 @@ class CryptoService {
 
   String _bytesToHex(Uint8List bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+  Uint8List _rsaOaepEncrypt(Uint8List data, pc.RSAPublicKey publicKey) {
+    final cipher = pc.OAEPEncoding(pc.RSAEngine())
+      ..init(true, pc.PublicKeyParameter<pc.RSAPublicKey>(publicKey));
+    return cipher.process(data);
+  }
+
+  Uint8List _rsaOaepDecrypt(Uint8List data) {
+    final cipher = pc.OAEPEncoding(pc.RSAEngine())
+      ..init(false, pc.PrivateKeyParameter<pc.RSAPrivateKey>(_privateKey!));
+    return cipher.process(data);
+  }
 }
 
 // Top-level function — required for Isolate.run / compute.
@@ -120,8 +145,6 @@ Map<String, String> _generateKeyPairInIsolate() {
 
 // ── DER helpers (no pointycastle ASN1 API — avoids RangeError in v3.x) ────
 
-/// Convert a non-negative BigInt to its minimal big-endian unsigned byte array,
-/// prefixed with 0x00 when the high bit is set (DER INTEGER sign convention).
 Uint8List _bigIntToDerBytes(BigInt v) {
   if (v == BigInt.zero) return Uint8List.fromList([0x00]);
   final hex = v.toRadixString(16);
@@ -158,14 +181,11 @@ String _wrapPem(String b64) {
   return sb.toString().trimRight();
 }
 
-// PKCS#1 RSAPublicKey  →  "-----BEGIN RSA PUBLIC KEY-----"
-// (encrypt's RSAKeyParser recognises this header + PKCS#1 content)
 String _encodePublicKey(pc.RSAPublicKey key) {
   final der = _derSeq([_derInt(key.modulus!), _derInt(key.publicExponent!)]);
   return '-----BEGIN RSA PUBLIC KEY-----\n${_wrapPem(base64.encode(der))}\n-----END RSA PUBLIC KEY-----';
 }
 
-// PKCS#1 RSAPrivateKey  →  "-----BEGIN RSA PRIVATE KEY-----"
 String _encodePrivateKey(pc.RSAPrivateKey key) {
   final d = key.privateExponent!;
   final p = key.p!;

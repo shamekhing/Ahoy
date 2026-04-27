@@ -67,7 +67,7 @@ class _AhoyAppState extends State<AhoyApp> {
 
       _convStore = ConversationStore(_prefsStore);
       _msgStore = MessageStore(_prefsStore);
-      _chatService = ChatService(_transportManager, _convStore, _msgStore);
+      _chatService = ChatService(_transportManager, _convStore, _msgStore, _cryptoService);
 
       _mediaService = MediaService();
 

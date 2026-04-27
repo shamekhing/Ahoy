@@ -29,6 +29,9 @@ class BleTransport implements TransportInterface {
   // Chunk reassembly: msgId → { seqNo → base64Chunk }
   final Map<String, Map<int, String>> _chunkBuffer = {};
   final Map<String, int> _chunkTotal = {};
+  // Timestamp of last chunk received per msgId — used to evict stale assemblies.
+  final Map<String, DateTime> _chunkTimestamps = {};
+  Timer? _chunkCleanupTimer;
 
   // Connected devices for sending
   final Map<String, BluetoothDevice> _connectedDevices = {};
@@ -85,6 +88,7 @@ class BleTransport implements TransportInterface {
   Future<void> startScanning() async {
     _scanning = true;
     _scanSub ??= FlutterBluePlus.onScanResults.listen(_onScanResult);
+    _chunkCleanupTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _evictStaleChunks());
     // Restart the scan whenever Flutter Blue Plus reports it has stopped,
     // so discovery stays live indefinitely (the SDK stops after its timeout).
     _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
@@ -119,11 +123,27 @@ class BleTransport implements TransportInterface {
     _scanning = false;
     _scanRestartTimer?.cancel();
     _scanRestartTimer = null;
+    _chunkCleanupTimer?.cancel();
+    _chunkCleanupTimer = null;
     await _scanStateSub?.cancel();
     _scanStateSub = null;
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
     _scanSub = null;
+  }
+
+  void _evictStaleChunks() {
+    final cutoff = DateTime.now().subtract(const Duration(seconds: 60));
+    final stale = _chunkTimestamps.entries
+        .where((e) => e.value.isBefore(cutoff))
+        .map((e) => e.key)
+        .toList();
+    for (final id in stale) {
+      _chunkBuffer.remove(id);
+      _chunkTotal.remove(id);
+      _chunkTimestamps.remove(id);
+    }
+    if (stale.isNotEmpty) debugPrint('[BLE] Evicted ${stale.length} stale chunk assemblies');
   }
 
   void _onScanResult(List<ScanResult> results) {
@@ -215,6 +235,7 @@ class BleTransport implements TransportInterface {
       _chunkBuffer.putIfAbsent(msgId, () => {});
       _chunkTotal[msgId] = total;
       _chunkBuffer[msgId]![seq] = data;
+      _chunkTimestamps[msgId] = DateTime.now();
 
       if (_chunkBuffer[msgId]!.length == total) {
         final sortedKeys = _chunkBuffer[msgId]!.keys.toList()..sort();
@@ -225,6 +246,7 @@ class BleTransport implements TransportInterface {
         final payload = utf8.decode(allBytes);
         _chunkBuffer.remove(msgId);
         _chunkTotal.remove(msgId);
+        _chunkTimestamps.remove(msgId);
 
         _packetController.add(InboundPacket(
           peerUuid: peerUuid,
@@ -248,6 +270,7 @@ class BleTransport implements TransportInterface {
     _connectedDevices.clear();
     _chunkBuffer.clear();
     _chunkTotal.clear();
+    _chunkTimestamps.clear();
     _packetController.close();
     _announcementController.close();
   }

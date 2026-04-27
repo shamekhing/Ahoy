@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/nearby_peer.dart';
 import '../services/discovery/discovery_service.dart';
@@ -37,11 +38,28 @@ class DiscoveryProvider extends ChangeNotifier {
     _lanEnabled = _prefs.getBool(AhoyConstants.prefLanEnabled, defaultValue: true);
     _wifiDirectEnabled = _prefs.getBool(AhoyConstants.prefWifiDirectEnabled, defaultValue: true);
 
+    // Restore blocked UUIDs so blocks survive app restarts.
+    _loadBlockedUuids();
+
     _sub = _discovery.peerStream.listen((peers) {
       _peers = peers;
       notifyListeners();
     });
     _discovery.startCleanupTimer();
+  }
+
+  void _loadBlockedUuids() {
+    try {
+      final raw = _prefs.getString(AhoyConstants.prefBlockedUuids);
+      if (raw != null) {
+        final list = jsonDecode(raw) as List;
+        blockedUuids.addAll(list.cast<String>());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveBlockedUuids() async {
+    await _prefs.setString(AhoyConstants.prefBlockedUuids, jsonEncode(blockedUuids.toList()));
   }
 
   void onAnnouncement(PeerAnnouncement announcement) {
@@ -87,12 +105,14 @@ class DiscoveryProvider extends ChangeNotifier {
   void blockPeer(String uuid) {
     blockedUuids.add(uuid);
     _discovery.updateBlockedStatus(uuid, true);
+    _saveBlockedUuids();
     notifyListeners();
   }
 
   void unblockPeer(String uuid) {
     blockedUuids.remove(uuid);
     _discovery.updateBlockedStatus(uuid, false);
+    _saveBlockedUuids();
     notifyListeners();
   }
 

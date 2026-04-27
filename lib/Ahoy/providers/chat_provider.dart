@@ -66,6 +66,7 @@ class ChatProvider extends ChangeNotifier {
     required String peerUuid,
     required MessageType type,
     required String content,
+    String? peerPublicKeyPEM,
     String? replyToId,
     String? replyToPreview,
   }) async {
@@ -78,6 +79,7 @@ class ChatProvider extends ChangeNotifier {
         peerUuid: peerUuid,
         type: type,
         content: content,
+        peerPublicKeyPEM: peerPublicKeyPEM,
         replyToId: replyToId,
         replyToPreview: replyToPreview,
       );

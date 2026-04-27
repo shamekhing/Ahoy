@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/enums.dart';
 import '../../core/errors.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
+import '../crypto/crypto_service.dart';
 import '../transport_manager.dart';
 import 'conversation_store.dart';
 import 'message_store.dart';
@@ -13,8 +16,9 @@ class ChatService {
   final TransportManager _transport;
   final ConversationStore _convStore;
   final MessageStore _msgStore;
+  final CryptoService _crypto;
 
-  ChatService(this._transport, this._convStore, this._msgStore);
+  ChatService(this._transport, this._convStore, this._msgStore, this._crypto);
 
   /// Send a message to a peer. Throws [TransportError] for media over BLE.
   Future<Message> sendMessage({
@@ -24,12 +28,12 @@ class ChatService {
     required String peerUuid,
     required MessageType type,
     required String content,
+    String? peerPublicKeyPEM,
     String? replyToId,
     String? replyToPreview,
   }) async {
     final mode = _transport.currentModeFor(peerUuid);
 
-    // Media guard: images and voice only over LAN or WiFi Direct
     if (type == MessageType.image || type == MessageType.voice) {
       if (mode == TransportMode.ble || mode == TransportMode.none) {
         throw TransportError('Media messages require LAN or WiFi Direct connection');
@@ -54,15 +58,13 @@ class ChatService {
       status: MessageStatus.sending,
       transport: mode,
       timestamp: DateTime.now(),
+      isEncrypted: peerPublicKeyPEM != null && _crypto.isReady,
     );
 
     await _msgStore.addMessage(message);
-
-    // Update conversation preview
     await _updateConversationOnSend(convId, peerUuid, message);
 
-    // Send over transport
-    final payload = _buildPayload(message, myShortId, myDisplayName, type, content);
+    final payload = _buildPayload(message, myShortId, myDisplayName, type, content, peerPublicKeyPEM);
     final sent = await _transport.send(peerUuid, myUuid, myShortId, myDisplayName, payload);
 
     final finalStatus = sent ? MessageStatus.sent : MessageStatus.failed;
@@ -77,13 +79,33 @@ class ChatService {
     String myDisplayName,
     MessageType type,
     String content,
+    String? peerPublicKeyPEM,
   ) {
+    String wireContent;
+    bool encrypted = false;
+
+    if (type == MessageType.text) {
+      wireContent = content;
+    } else {
+      wireContent = _encodeMediaContent(content);
+    }
+
+    if (peerPublicKeyPEM != null && _crypto.isReady) {
+      try {
+        wireContent = _crypto.encryptForPeer(wireContent, peerPublicKeyPEM);
+        encrypted = true;
+      } catch (e) {
+        debugPrint('[ChatService] Encryption failed, sending plaintext: $e');
+      }
+    }
+
     return {
       'msgType': 'chat',
       'msgId': msg.id,
       'convId': msg.conversationId,
       'type': type.name,
-      'content': type == MessageType.text ? content : _encodeMediaContent(content),
+      'content': wireContent,
+      'isEncrypted': encrypted,
       'replyToId': msg.replyToId,
       'replyToPreview': msg.replyToPreview,
       'timestamp': msg.timestamp.toIso8601String(),
@@ -94,8 +116,7 @@ class ChatService {
     try {
       final file = File(filePath);
       if (!file.existsSync()) return '';
-      final bytes = file.readAsBytesSync();
-      return base64.encode(bytes);
+      return base64.encode(file.readAsBytesSync());
     } catch (_) {
       return '';
     }
@@ -122,9 +143,18 @@ class ChatService {
       if (isNewConversation && receiveOff) return null;
 
       final type = MessageType.values.byName(json['type'] as String? ?? 'text');
+      final isEncrypted = json['isEncrypted'] as bool? ?? false;
       String content = json['content'] as String? ?? '';
 
-      // Decode media content to local file if needed
+      if (isEncrypted && _crypto.isReady) {
+        try {
+          content = _crypto.decryptFromPeer(content);
+        } catch (e) {
+          debugPrint('[ChatService] Decryption failed, dropping message: $e');
+          return null;
+        }
+      }
+
       if (type == MessageType.image || type == MessageType.voice) {
         content = await _saveMediaToFile(content, json['msgId'] as String, type);
       }
@@ -140,6 +170,7 @@ class ChatService {
         status: MessageStatus.sent,
         transport: transport,
         timestamp: DateTime.parse(json['timestamp'] as String),
+        isEncrypted: isEncrypted,
       );
 
       await _msgStore.addMessage(message);
@@ -153,7 +184,9 @@ class ChatService {
   Future<String> _saveMediaToFile(String base64Content, String msgId, MessageType type) async {
     try {
       final bytes = base64.decode(base64Content);
-      final dir = Directory.systemTemp;
+      // Use app-private documents directory so the OS doesn't evict the files
+      // and other apps cannot read them without permission.
+      final dir = await getApplicationDocumentsDirectory();
       final ext = type == MessageType.image ? 'jpg' : 'aac';
       final file = File('${dir.path}/ahoy_media_$msgId.$ext');
       await file.writeAsBytes(bytes);

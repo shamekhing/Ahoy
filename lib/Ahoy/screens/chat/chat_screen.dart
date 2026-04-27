@@ -66,6 +66,7 @@ class _ChatScreenState extends State<ChatScreen> {
       peerUuid: _conv.peerUuid,
       type: MessageType.text,
       content: text,
+      peerPublicKeyPEM: widget.peer.publicKeyPEM,
       replyToId: _replyTo?.id,
       replyToPreview: _replyTo == null
           ? null
@@ -85,6 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
       peerUuid: _conv.peerUuid,
       type: MessageType.image,
       content: path,
+      peerPublicKeyPEM: widget.peer.publicKeyPEM,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
@@ -104,6 +106,7 @@ class _ChatScreenState extends State<ChatScreen> {
           peerUuid: _conv.peerUuid,
           type: MessageType.voice,
           content: path,
+          peerPublicKeyPEM: widget.peer.publicKeyPEM,
         );
       }
     } else {

@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../core/enums.dart';
 import '../../core/constants.dart';
+import '../../services/transport_manager.dart';
 import '../../widgets/common/peer_avatar.dart';
 
 class MyProfileScreen extends StatelessWidget {
@@ -168,13 +169,32 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
 
   Future<void> _save() async {
     setState(() => _loading = true);
-    await context.read<ProfileProvider>().update(
+    final profile = context.read<ProfileProvider>();
+    await profile.update(
       username: _usernameCtrl.text.trim(),
       bio: _bioCtrl.text.trim().isEmpty ? null : _bioCtrl.text.trim(),
       gender: _gender,
       interests: _interests,
       statusMessage: _statusCtrl.text.trim().isEmpty ? null : _statusCtrl.text.trim(),
     );
+    if (!mounted) return;
+
+    final user = profile.user;
+    if (user != null) {
+      // Keep AuthProvider in sync so outgoing messages use the new display name.
+      context.read<AuthProvider>().updateUser(user);
+      // Re-advertise so nearby peers see the updated name and status immediately.
+      try {
+        await context.read<TransportManager>().startAdvertising(
+          uuid: user.id,
+          shortId: user.shortId,
+          displayName: user.username,
+          statusMessage: user.statusMessage,
+          publicKeyPEM: user.publicKeyPEM,
+        );
+      } catch (_) {}
+    }
+
     if (mounted) {
       setState(() => _loading = false);
       Navigator.pop(context);
