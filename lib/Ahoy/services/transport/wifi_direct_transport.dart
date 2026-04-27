@@ -34,6 +34,11 @@ class WiFiDirectTransport implements TransportInterface {
   bool _initialized = false;
   bool _isGroupOwner = false;
   String? _groupOwnerAddress;
+  Timer? _discoveryTimer;
+
+  // Addresses for which a connect() call is already in flight or succeeded.
+  // Prevents duplicate connect() calls from repeated onPeersDiscovered events.
+  final _connectingAddresses = <String>{};
 
   // Our own identity, cached for broadcasting after connection
   String? _myUuid;
@@ -73,8 +78,20 @@ class WiFiDirectTransport implements TransportInterface {
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('disconnect');
+      // Reset connection state
+      _isGroupOwner = false;
+      _groupOwnerAddress = null;
+      _connectingAddresses.clear();
+      _addressToUuid.clear();
+      _uuidToAddress.clear();
     } catch (e) {
       debugPrint('[WiFiDirect] disconnect failed: $e');
+      // Even if disconnect fails, reset state
+      _isGroupOwner = false;
+      _groupOwnerAddress = null;
+      _connectingAddresses.clear();
+      _addressToUuid.clear();
+      _uuidToAddress.clear();
     }
   }
 
@@ -82,9 +99,16 @@ class WiFiDirectTransport implements TransportInterface {
   Future<void> startScanning() async {
     if (!Platform.isAndroid) return;
 
-    // Register handler for Kotlin → Dart callbacks.
     _channel.setMethodCallHandler(_onKotlinCall);
 
+    await _runDiscoverPeers();
+
+    // Android's WiFi Direct discovery times out in ~2 minutes. Restart it
+    // periodically so devices that appear later are still found.
+    _discoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) => _runDiscoverPeers());
+  }
+
+  Future<void> _runDiscoverPeers() async {
     try {
       await _channel.invokeMethod('discoverPeers');
     } catch (e) {
@@ -95,12 +119,11 @@ class WiFiDirectTransport implements TransportInterface {
   @override
   Future<void> stopScanning() async {
     if (!Platform.isAndroid) return;
+    _discoveryTimer?.cancel();
+    _discoveryTimer = null;
     _channel.setMethodCallHandler(null);
-    try {
-      await _channel.invokeMethod('disconnect');
-    } catch (e) {
-      debugPrint('[WiFiDirect] stopScanning/disconnect failed: $e');
-    }
+    // Don't call disconnect here as it might cause issues when just stopping scanning
+    // The disconnect should only be called when completely stopping WiFi Direct
   }
 
   // Receives method calls that Kotlin initiates on us (Kotlin → Dart direction).
@@ -117,10 +140,13 @@ class WiFiDirectTransport implements TransportInterface {
         break;
       case 'onConnectionFailed':
         debugPrint('[WiFiDirect] Connection failed: ${call.arguments}');
+        // Release the lock so the next discoverPeers cycle can retry.
+        _connectingAddresses.clear();
         break;
       case 'onDisconnected':
         _isGroupOwner = false;
         _groupOwnerAddress = null;
+        _connectingAddresses.clear();
         debugPrint('[WiFiDirect] Disconnected');
         break;
     }
@@ -135,10 +161,23 @@ class WiFiDirectTransport implements TransportInterface {
         final name = p['deviceName'] as String? ?? 'Unknown';
         final address = p['deviceAddress'] as String? ?? '';
         debugPrint('[WiFiDirect] Peer found: $name @ $address');
-        // We don't emit a PeerAnnouncement yet — we don't have an Ahoy UUID.
-        // Identity is exchanged on the first data packet (see _handleDataReceived).
-        // Auto-connect to newly found peers if not already connected.
+
+        // Emit a preliminary announcement for discovered peers
+        // We'll update it with real identity when TCP connection is established
         if (address.isNotEmpty && !_uuidToAddress.containsValue(address)) {
+          _announcementController.add(PeerAnnouncement(
+            uuid: address, // Use address as temporary UUID until real UUID is known
+            shortId: '',
+            displayName: name,
+            transport: TransportMode.wifiDirect,
+          ));
+        }
+
+        // Auto-connect to newly found peers if not already connected.
+        if (address.isNotEmpty &&
+            !_uuidToAddress.containsValue(address) &&
+            !_connectingAddresses.contains(address)) {
+          _connectingAddresses.add(address);
           _tryConnect(address);
         }
       }
@@ -153,11 +192,12 @@ class WiFiDirectTransport implements TransportInterface {
       final args = Map<String, dynamic>.from(raw as Map);
       _isGroupOwner = args['isGroupOwner'] as bool? ?? false;
       final addr = args['address'] as String? ?? '';
-      // Group owner: addr is empty → null, so cmdSendData broadcasts to all clients.
-      // Client: addr is the group owner's IP used for outbound routing.
       _groupOwnerAddress = addr.isEmpty ? null : addr;
       debugPrint('[WiFiDirect] Connected. GroupOwner=$_isGroupOwner addr=$_groupOwnerAddress');
-      _sendIdentity();
+      // Group owner waits: connectedClients is empty until the client sends its first
+      // TCP packet. The GO replies with its identity when it receives the client's
+      // wdIdentity (see _handleDataReceived). Clients send proactively.
+      if (!_isGroupOwner) _sendIdentity();
     } catch (e) {
       debugPrint('[WiFiDirect] onConnectionEstablished parse error: $e');
     }
@@ -202,6 +242,11 @@ class WiFiDirectTransport implements TransportInterface {
             statusMessage: json['statusMessage'] as String?,
             transport: TransportMode.wifiDirect,
           ));
+          // Group owner replies with its own identity so the client learns the GO's UUID.
+          // The client connected first, so connectedClients now has the client's IP.
+          if (_isGroupOwner && routeIP != null && routeIP.isNotEmpty) {
+            _sendIdentityTo(routeIP);
+          }
         }
       } else {
         final fromUuid = json['from'] as String? ?? '';
@@ -239,6 +284,13 @@ class WiFiDirectTransport implements TransportInterface {
 
   void _sendIdentity() {
     if (_myUuid == null) return;
+    // Client sends to group owner's IP; group owner passes null so Kotlin
+    // broadcasts to all connectedClients.
+    _sendIdentityTo(_groupOwnerAddress);
+  }
+
+  void _sendIdentityTo(String? recipientIP) {
+    if (_myUuid == null) return;
     final packet = jsonEncode({
       'type': 'wdIdentity',
       'uuid': _myUuid,
@@ -246,9 +298,7 @@ class WiFiDirectTransport implements TransportInterface {
       'displayName': _myDisplayName ?? 'Unknown',
       'statusMessage': _myStatusMessage,
     });
-    // Client sends to group owner's IP; group owner passes null so Kotlin
-    // broadcasts to all connectedClients.
-    _sendBytes(utf8.encode(packet), _groupOwnerAddress);
+    _sendBytes(utf8.encode(packet), recipientIP);
   }
 
   @override
