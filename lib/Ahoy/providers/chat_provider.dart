@@ -23,6 +23,8 @@ class ChatProvider extends ChangeNotifier {
   List<Conversation> get conversations => _conversations;
   String? get error => _error;
 
+  int get totalUnreadCount => _conversations.fold(0, (sum, conv) => sum + conv.unreadCount);
+
   ChatProvider(this._chatService, this._convStore, this._msgStore, this._transport);
 
   void init({

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/chat_provider.dart';
 import 'discover/discover_screen.dart';
 import 'chat/conversations_screen.dart';
 import 'profile/my_profile_screen.dart';
@@ -23,16 +25,27 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final chatProvider = context.watch<ChatProvider>();
+    final hasUnread = chatProvider.totalUnreadCount > 0;
+
     return Scaffold(
       body: IndexedStack(index: _index, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.radar), label: 'Discover'),
-          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Chats'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.radar), label: 'Discover'),
+          NavigationDestination(
+            icon: hasUnread
+                ? Badge(
+                    label: Text(chatProvider.totalUnreadCount.toString()),
+                    child: const Icon(Icons.chat_bubble_outline),
+                  )
+                : const Icon(Icons.chat_bubble_outline),
+            label: 'Chats',
+          ),
+          const NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
+          const NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
       ),
     );

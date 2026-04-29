@@ -126,6 +126,20 @@ class DiscoveryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshPeers() async {
+    // Snapshot flags before toggling — use the provider's own setters so
+    // _bleEnabled/_lanEnabled/_wifiDirectEnabled and prefs stay consistent.
+    final ble = _bleEnabled;
+    final lan = _lanEnabled;
+    final wd = _wifiDirectEnabled;
+    if (ble) await setBleEnabled(false);
+    if (lan) await setLanEnabled(false);
+    if (wd) await setWifiDirectEnabled(false);
+    if (ble) await setBleEnabled(true);
+    if (lan) await setLanEnabled(true);
+    if (wd) await setWifiDirectEnabled(true);
+  }
+
   @override
   void dispose() {
     _sub?.cancel();

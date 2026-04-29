@@ -7,7 +7,6 @@ import '../../models/nearby_peer.dart';
 import '../../models/conversation.dart';
 import '../../services/chat/message_store.dart';
 import '../../widgets/discover/peer_card.dart';
-import '../../widgets/discover/discovery_controls.dart';
 import '../chat/chat_screen.dart';
 import '../profile/peer_profile_screen.dart';
 
@@ -47,26 +46,28 @@ class DiscoverScreen extends StatelessWidget {
               color: Colors.orange.shade700,
             ),
           Expanded(
-            child: peers.isEmpty
-                ? _EmptyState(offGrid: discovery.offGrid)
-                : ListView.builder(
-                    itemCount: peers.length,
-                    itemBuilder: (ctx, i) => PeerCard(
-                      peer: peers[i],
-                      onConnect: () => _openChat(ctx, peers[i]),
-                      onViewProfile: () => _viewProfile(ctx, peers[i]),
+            child: RefreshIndicator(
+              onRefresh: () => context.read<DiscoveryProvider>().refreshPeers(),
+              child: peers.isEmpty
+                  ? SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.6,
+                        child: _EmptyState(offGrid: discovery.offGrid),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: peers.length,
+                      itemBuilder: (ctx, i) => PeerCard(
+                        peer: peers[i],
+                        onConnect: () => _openChat(ctx, peers[i]),
+                        onViewProfile: () => _viewProfile(ctx, peers[i]),
+                      ),
                     ),
-                  ),
+            ),
           ),
         ],
       ),
-    );
-  }
-
-  void _showControls(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => const DiscoveryControls(),
     );
   }
 
