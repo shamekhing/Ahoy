@@ -22,7 +22,7 @@ class DiscoverScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Discover'),
-        actions: [
+        /*actions: [
           Builder(
             builder: (ctx) => IconButton(
               icon: const Icon(Icons.tune),
@@ -30,7 +30,7 @@ class DiscoverScreen extends StatelessWidget {
               onPressed: () => _showControls(ctx),
             ),
           ),
-        ],
+        ],*/
       ),
       body: Column(
         children: [
