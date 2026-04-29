@@ -274,7 +274,7 @@ class MainActivity : FlutterActivity() {
                         val client = serverSocket!!.accept()
                         thread(name = "wd-client") { handleIncomingConnection(client) }
                     } catch (e: IOException) {
-                        if (!serverSocket!!.isClosed) Log.e(TAG, "accept() error: $e")
+                        if (serverSocket?.isClosed == false) Log.e(TAG, "accept() error: $e")
                     }
                 }
             } catch (e: IOException) {

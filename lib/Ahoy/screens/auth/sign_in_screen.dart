@@ -23,7 +23,7 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   void initState() {
     super.initState();
-    _tryBiometric();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
   }
 
   Future<void> _tryBiometric() async {

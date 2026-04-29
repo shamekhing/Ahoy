@@ -78,20 +78,20 @@ class WiFiDirectTransport implements TransportInterface {
     if (!Platform.isAndroid) return;
     try {
       await _channel.invokeMethod('disconnect');
-      // Reset connection state
-      _isGroupOwner = false;
-      _groupOwnerAddress = null;
-      _connectingAddresses.clear();
-      _addressToUuid.clear();
-      _uuidToAddress.clear();
     } catch (e) {
       debugPrint('[WiFiDirect] disconnect failed: $e');
-      // Even if disconnect fails, reset state
+    } finally {
+      // Reset connection state
+      _initialized = false;
       _isGroupOwner = false;
       _groupOwnerAddress = null;
       _connectingAddresses.clear();
       _addressToUuid.clear();
       _uuidToAddress.clear();
+      _myUuid = null;
+      _myShortId = null;
+      _myDisplayName = null;
+      _myStatusMessage = null;
     }
   }
 
