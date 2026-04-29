@@ -30,12 +30,20 @@ class ProfileService {
     List<String>? interests,
     String? statusMessage,
   }) async {
-    final updated = current.copyWith(
-      username: username,
+    // Build directly so null bio/statusMessage explicitly clears the field.
+    // copyWith(bio: null) would silently keep the old value.
+    final updated = LocalUser(
+      id: current.id,
+      username: username ?? current.username,
       bio: bio,
-      gender: gender,
-      interests: interests,
+      gender: gender ?? current.gender,
+      avatarPath: current.avatarPath,
+      interests: interests ?? current.interests,
+      publicKeyPEM: current.publicKeyPEM,
+      shortId: current.shortId,
       statusMessage: statusMessage,
+      createdAt: current.createdAt,
+      biometricEnabled: current.biometricEnabled,
     );
     await saveProfile(updated);
     return updated;

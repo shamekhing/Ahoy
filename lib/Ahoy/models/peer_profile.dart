@@ -36,7 +36,7 @@ class PeerProfile {
       };
 
   factory PeerProfile.fromJson(Map<String, dynamic> json) {
-    Gender _parseGender(dynamic value) {
+    Gender parseGender(dynamic value) {
       try {
         if (value == null) return Gender.unspecified;
         if (value is String) return Gender.values.byName(value);
@@ -57,7 +57,7 @@ class PeerProfile {
       shortId: json['shortId'] as String,
       displayName: json['displayName'] as String,
       bio: json['bio'] as String?,
-      gender: _parseGender(json['gender']),
+      gender: parseGender(json['gender']),
       avatarBase64: json['avatarBase64'] as String?,
       interests: List<String>.from(json['interests'] as List? ?? []),
       publicKeyPEM: json['publicKeyPEM'] as String,

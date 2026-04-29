@@ -47,7 +47,7 @@ class PeerProfileScreen extends StatelessWidget {
           ),
           Center(child: Text('@${peer.shortId}', style: const TextStyle(color: Colors.grey))),
           const SizedBox(height: 8),
-          Center(child: TransportBadge(mode: peer.transport)),
+          Center(child: TransportBadges(transports: peer.transports)),
           if (peer.statusMessage != null && peer.statusMessage!.isNotEmpty) ...[
             const SizedBox(height: 16),
             Center(

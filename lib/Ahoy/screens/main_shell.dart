@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'discover/discover_screen.dart';
 import 'chat/conversations_screen.dart';
 import 'profile/my_profile_screen.dart';
+import 'settings/settings_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -17,6 +18,7 @@ class _MainShellState extends State<MainShell> {
     DiscoverScreen(),
     ConversationsScreen(),
     MyProfileScreen(),
+    SettingsScreen(),
   ];
 
   @override
@@ -30,6 +32,7 @@ class _MainShellState extends State<MainShell> {
           NavigationDestination(icon: Icon(Icons.radar), label: 'Discover'),
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Chats'),
           NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
       ),
     );

@@ -26,8 +26,11 @@ class ChatService {
     required String myShortId,
     required String myDisplayName,
     required String peerUuid,
+    required String peerDisplayName,
+    required String peerShortId,
     required MessageType type,
     required String content,
+    String? myPublicKeyPEM,
     String? peerPublicKeyPEM,
     String? replyToId,
     String? replyToPreview,
@@ -46,6 +49,14 @@ class ChatService {
 
     final convId = MessageStore.conversationId(myUuid, peerUuid);
     final msgId = const Uuid().v4();
+    final timestamp = DateTime.now();
+
+    // Build payload first so we know whether encryption actually succeeded.
+    final payload = _buildPayload(
+      msgId, convId, myShortId, myDisplayName, type, content, replyToId, replyToPreview,
+      timestamp, myPublicKeyPEM, peerPublicKeyPEM,
+    );
+    final actuallyEncrypted = payload['isEncrypted'] as bool? ?? false;
 
     final message = Message(
       id: msgId,
@@ -57,14 +68,13 @@ class ChatService {
       replyToPreview: replyToPreview,
       status: MessageStatus.sending,
       transport: mode,
-      timestamp: DateTime.now(),
-      isEncrypted: peerPublicKeyPEM != null && _crypto.isReady,
+      timestamp: timestamp,
+      isEncrypted: actuallyEncrypted,
     );
 
     await _msgStore.addMessage(message);
-    await _updateConversationOnSend(convId, peerUuid, message);
+    await _updateConversationOnSend(convId, peerUuid, peerDisplayName, peerShortId, peerPublicKeyPEM, message);
 
-    final payload = _buildPayload(message, myShortId, myDisplayName, type, content, peerPublicKeyPEM);
     final sent = await _transport.send(peerUuid, myUuid, myShortId, myDisplayName, payload);
 
     final finalStatus = sent ? MessageStatus.sent : MessageStatus.failed;
@@ -74,11 +84,16 @@ class ChatService {
   }
 
   Map<String, dynamic> _buildPayload(
-    Message msg,
+    String msgId,
+    String convId,
     String myShortId,
     String myDisplayName,
     MessageType type,
     String content,
+    String? replyToId,
+    String? replyToPreview,
+    DateTime timestamp,
+    String? myPublicKeyPEM,
     String? peerPublicKeyPEM,
   ) {
     String wireContent;
@@ -101,14 +116,15 @@ class ChatService {
 
     return {
       'msgType': 'chat',
-      'msgId': msg.id,
-      'convId': msg.conversationId,
+      'msgId': msgId,
+      'convId': convId,
       'type': type.name,
       'content': wireContent,
       'isEncrypted': encrypted,
-      'replyToId': msg.replyToId,
-      'replyToPreview': msg.replyToPreview,
-      'timestamp': msg.timestamp.toIso8601String(),
+      'senderPublicKeyPEM': myPublicKeyPEM,
+      'replyToId': replyToId,
+      'replyToPreview': replyToPreview,
+      'timestamp': timestamp.toIso8601String(),
     };
   }
 
@@ -173,8 +189,11 @@ class ChatService {
         isEncrypted: isEncrypted,
       );
 
+      final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
+
       await _msgStore.addMessage(message);
-      await _updateConversationOnReceive(convId, peerUuid, peerDisplayName, message, transport);
+      await _updateConversationOnReceive(
+          convId, peerUuid, peerShortId, peerDisplayName, senderPublicKeyPEM, message, transport);
       return message;
     } catch (_) {
       return null;
@@ -196,13 +215,22 @@ class ChatService {
     }
   }
 
-  Future<void> _updateConversationOnSend(String convId, String peerUuid, Message msg) async {
+  Future<void> _updateConversationOnSend(
+    String convId,
+    String peerUuid,
+    String peerDisplayName,
+    String peerShortId,
+    String? peerPublicKeyPEM,
+    Message msg,
+  ) async {
     final existing = _convStore.loadAll().firstWhere(
       (c) => c.id == convId,
       orElse: () => Conversation(
         id: convId,
         peerUuid: peerUuid,
-        peerDisplayName: 'Unknown',
+        peerDisplayName: peerDisplayName,
+        peerShortId: peerShortId,
+        peerPublicKeyPEM: peerPublicKeyPEM,
         lastTransport: msg.transport,
         createdAt: DateTime.now(),
       ),
@@ -211,13 +239,16 @@ class ChatService {
       lastTransport: msg.transport,
       lastMessageAt: msg.timestamp,
       lastMessagePreview: msg.type == MessageType.text ? msg.content : '[${msg.type.name}]',
+      peerPublicKeyPEM: peerPublicKeyPEM ?? existing.peerPublicKeyPEM,
     ));
   }
 
   Future<void> _updateConversationOnReceive(
     String convId,
     String peerUuid,
+    String peerShortId,
     String peerDisplayName,
+    String? peerPublicKeyPEM,
     Message msg,
     TransportMode transport,
   ) async {
@@ -227,6 +258,8 @@ class ChatService {
       orElse: () => Conversation(
         id: convId,
         peerUuid: peerUuid,
+        peerShortId: peerShortId,
+        peerPublicKeyPEM: peerPublicKeyPEM,
         peerDisplayName: peerDisplayName,
         lastTransport: transport,
         createdAt: DateTime.now(),
@@ -237,6 +270,9 @@ class ChatService {
       lastMessageAt: msg.timestamp,
       lastMessagePreview: msg.type == MessageType.text ? msg.content : '[${msg.type.name}]',
       unreadCount: existing.unreadCount + 1,
+      // Update peer identity fields if we now have better data.
+      peerShortId: peerShortId.isNotEmpty ? peerShortId : null,
+      peerPublicKeyPEM: peerPublicKeyPEM ?? existing.peerPublicKeyPEM,
     ));
   }
 }

@@ -4,6 +4,8 @@ class Conversation {
   final String id;
   final String peerUuid;
   final String peerDisplayName;
+  final String peerShortId;
+  final String? peerPublicKeyPEM;
   final TransportMode lastTransport;
   final bool isBlocked;
   final bool isDeleted;
@@ -16,6 +18,8 @@ class Conversation {
     required this.id,
     required this.peerUuid,
     required this.peerDisplayName,
+    this.peerShortId = '',
+    this.peerPublicKeyPEM,
     required this.lastTransport,
     this.isBlocked = false,
     this.isDeleted = false,
@@ -27,6 +31,8 @@ class Conversation {
 
   Conversation copyWith({
     String? peerDisplayName,
+    String? peerShortId,
+    String? peerPublicKeyPEM,
     TransportMode? lastTransport,
     bool? isBlocked,
     bool? isDeleted,
@@ -38,6 +44,8 @@ class Conversation {
       id: id,
       peerUuid: peerUuid,
       peerDisplayName: peerDisplayName ?? this.peerDisplayName,
+      peerShortId: peerShortId ?? this.peerShortId,
+      peerPublicKeyPEM: peerPublicKeyPEM ?? this.peerPublicKeyPEM,
       lastTransport: lastTransport ?? this.lastTransport,
       isBlocked: isBlocked ?? this.isBlocked,
       isDeleted: isDeleted ?? this.isDeleted,
@@ -52,6 +60,8 @@ class Conversation {
         'id': id,
         'peerUuid': peerUuid,
         'peerDisplayName': peerDisplayName,
+        'peerShortId': peerShortId,
+        'peerPublicKeyPEM': peerPublicKeyPEM,
         'lastTransport': lastTransport.name,
         'isBlocked': isBlocked,
         'isDeleted': isDeleted,
@@ -62,7 +72,7 @@ class Conversation {
       };
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
-    TransportMode _parseTransport(dynamic value) {
+    TransportMode parseTransport(dynamic value) {
       try {
         if (value == null) return TransportMode.none;
         if (value is String) return TransportMode.values.byName(value);
@@ -81,7 +91,9 @@ class Conversation {
       id: json['id'] as String,
       peerUuid: json['peerUuid'] as String,
       peerDisplayName: json['peerDisplayName'] as String,
-      lastTransport: _parseTransport(json['lastTransport']),
+      peerShortId: json['peerShortId'] as String? ?? '',
+      peerPublicKeyPEM: json['peerPublicKeyPEM'] as String?,
+      lastTransport: parseTransport(json['lastTransport']),
       isBlocked: json['isBlocked'] as bool? ?? false,
       isDeleted: json['isDeleted'] as bool? ?? false,
       unreadCount: json['unreadCount'] as int? ?? 0,

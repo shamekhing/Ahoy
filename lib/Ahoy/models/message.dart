@@ -58,7 +58,7 @@ class Message {
       };
 
   factory Message.fromJson(Map<String, dynamic> json) {
-    T _parseEnum<T extends Enum>(dynamic value, List<T> enumValues, T defaultValue) {
+    T parseEnum<T extends Enum>(dynamic value, List<T> enumValues, T defaultValue) {
       try {
         if (value == null) return defaultValue;
         if (value is String) return enumValues.byName(value);
@@ -77,12 +77,12 @@ class Message {
       id: json['id'] as String,
       conversationId: json['conversationId'] as String,
       senderId: json['senderId'] as String,
-      type: _parseEnum(json['type'], MessageType.values, MessageType.text),
+      type: parseEnum(json['type'], MessageType.values, MessageType.text),
       content: json['content'] as String,
       replyToId: json['replyToId'] as String?,
       replyToPreview: json['replyToPreview'] as String?,
-      status: _parseEnum(json['status'], MessageStatus.values, MessageStatus.sent),
-      transport: _parseEnum(json['transport'], TransportMode.values, TransportMode.none),
+      status: parseEnum(json['status'], MessageStatus.values, MessageStatus.sent),
+      transport: parseEnum(json['transport'], TransportMode.values, TransportMode.none),
       timestamp: DateTime.parse(json['timestamp'] as String),
       isEncrypted: json['isEncrypted'] as bool? ?? false,
     );

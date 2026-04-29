@@ -59,14 +59,22 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendText(String text) async {
     final auth = context.read<AuthProvider>();
     final chat = context.read<ChatProvider>();
+    final discovery = context.read<DiscoveryProvider>();
+    final livePeer = discovery.peers.firstWhere(
+      (p) => p.uuid == _conv.peerUuid,
+      orElse: () => widget.peer,
+    );
     await chat.sendMessage(
       myUuid: auth.user!.id,
       myShortId: auth.user!.shortId,
       myDisplayName: auth.user!.username,
       peerUuid: _conv.peerUuid,
+      peerDisplayName: livePeer.displayName,
+      peerShortId: livePeer.shortId,
       type: MessageType.text,
       content: text,
-      peerPublicKeyPEM: widget.peer.publicKeyPEM,
+      myPublicKeyPEM: auth.user!.publicKeyPEM,
+      peerPublicKeyPEM: livePeer.publicKeyPEM,
       replyToId: _replyTo?.id,
       replyToPreview: _replyTo == null
           ? null
@@ -79,14 +87,22 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendImage(String path) async {
     final auth = context.read<AuthProvider>();
     final chat = context.read<ChatProvider>();
+    final discovery = context.read<DiscoveryProvider>();
+    final livePeer = discovery.peers.firstWhere(
+      (p) => p.uuid == _conv.peerUuid,
+      orElse: () => widget.peer,
+    );
     await chat.sendMessage(
       myUuid: auth.user!.id,
       myShortId: auth.user!.shortId,
       myDisplayName: auth.user!.username,
       peerUuid: _conv.peerUuid,
+      peerDisplayName: livePeer.displayName,
+      peerShortId: livePeer.shortId,
       type: MessageType.image,
       content: path,
-      peerPublicKeyPEM: widget.peer.publicKeyPEM,
+      myPublicKeyPEM: auth.user!.publicKeyPEM,
+      peerPublicKeyPEM: livePeer.publicKeyPEM,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
@@ -99,14 +115,22 @@ class _ChatScreenState extends State<ChatScreen> {
       if (path != null) {
         final auth = context.read<AuthProvider>();
         final chat = context.read<ChatProvider>();
+        final discovery = context.read<DiscoveryProvider>();
+        final livePeer = discovery.peers.firstWhere(
+          (p) => p.uuid == _conv.peerUuid,
+          orElse: () => widget.peer,
+        );
         await chat.sendMessage(
           myUuid: auth.user!.id,
           myShortId: auth.user!.shortId,
           myDisplayName: auth.user!.username,
           peerUuid: _conv.peerUuid,
+          peerDisplayName: livePeer.displayName,
+          peerShortId: livePeer.shortId,
           type: MessageType.voice,
           content: path,
-          peerPublicKeyPEM: widget.peer.publicKeyPEM,
+          myPublicKeyPEM: auth.user!.publicKeyPEM,
+          peerPublicKeyPEM: livePeer.publicKeyPEM,
         );
       }
     } else {

@@ -67,7 +67,7 @@ class LocalUser {
       };
 
   factory LocalUser.fromJson(Map<String, dynamic> json) {
-    Gender _parseGender(dynamic value) {
+    Gender parseGender(dynamic value) {
       try {
         if (value == null) return Gender.unspecified;
         if (value is String) return Gender.values.byName(value);
@@ -87,7 +87,7 @@ class LocalUser {
       id: json['id'] as String,
       username: json['username'] as String,
       bio: json['bio'] as String?,
-      gender: _parseGender(json['gender']),
+      gender: parseGender(json['gender']),
       avatarPath: json['avatarPath'] as String?,
       interests: List<String>.from(json['interests'] as List? ?? []),
       publicKeyPEM: json['publicKeyPEM'] as String,

@@ -100,10 +100,11 @@ class _ConversationTile extends StatelessWidget {
             conversation: conv,
             peer: NearbyPeer(
               uuid: conv.peerUuid,
-              shortId: '',
+              shortId: conv.peerShortId,
               displayName: conv.peerDisplayName,
               transport: conv.lastTransport,
               lastSeen: DateTime.now(),
+              publicKeyPEM: conv.peerPublicKeyPEM,
             ),
           ),
         ),

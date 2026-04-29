@@ -83,6 +83,8 @@ class DiscoverScreen extends StatelessWidget {
         id: convId,
         peerUuid: peer.uuid,
         peerDisplayName: peer.displayName,
+        peerShortId: peer.shortId,
+        peerPublicKeyPEM: peer.publicKeyPEM,
         lastTransport: peer.transport,
         createdAt: DateTime.now(),
       ),

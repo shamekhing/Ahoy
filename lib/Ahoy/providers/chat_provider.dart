@@ -34,20 +34,27 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     _inboundSub = _transport.packetStream.listen((packet) async {
-      final msg = await _chatService.onInboundPacket(
-        rawPayload: packet.payload,
-        peerUuid: packet.peerUuid,
-        peerShortId: packet.peerShortId,
-        peerDisplayName: packet.peerDisplayName,
-        myUuid: myUuid,
-        transport: packet.transport,
-        receiveOff: receiveOff(),
-        blockedUuids: blockedUuids,
-      );
-      if (msg != null) {
-        _messages.putIfAbsent(msg.conversationId, () => []).add(msg);
-        _conversations = _convStore.loadAll();
-        notifyListeners();
+      try {
+        final msg = await _chatService.onInboundPacket(
+          rawPayload: packet.payload,
+          peerUuid: packet.peerUuid,
+          peerShortId: packet.peerShortId,
+          peerDisplayName: packet.peerDisplayName,
+          myUuid: myUuid,
+          transport: packet.transport,
+          receiveOff: receiveOff(),
+          blockedUuids: blockedUuids,
+        );
+        if (msg != null) {
+          // Invalidate cache so messagesFor() reloads from store (which has full
+          // history + this new message). Without this, the cache would hold only
+          // new messages received this session, losing all prior history.
+          _messages.remove(msg.conversationId);
+          _conversations = _convStore.loadAll();
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('[ChatProvider] Inbound packet error: $e');
       }
     });
   }
@@ -64,8 +71,11 @@ class ChatProvider extends ChangeNotifier {
     required String myShortId,
     required String myDisplayName,
     required String peerUuid,
+    required String peerDisplayName,
+    required String peerShortId,
     required MessageType type,
     required String content,
+    String? myPublicKeyPEM,
     String? peerPublicKeyPEM,
     String? replyToId,
     String? replyToPreview,
@@ -77,8 +87,11 @@ class ChatProvider extends ChangeNotifier {
         myShortId: myShortId,
         myDisplayName: myDisplayName,
         peerUuid: peerUuid,
+        peerDisplayName: peerDisplayName,
+        peerShortId: peerShortId,
         type: type,
         content: content,
+        myPublicKeyPEM: myPublicKeyPEM,
         peerPublicKeyPEM: peerPublicKeyPEM,
         replyToId: replyToId,
         replyToPreview: replyToPreview,
