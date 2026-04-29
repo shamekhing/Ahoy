@@ -310,10 +310,13 @@ class WiFiDirectTransport implements TransportInterface {
 
   Future<bool> _sendBytes(List<int> bytes, String? recipientIP) async {
     try {
-      final result = await _channel.invokeMethod<bool>('sendData', {
+      final args = <String, dynamic>{
         'data': Uint8List.fromList(bytes),
-        if (recipientIP != null) 'recipientIP': recipientIP,
-      });
+      };
+      if (recipientIP != null) {
+        args['recipientIP'] = recipientIP;
+      }
+      final result = await _channel.invokeMethod<bool>('sendData', args);
       return result ?? false;
     } catch (e) {
       debugPrint('[WiFiDirect] sendData failed: $e');

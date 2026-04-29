@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/enums.dart';
@@ -68,7 +69,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               Center(
                 child: Column(
                   children: [
-                    Image.asset('assets/app_icon.png', width: 64, height: 64),
+                    SvgPicture.asset('assets/app_icon.svg', width: 64, height: 64),
                     const SizedBox(height: 12),
                     Text('Create your Ahoy profile', style: Theme.of(context).textTheme.headlineSmall),
                     const SizedBox(height: 24),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/auth/password_field.dart';
@@ -66,7 +67,7 @@ class _SignInScreenState extends State<SignInScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Image.asset('assets/app_icon.png', width: 64, height: 64),
+                  SvgPicture.asset('assets/app_icon.svg', width: 64, height: 64),
                   const SizedBox(height: 12),
                   Text('Ahoy', style: Theme.of(context).textTheme.headlineLarge),
                   const SizedBox(height: 4),

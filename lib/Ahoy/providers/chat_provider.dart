@@ -82,7 +82,7 @@ class ChatProvider extends ChangeNotifier {
   }) async {
     _error = null;
     try {
-      final msg = await _chatService.sendMessage(
+      final sentMsg = await _chatService.sendMessage(
         myUuid: myUuid,
         myShortId: myShortId,
         myDisplayName: myDisplayName,
@@ -96,10 +96,10 @@ class ChatProvider extends ChangeNotifier {
         replyToId: replyToId,
         replyToPreview: replyToPreview,
       );
-      _messages.putIfAbsent(msg.conversationId, () => []).add(msg);
+      _messages.putIfAbsent(sentMsg.conversationId, () => []).add(sentMsg);
       _conversations = _convStore.loadAll();
       notifyListeners();
-      return msg;
+      return sentMsg;
     } catch (e) {
       _error = e.toString().replaceFirst('TransportError: ', '');
       notifyListeners();
