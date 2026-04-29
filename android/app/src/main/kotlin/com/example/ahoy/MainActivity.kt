@@ -260,7 +260,7 @@ class MainActivity : FlutterActivity() {
     // ──────────────────────────────────────────────────────────────────────────
 
     private fun cmdInitialize(result: MethodChannel.Result) {
-        if (serverSocket != null && !serverSocket!!.isClosed) {
+        if (serverSocket?.isClosed == false) {
             result.success(true)
             return
         }
@@ -269,12 +269,14 @@ class MainActivity : FlutterActivity() {
                 serverSocket = ServerSocket(P2P_PORT)
                 Log.d(TAG, "Listening on port $P2P_PORT")
                 runOnUiThread { result.success(true) }
-                while (!serverSocket!!.isClosed) {
+                while (true) {
+                    val server = serverSocket
+                    if (server == null || server.isClosed) break
                     try {
-                        val client = serverSocket!!.accept()
+                        val client = server.accept()
                         thread(name = "wd-client") { handleIncomingConnection(client) }
                     } catch (e: IOException) {
-                        if (serverSocket?.isClosed == false) Log.e(TAG, "accept() error: $e")
+                        if (server.isClosed.not()) Log.e(TAG, "accept() error: $e")
                     }
                 }
             } catch (e: IOException) {
