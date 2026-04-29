@@ -180,7 +180,12 @@ class LanTransport implements TransportInterface {
         buffer.clear();
         buffer.write(lines.last);
       },
-      onDone: socket.destroy,
+      onDone: () {
+        // Process any message that arrived without a trailing newline.
+        final remaining = buffer.toString().trim();
+        if (remaining.isNotEmpty) _processMessage(remaining);
+        socket.destroy();
+      },
       onError: (_) => socket.destroy(),
     );
   }

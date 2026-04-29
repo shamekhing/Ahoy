@@ -59,7 +59,8 @@ class MainActivity : FlutterActivity() {
     private var groupOwnerAddress: String? = null
 
     // IPs of clients that have connected to our server socket (group-owner side).
-    private val connectedClients = mutableSetOf<String>()
+    // Accessed from both UI thread and wd-client background threads → use thread-safe set.
+    private val connectedClients = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     private val p2pIntentFilter = IntentFilter().apply {
         addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
@@ -397,6 +398,7 @@ class MainActivity : FlutterActivity() {
         val senderIP = socket.inetAddress.hostAddress ?: ""
         if (senderIP.isNotEmpty()) connectedClients.add(senderIP)
         try {
+            socket.soTimeout = 10_000 // 10 s — prevent threads from blocking forever
             val input = DataInputStream(socket.getInputStream())
             val length = input.readInt()
             if (length <= 0 || length > MAX_PAYLOAD) {

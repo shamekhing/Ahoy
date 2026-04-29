@@ -195,7 +195,8 @@ class ChatService {
       await _updateConversationOnReceive(
           convId, peerUuid, peerShortId, peerDisplayName, senderPublicKeyPEM, message, transport);
       return message;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('[ChatService] onInboundPacket failed: $e\n$st');
       return null;
     }
   }

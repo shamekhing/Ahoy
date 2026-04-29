@@ -50,8 +50,6 @@ class BleTransport implements TransportInterface {
     String? publicKeyPEM,
   }) async {
     _myUuid = uuid;
-    // Wire up the Kotlin→Dart callback for inbound GATT writes.
-    _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
 
     if (!Platform.isAndroid) return;
 
@@ -112,6 +110,9 @@ class BleTransport implements TransportInterface {
 
   @override
   Future<void> startScanning() async {
+    // Register the Kotlin→Dart handler here so inbound GATT writes are
+    // received even when startAdvertising() hasn't been called yet.
+    _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
     _scanning = true;
     _scanSub ??= FlutterBluePlus.onScanResults.listen(_onScanResult);
     _chunkCleanupTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _evictStaleChunks());
