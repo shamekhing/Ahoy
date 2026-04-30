@@ -384,6 +384,7 @@ Scan result arrives (_onScanResult):
   → _parseAnnouncement():
        serviceData[bleServiceUuid] → bytes
        bytes = shortId[0:6] + 0x00 + displayName[0:6]   (max 13 bytes)
+       Skip if shortId matches own shortId (self-filter)
        Emit PeerAnnouncement (uuid: BT_MAC, shortId, displayName, transport: ble)
        [real Ahoy UUID unknown until first message exchange]
 ```
@@ -397,11 +398,12 @@ Every 30 seconds (+ on startup):
     → [Android broadcast: WIFI_P2P_PEERS_CHANGED → requestPeers()]
     → Dart callback: onPeersDiscovered(List<{deviceName, deviceAddress, status}>)
     → _handlePeersDiscovered():
-         For each peer not already connecting/connected:
+         For each peer not already in _addressToUuid and not in _connectingAddresses:
            _connectingAddresses.add(address)
            _tryConnect(address)   [auto-connect, no stub announcement emitted]
 
 After TCP connection & identity exchange:
+  → address removed from _connectingAddresses
   → Emit PeerAnnouncement with real Ahoy UUID (see §17)
 ```
 
@@ -1145,6 +1147,7 @@ startCleanupTimer():
     staleKeys = _peers where (now() - lastSeen) > 30s
     for each staleKey:
       _peers.remove(staleKey)
+      _shortIdToUuid.remove(peer.shortId)   ← allows re-registration with new UUID
     onRemoved(staleKeys) callback:
       → TransportManager.removePeer(uuid) for each
            → _peerTransports.remove(uuid)
@@ -1257,7 +1260,7 @@ Wraps PrefsStore with an **async mutex** (`_withLock`) so concurrent send + rece
 `loadAll()` filters `isDeleted == true` entries and sorts by `lastMessageAt` descending.
 
 ### MessageStore (`lib/Ahoy/services/chat/message_store.dart`)
-Simple read-modify-write against `ahoy_msgs_{convId}`. Deduplicates by `message.id` on `addMessage()`. Messages sorted by `timestamp` ascending on load.
+Per-conversation async mutex (`_withLock`) serialises all read-modify-write operations, matching the pattern in `ConversationStore`. Deduplicates by `message.id` on `addMessage()`. Messages sorted by `timestamp` ascending on load.
 
 ---
 
