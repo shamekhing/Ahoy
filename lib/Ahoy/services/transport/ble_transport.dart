@@ -39,7 +39,7 @@ class BleTransport implements TransportInterface {
   final Map<String, BluetoothDevice> _connectedDevices = {};
 
   // Used to filter out our own device from BLE scan results.
-  String? _myUuid;
+  String? _myShortId;
 
   @override
   Future<void> startAdvertising({
@@ -49,7 +49,7 @@ class BleTransport implements TransportInterface {
     String? statusMessage,
     String? publicKeyPEM,
   }) async {
-    _myUuid = uuid;
+    _myShortId = shortId;
     // Register here so GATT writes arriving right after the server opens are handled.
     _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
 
@@ -207,8 +207,10 @@ class BleTransport implements TransportInterface {
 
       // Use the remote device address as a stable peer identifier when
       // scanning — we learn the real UUID on first message exchange.
+      // Filter own device by shortId: the remote ID is a BT MAC, _myUuid is
+      // an Ahoy UUID — they can never match, so shortId is the right signal.
       final deviceId = result.device.remoteId.str;
-      if (deviceId == _myUuid) return;
+      if (_myShortId != null && shortId == _myShortId) return;
 
       _announcementController.add(PeerAnnouncement(
         uuid: deviceId,

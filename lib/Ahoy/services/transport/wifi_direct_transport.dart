@@ -168,7 +168,7 @@ class WiFiDirectTransport implements TransportInterface {
 
         // Auto-connect to newly found peers if not already connected.
         if (address.isNotEmpty &&
-            !_uuidToAddress.containsValue(address) &&
+            !_addressToUuid.containsKey(address) &&
             !_connectingAddresses.contains(address)) {
           _connectingAddresses.add(address);
           _tryConnect(address);
@@ -228,6 +228,10 @@ class WiFiDirectTransport implements TransportInterface {
             _addressToUuid[routeIP] = uuid;
             _uuidToAddress[uuid] = routeIP;
           }
+          // Address is now mapped to a UUID — no longer needs to be in the
+          // connecting set. Leaving it in would block reconnect after a failed
+          // identity exchange (socket closed before write completed).
+          _connectingAddresses.remove(_isGroupOwner ? senderIP : _groupOwnerAddress);
           _announcementController.add(PeerAnnouncement(
             uuid: uuid,
             shortId: json['shortId'] as String? ?? '',

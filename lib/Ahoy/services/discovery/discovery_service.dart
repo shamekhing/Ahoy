@@ -145,7 +145,12 @@ class DiscoveryService {
         .map((e) => e.key)
         .toList();
     for (final key in staleKeys) {
-      _peers.remove(key);
+      final peer = _peers.remove(key);
+      // Remove the shortId→UUID index entry so a reinstalled peer (same shortId,
+      // new UUID) is registered fresh rather than silently aliased to the old UUID.
+      if (peer != null && peer.shortId.isNotEmpty) {
+        _shortIdToUuid.remove(peer.shortId);
+      }
     }
     if (staleKeys.isNotEmpty) {
       _onRemoved?.call(staleKeys);
