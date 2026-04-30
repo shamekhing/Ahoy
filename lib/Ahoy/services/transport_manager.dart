@@ -23,6 +23,14 @@ class TransportManager {
   bool _lanEnabled = true;
   bool _wifiDirectEnabled = true;
 
+  // Cached identity so individual transport enable/disable can re-advertise
+  // without requiring the caller to supply credentials again.
+  String? _myUuid;
+  String? _myShortId;
+  String? _myDisplayName;
+  String? _myStatusMessage;
+  String? _myPublicKeyPEM;
+
   /// peerUuid → set of transports that have seen this peer.
   final Map<String, Set<TransportMode>> _peerTransports = {};
 
@@ -49,6 +57,12 @@ class TransportManager {
     _bleEnabled = bleEnabled;
     _lanEnabled = lanEnabled;
     _wifiDirectEnabled = wifiDirectEnabled;
+
+    _myUuid = uuid;
+    _myShortId = shortId;
+    _myDisplayName = displayName;
+    _myStatusMessage = statusMessage;
+    _myPublicKeyPEM = publicKeyPEM;
 
     _subs.add(_wifiDirect.packetStream.listen(_onPacket));
     _subs.add(_lan.packetStream.listen(_onPacket));
@@ -110,10 +124,32 @@ class TransportManager {
     await _ble.stopAdvertising();
   }
 
+  /// Re-advertise on all enabled transports using the cached identity.
+  /// Call this when coming back from off-grid mode.
+  Future<void> resumeAdvertising() async {
+    if (_myUuid == null) return;
+    await startAdvertising(
+      uuid: _myUuid!,
+      shortId: _myShortId!,
+      displayName: _myDisplayName!,
+      statusMessage: _myStatusMessage,
+      publicKeyPEM: _myPublicKeyPEM,
+    );
+  }
+
   Future<void> setBleEnabled(bool enabled) async {
     _bleEnabled = enabled;
     if (enabled) {
       await _ble.startScanning();
+      if (_myUuid != null) {
+        await _ble.startAdvertising(
+          uuid: _myUuid!,
+          shortId: _myShortId!,
+          displayName: _myDisplayName!,
+          statusMessage: _myStatusMessage,
+          publicKeyPEM: _myPublicKeyPEM,
+        );
+      }
     } else {
       await _ble.stopScanning();
       await _ble.stopAdvertising();
@@ -124,6 +160,15 @@ class TransportManager {
     _lanEnabled = enabled;
     if (enabled) {
       await _lan.startScanning();
+      if (_myUuid != null) {
+        await _lan.startAdvertising(
+          uuid: _myUuid!,
+          shortId: _myShortId!,
+          displayName: _myDisplayName!,
+          statusMessage: _myStatusMessage,
+          publicKeyPEM: _myPublicKeyPEM,
+        );
+      }
     } else {
       await _lan.stopScanning();
       await _lan.stopAdvertising();
@@ -134,6 +179,15 @@ class TransportManager {
     _wifiDirectEnabled = enabled;
     if (enabled) {
       await _wifiDirect.startScanning();
+      if (_myUuid != null) {
+        await _wifiDirect.startAdvertising(
+          uuid: _myUuid!,
+          shortId: _myShortId!,
+          displayName: _myDisplayName!,
+          statusMessage: _myStatusMessage,
+          publicKeyPEM: _myPublicKeyPEM,
+        );
+      }
     } else {
       await _wifiDirect.stopScanning();
       await _wifiDirect.stopAdvertising();
@@ -220,6 +274,11 @@ class TransportManager {
     _subs.clear();
     _peerTransports.clear();
     _peerAliases.clear();
+    _myUuid = null;
+    _myShortId = null;
+    _myDisplayName = null;
+    _myStatusMessage = null;
+    _myPublicKeyPEM = null;
   }
 
   Future<void> dispose() async {

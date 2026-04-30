@@ -81,17 +81,15 @@ class WiFiDirectTransport implements TransportInterface {
     } catch (e) {
       debugPrint('[WiFiDirect] disconnect failed: $e');
     } finally {
-      // Reset connection state
+      // Reset connection/routing state only — keep identity fields (_myUuid etc.)
+      // so that _sendIdentity() can still complete a handshake if the OS
+      // auto-reconnects, and so startAdvertising() can reinitialise correctly.
       _initialized = false;
       _isGroupOwner = false;
       _groupOwnerAddress = null;
       _connectingAddresses.clear();
       _addressToUuid.clear();
       _uuidToAddress.clear();
-      _myUuid = null;
-      _myShortId = null;
-      _myDisplayName = null;
-      _myStatusMessage = null;
     }
   }
 
@@ -328,6 +326,10 @@ class WiFiDirectTransport implements TransportInterface {
   @override
   Future<void> dispose() async {
     await stopScanning();
+    _myUuid = null;
+    _myShortId = null;
+    _myDisplayName = null;
+    _myStatusMessage = null;
     _packetController.close();
     _announcementController.close();
   }

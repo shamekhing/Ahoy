@@ -81,6 +81,8 @@ class DiscoveryProvider extends ChangeNotifier {
     await _prefs.setBool(AhoyConstants.prefOffGrid, value: value);
     if (value) {
       await _transport.stopAdvertising();
+    } else {
+      await _transport.resumeAdvertising();
     }
     notifyListeners();
   }

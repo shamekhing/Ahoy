@@ -28,14 +28,21 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollCtrl = ScrollController();
   Message? _replyTo;
 
-  late Conversation _conv;
+  // Only the ID is stored; the live Conversation is always looked up from the
+  // provider so we never hold a stale snapshot.
+  late String _convId;
+
+  Conversation _currentConv(ChatProvider chat) => chat.conversations.firstWhere(
+        (c) => c.id == _convId,
+        orElse: () => widget.conversation,
+      );
 
   @override
   void initState() {
     super.initState();
-    _conv = widget.conversation;
+    _convId = widget.conversation.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ChatProvider>().markRead(_conv.id);
+      context.read<ChatProvider>().markRead(_convId);
       _scrollToBottom();
     });
   }
@@ -59,16 +66,17 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendText(String text) async {
     final auth = context.read<AuthProvider>();
     final chat = context.read<ChatProvider>();
+    final conv = _currentConv(chat);
     final discovery = context.read<DiscoveryProvider>();
     final livePeer = discovery.peers.firstWhere(
-      (p) => p.uuid == _conv.peerUuid,
+      (p) => p.uuid == conv.peerUuid,
       orElse: () => widget.peer,
     );
     await chat.sendMessage(
       myUuid: auth.user!.id,
       myShortId: auth.user!.shortId,
       myDisplayName: auth.user!.username,
-      peerUuid: _conv.peerUuid,
+      peerUuid: conv.peerUuid,
       peerDisplayName: livePeer.displayName,
       peerShortId: livePeer.shortId,
       type: MessageType.text,
@@ -87,16 +95,17 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendImage(String path) async {
     final auth = context.read<AuthProvider>();
     final chat = context.read<ChatProvider>();
+    final conv = _currentConv(chat);
     final discovery = context.read<DiscoveryProvider>();
     final livePeer = discovery.peers.firstWhere(
-      (p) => p.uuid == _conv.peerUuid,
+      (p) => p.uuid == conv.peerUuid,
       orElse: () => widget.peer,
     );
     await chat.sendMessage(
       myUuid: auth.user!.id,
       myShortId: auth.user!.shortId,
       myDisplayName: auth.user!.username,
-      peerUuid: _conv.peerUuid,
+      peerUuid: conv.peerUuid,
       peerDisplayName: livePeer.displayName,
       peerShortId: livePeer.shortId,
       type: MessageType.image,
@@ -115,16 +124,17 @@ class _ChatScreenState extends State<ChatScreen> {
       if (path != null) {
         final auth = context.read<AuthProvider>();
         final chat = context.read<ChatProvider>();
+        final conv = _currentConv(chat);
         final discovery = context.read<DiscoveryProvider>();
         final livePeer = discovery.peers.firstWhere(
-          (p) => p.uuid == _conv.peerUuid,
+          (p) => p.uuid == conv.peerUuid,
           orElse: () => widget.peer,
         );
         await chat.sendMessage(
           myUuid: auth.user!.id,
           myShortId: auth.user!.shortId,
           myDisplayName: auth.user!.username,
-          peerUuid: _conv.peerUuid,
+          peerUuid: conv.peerUuid,
           peerDisplayName: livePeer.displayName,
           peerShortId: livePeer.shortId,
           type: MessageType.voice,
@@ -141,21 +151,22 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showOptions() {
     final chat = context.read<ChatProvider>();
+    final conv = _currentConv(chat);
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!_conv.isBlocked)
+            if (!conv.isBlocked)
               ListTile(
                 leading: const Icon(Icons.block, color: Colors.red),
                 title: const Text('Block', style: TextStyle(color: Colors.red)),
                 onTap: () async {
                   Navigator.pop(context);
                   final discovery = context.read<DiscoveryProvider>();
-                  await chat.blockConversation(_conv.id);
-                  discovery.blockPeer(_conv.peerUuid);
+                  await chat.blockConversation(conv.id);
+                  discovery.blockPeer(conv.peerUuid);
                   if (mounted) Navigator.pop(context);
                 },
               )
@@ -166,8 +177,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   final discovery = context.read<DiscoveryProvider>();
-                  await chat.unblockConversation(_conv.id);
-                  discovery.unblockPeer(_conv.peerUuid);
+                  await chat.unblockConversation(conv.id);
+                  discovery.unblockPeer(conv.peerUuid);
                 },
               ),
             ListTile(
@@ -201,7 +212,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     if (ok == true && mounted) {
-      await chat.deleteConversation(_conv.id);
+      await chat.deleteConversation(_convId);
       if (mounted) Navigator.pop(context);
     }
   }
@@ -215,29 +226,23 @@ class _ChatScreenState extends State<ChatScreen> {
     final media = context.read<MediaService>();
 
     final myUuid = auth.user?.id ?? '';
-    final messages = chat.messagesFor(_conv.id);
-    final canMedia = transport.canSendMedia(_conv.peerUuid);
+    final conv = _currentConv(chat);
+    final messages = chat.messagesFor(conv.id);
+    final canMedia = transport.canSendMedia(conv.peerUuid);
 
     // Use live discovery data if the peer is currently visible, so transport
     // badges update in real-time as new transports are discovered.
     final livePeer = discovery.peers.firstWhere(
-      (p) => p.uuid == _conv.peerUuid,
+      (p) => p.uuid == conv.peerUuid,
       orElse: () => widget.peer,
     );
-
-    // Update conversation reference if provider has updated version
-    final updated = chat.conversations.firstWhere(
-      (c) => c.id == _conv.id,
-      orElse: () => _conv,
-    );
-    _conv = updated;
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(_conv.peerDisplayName),
+            Text(conv.peerDisplayName),
             TransportBadges(transports: livePeer.transports),
           ],
         ),
@@ -245,7 +250,7 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(icon: const Icon(Icons.more_vert), onPressed: _showOptions),
         ],
       ),
-      body: _conv.isBlocked
+      body: conv.isBlocked
           ? const Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,

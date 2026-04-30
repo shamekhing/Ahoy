@@ -217,7 +217,6 @@ class LanTransport implements TransportInterface {
           timeout: const Duration(seconds: 5));
       socket.write('$payload\n');
       await socket.flush();
-      await socket.close();
       return true;
     } catch (e) {
       debugPrint('[LAN] Send to $peerUuid failed: $e');

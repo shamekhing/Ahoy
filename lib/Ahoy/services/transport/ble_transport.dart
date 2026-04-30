@@ -37,6 +37,8 @@ class BleTransport implements TransportInterface {
   final Map<String, BluetoothDevice> _scannedDevices = {};
   // Active GATT connections for sending — keyed by remoteId.
   final Map<String, BluetoothDevice> _connectedDevices = {};
+  // One subscription per connected device — cancelled on disconnect or dispose.
+  final Map<String, StreamSubscription> _connStateSubs = {};
 
   // Used to filter out our own device from BLE scan results.
   String? _myShortId;
@@ -263,9 +265,13 @@ class BleTransport implements TransportInterface {
     try {
       await device.connect(timeout: const Duration(seconds: 10));
       _connectedDevices[peerUuid] = device;
-      device.connectionState.listen((state) {
+      // Cancel any previous subscription before attaching a new one so we
+      // never accumulate multiple listeners on the same device stream.
+      await _connStateSubs[peerUuid]?.cancel();
+      _connStateSubs[peerUuid] = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
           _connectedDevices.remove(peerUuid);
+          _connStateSubs.remove(peerUuid)?.cancel();
         }
       });
       return device;
@@ -349,6 +355,10 @@ class BleTransport implements TransportInterface {
   Future<void> dispose() async {
     _advertiserChannel.setMethodCallHandler(null);
     await stopScanning();
+    for (final sub in _connStateSubs.values) {
+      await sub.cancel();
+    }
+    _connStateSubs.clear();
     for (final d in _connectedDevices.values) {
       await d.disconnect();
     }
