@@ -129,17 +129,20 @@ class DiscoveryProvider extends ChangeNotifier {
   }
 
   Future<void> refreshPeers() async {
-    // Snapshot flags before toggling — use the provider's own setters so
-    // _bleEnabled/_lanEnabled/_wifiDirectEnabled and prefs stay consistent.
-    final ble = _bleEnabled;
-    final lan = _lanEnabled;
-    final wd = _wifiDirectEnabled;
-    if (ble) await setBleEnabled(false);
-    if (lan) await setLanEnabled(false);
-    if (wd) await setWifiDirectEnabled(false);
-    if (ble) await setBleEnabled(true);
-    if (lan) await setLanEnabled(true);
-    if (wd) await setWifiDirectEnabled(true);
+    // Restart each enabled transport individually so only one is dark at a
+    // time — the others keep advertising and scanning while it cycles.
+    if (_bleEnabled) {
+      await setBleEnabled(false);
+      await setBleEnabled(true);
+    }
+    if (_lanEnabled) {
+      await setLanEnabled(false);
+      await setLanEnabled(true);
+    }
+    if (_wifiDirectEnabled) {
+      await setWifiDirectEnabled(false);
+      await setWifiDirectEnabled(true);
+    }
   }
 
   @override

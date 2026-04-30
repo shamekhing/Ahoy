@@ -40,6 +40,10 @@ class WiFiDirectTransport implements TransportInterface {
   // Prevents duplicate connect() calls from repeated onPeersDiscovered events.
   final _connectingAddresses = <String>{};
 
+  // The single device address whose connect() call is currently in flight.
+  // WiFi Direct only allows one pending group-formation attempt at a time.
+  String? _pendingConnectAddress;
+
   // Our own identity, cached for broadcasting after connection
   String? _myUuid;
   String? _myShortId;
@@ -59,6 +63,11 @@ class WiFiDirectTransport implements TransportInterface {
     _myShortId = shortId;
     _myDisplayName = displayName;
     _myStatusMessage = statusMessage;
+
+    // Register the handler here as well as in startScanning() so that
+    // Kotlin→Dart callbacks (e.g. onDataReceived) are handled regardless of
+    // which method is called first.
+    _channel.setMethodCallHandler(_onKotlinCall);
 
     if (!_initialized) {
       try {
@@ -88,6 +97,7 @@ class WiFiDirectTransport implements TransportInterface {
       _isGroupOwner = false;
       _groupOwnerAddress = null;
       _connectingAddresses.clear();
+      _pendingConnectAddress = null;
       _addressToUuid.clear();
       _uuidToAddress.clear();
     }
@@ -138,8 +148,12 @@ class WiFiDirectTransport implements TransportInterface {
         break;
       case 'onConnectionFailed':
         debugPrint('[WiFiDirect] Connection failed: ${call.arguments}');
-        // Release the lock so the next discoverPeers cycle can retry.
-        _connectingAddresses.clear();
+        // Release only the address whose connect() just failed so that other
+        // in-flight or already-established connections are not disturbed.
+        if (_pendingConnectAddress != null) {
+          _connectingAddresses.remove(_pendingConnectAddress);
+          _pendingConnectAddress = null;
+        }
         break;
       case 'onDisconnected':
         _isGroupOwner = false;
@@ -270,10 +284,13 @@ class WiFiDirectTransport implements TransportInterface {
   }
 
   Future<void> _tryConnect(String deviceAddress) async {
+    _pendingConnectAddress = deviceAddress;
     try {
       await _channel.invokeMethod('connect', {'deviceAddress': deviceAddress});
     } catch (e) {
       debugPrint('[WiFiDirect] connect to $deviceAddress failed: $e');
+      _connectingAddresses.remove(deviceAddress);
+      if (_pendingConnectAddress == deviceAddress) _pendingConnectAddress = null;
     }
   }
 
