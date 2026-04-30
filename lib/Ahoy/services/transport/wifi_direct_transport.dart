@@ -162,16 +162,9 @@ class WiFiDirectTransport implements TransportInterface {
         final address = p['deviceAddress'] as String? ?? '';
         debugPrint('[WiFiDirect] Peer found: $name @ $address');
 
-        // Emit a preliminary announcement for discovered peers
-        // We'll update it with real identity when TCP connection is established
-        if (address.isNotEmpty && !_uuidToAddress.containsValue(address)) {
-          _announcementController.add(PeerAnnouncement(
-            uuid: address, // Use address as temporary UUID until real UUID is known
-            shortId: '',
-            displayName: name,
-            transport: TransportMode.wifiDirect,
-          ));
-        }
+        // Do NOT emit a stub announcement here — the peer has no Ahoy identity yet
+        // (shortId/UUID unknown) and would show as a duplicate "@" entry in the UI.
+        // The real announcement is emitted after TCP identity exchange in _handleDataReceived.
 
         // Auto-connect to newly found peers if not already connected.
         if (address.isNotEmpty &&
@@ -305,6 +298,10 @@ class WiFiDirectTransport implements TransportInterface {
   Future<bool> send(String peerUuid, String payload) async {
     if (!Platform.isAndroid) return false;
     final address = _uuidToAddress[peerUuid] ?? _groupOwnerAddress;
+    if (address == null || address.isEmpty) {
+      debugPrint('[WiFiDirect] send: no route for $peerUuid — identity exchange not complete yet');
+      return false;
+    }
     return _sendBytes(utf8.encode(payload), address);
   }
 

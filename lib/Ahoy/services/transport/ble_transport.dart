@@ -50,6 +50,8 @@ class BleTransport implements TransportInterface {
     String? publicKeyPEM,
   }) async {
     _myUuid = uuid;
+    // Register here so GATT writes arriving right after the server opens are handled.
+    _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
 
     if (!Platform.isAndroid) return;
 
