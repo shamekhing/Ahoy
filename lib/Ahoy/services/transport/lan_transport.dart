@@ -10,13 +10,21 @@ class LanTransport implements TransportInterface {
   @override
   TransportMode get mode => TransportMode.lan;
 
+  final int _discoveryPort;
+  final int _messagingPort;
+  final int _maxPayloadBytes;
+  final int _maxMessagesPerConnection;
+  final Duration _tcpIdleTimeout;
+
   final _packetController = StreamController<InboundPacket>.broadcast();
-  final _announcementController = StreamController<PeerAnnouncement>.broadcast();
+  final _announcementController =
+      StreamController<PeerAnnouncement>.broadcast();
 
   @override
   Stream<InboundPacket> get packetStream => _packetController.stream;
   @override
-  Stream<PeerAnnouncement> get announcementStream => _announcementController.stream;
+  Stream<PeerAnnouncement> get announcementStream =>
+      _announcementController.stream;
 
   RawDatagramSocket? _udpSocket;
   // Dedicated send socket so we don't hold up the receive socket between sends.
@@ -33,6 +41,23 @@ class LanTransport implements TransportInterface {
 
   // peerUuid → InternetAddress + port for TCP
   final Map<String, _PeerConn> _peerConns = {};
+
+  LanTransport({
+    int discoveryPort = AhoyConstants.lanDiscoveryPort,
+    int messagingPort = AhoyConstants.lanMessagingPort,
+    int maxPayloadBytes = AhoyConstants.lanMaxPayloadBytes,
+    int maxMessagesPerConnection = AhoyConstants.lanMaxMessagesPerConnection,
+    Duration tcpIdleTimeout = const Duration(
+      seconds: AhoyConstants.lanTcpIdleTimeoutSeconds,
+    ),
+  }) : _discoveryPort = discoveryPort,
+       _messagingPort = messagingPort,
+       _maxPayloadBytes = maxPayloadBytes,
+       _maxMessagesPerConnection = maxMessagesPerConnection,
+       _tcpIdleTimeout = tcpIdleTimeout;
+
+  @visibleForTesting
+  int? get debugMessagingPort => _tcpServer?.port;
 
   @override
   Future<void> startAdvertising({
@@ -61,9 +86,15 @@ class LanTransport implements TransportInterface {
   @override
   Future<void> startScanning() async {
     try {
-      _udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, AhoyConstants.lanDiscoveryPort);
+      _udpSocket = await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        _discoveryPort,
+      );
       _udpSocket!.broadcastEnabled = true;
-      _udpSocket!.listen(_onUdpDatagram, onError: (e) => debugPrint('[LAN] UDP socket error: $e'));
+      _udpSocket!.listen(
+        _onUdpDatagram,
+        onError: (e) => debugPrint('[LAN] UDP socket error: $e'),
+      );
     } catch (e) {
       debugPrint('[LAN] UDP bind failed: $e');
     }
@@ -78,7 +109,10 @@ class LanTransport implements TransportInterface {
     }
 
     try {
-      _tcpServer = await ServerSocket.bind(InternetAddress.anyIPv4, AhoyConstants.lanMessagingPort);
+      _tcpServer = await ServerSocket.bind(
+        InternetAddress.anyIPv4,
+        _messagingPort,
+      );
       _tcpServer!.listen(_onTcpConnection);
     } catch (e) {
       debugPrint('[LAN] TCP server bind failed: $e');
@@ -106,15 +140,17 @@ class LanTransport implements TransportInterface {
 
   Future<void> _broadcast() async {
     if (!_advertising || _myUuid == null) return;
-    final data = utf8.encode(jsonEncode({
-      'type': 'ahoy_announce',
-      'uuid': _myUuid,
-      'shortId': _myShortId,
-      'displayName': _myDisplayName,
-      'statusMessage': _myStatusMessage,
-      'publicKeyPEM': _myPublicKeyPEM,
-      'port': AhoyConstants.lanMessagingPort,
-    }));
+    final data = utf8.encode(
+      jsonEncode({
+        'type': 'ahoy_announce',
+        'uuid': _myUuid,
+        'shortId': _myShortId,
+        'displayName': _myDisplayName,
+        'statusMessage': _myStatusMessage,
+        'publicKeyPEM': _myPublicKeyPEM,
+        'port': _tcpServer?.port ?? _messagingPort,
+      }),
+    );
 
     // Collect broadcast targets: limited broadcast + each interface's /24 subnet.
     final targets = <String>{'255.255.255.255'};
@@ -137,7 +173,7 @@ class LanTransport implements TransportInterface {
     if (sock == null) return;
     for (final target in targets) {
       try {
-        sock.send(data, InternetAddress(target), AhoyConstants.lanDiscoveryPort);
+        sock.send(data, InternetAddress(target), _discoveryPort);
       } catch (e) {
         debugPrint('[LAN] Broadcast to $target failed: $e');
       }
@@ -148,46 +184,107 @@ class LanTransport implements TransportInterface {
     if (event != RawSocketEvent.read) return;
     final dg = _udpSocket?.receive();
     if (dg == null) return;
+    if (dg.data.length > AhoyConstants.lanMaxAnnouncementBytes) return;
     try {
       final json = jsonDecode(utf8.decode(dg.data)) as Map<String, dynamic>;
       if (json['type'] != 'ahoy_announce') return;
       final uuid = json['uuid'] as String?;
       if (uuid == null || uuid == _myUuid) return;
+      final announcedPort = json['port'];
+      final port = announcedPort is int ? announcedPort : _messagingPort;
+      if (port <= 0 || port > 65535) return;
 
-      _peerConns[uuid] = _PeerConn(dg.address, AhoyConstants.lanMessagingPort);
+      _peerConns[uuid] = _PeerConn(dg.address, port);
 
-      _announcementController.add(PeerAnnouncement(
-        uuid: uuid,
-        shortId: json['shortId'] as String? ?? '',
-        displayName: json['displayName'] as String? ?? 'Unknown',
-        statusMessage: json['statusMessage'] as String?,
-        publicKeyPEM: json['publicKeyPEM'] as String?,
-        transport: TransportMode.lan,
-      ));
+      _announcementController.add(
+        PeerAnnouncement(
+          uuid: uuid,
+          shortId: json['shortId'] as String? ?? '',
+          displayName: json['displayName'] as String? ?? 'Unknown',
+          statusMessage: json['statusMessage'] as String?,
+          publicKeyPEM: json['publicKeyPEM'] as String?,
+          transport: TransportMode.lan,
+        ),
+      );
     } catch (_) {}
   }
 
   void _onTcpConnection(Socket socket) {
-    final buffer = StringBuffer();
+    final buffer = <int>[];
+    var messagesProcessed = 0;
+    var closed = false;
+    Timer? idleTimer;
+
+    void close({bool discardBuffer = false}) {
+      if (closed) return;
+      closed = true;
+      idleTimer?.cancel();
+      if (discardBuffer) buffer.clear();
+      socket.destroy();
+    }
+
+    void resetIdleTimer() {
+      idleTimer?.cancel();
+      idleTimer = Timer(_tcpIdleTimeout, () => close(discardBuffer: true));
+    }
+
+    bool processBufferedMessage() {
+      if (buffer.isEmpty) return true;
+      if (messagesProcessed >= _maxMessagesPerConnection) {
+        debugPrint('[LAN] Dropping TCP connection with too many messages');
+        close(discardBuffer: true);
+        return false;
+      }
+
+      final messageBytes = buffer.last == 13
+          ? buffer.sublist(0, buffer.length - 1)
+          : List<int>.from(buffer);
+      buffer.clear();
+      if (messageBytes.isEmpty) return true;
+
+      messagesProcessed += 1;
+      _processMessageBytes(messageBytes);
+
+      if (messagesProcessed >= _maxMessagesPerConnection) {
+        close();
+        return false;
+      }
+      return true;
+    }
+
+    resetIdleTimer();
     socket.listen(
       (bytes) {
-        buffer.write(utf8.decode(bytes, allowMalformed: true));
-        final raw = buffer.toString();
-        final lines = raw.split('\n');
-        for (int i = 0; i < lines.length - 1; i++) {
-          _processMessage(lines[i]);
+        resetIdleTimer();
+        for (final byte in bytes) {
+          if (byte == 10) {
+            if (!processBufferedMessage()) return;
+            continue;
+          }
+
+          if (buffer.length >= _maxPayloadBytes) {
+            debugPrint('[LAN] Dropping oversized TCP payload');
+            close(discardBuffer: true);
+            return;
+          }
+          buffer.add(byte);
         }
-        buffer.clear();
-        buffer.write(lines.last);
       },
       onDone: () {
-        // Process any message that arrived without a trailing newline.
-        final remaining = buffer.toString().trim();
-        if (remaining.isNotEmpty) _processMessage(remaining);
+        idleTimer?.cancel();
+        // Process any bounded message that arrived without a trailing newline.
+        if (!closed) processBufferedMessage();
         socket.destroy();
       },
-      onError: (_) => socket.destroy(),
+      onError: (_) => close(discardBuffer: true),
     );
+  }
+
+  void _processMessageBytes(List<int> bytes) {
+    if (bytes.isEmpty || bytes.length > _maxPayloadBytes) return;
+    try {
+      _processMessage(utf8.decode(bytes));
+    } catch (_) {}
   }
 
   void _processMessage(String raw) {
@@ -197,25 +294,37 @@ class LanTransport implements TransportInterface {
       final from = json['from'] as String?;
       // Drop packets that claim to be from ourselves.
       if (from == null || from == _myUuid) return;
-      _packetController.add(InboundPacket(
-        peerUuid: from,
-        peerShortId: json['fromShortId'] as String? ?? '',
-        peerDisplayName: json['fromName'] as String? ?? 'Unknown',
-        payload: raw,
-        transport: TransportMode.lan,
-      ));
+      _packetController.add(
+        InboundPacket(
+          peerUuid: from,
+          peerShortId: json['fromShortId'] as String? ?? '',
+          peerDisplayName: json['fromName'] as String? ?? 'Unknown',
+          payload: raw,
+          transport: TransportMode.lan,
+        ),
+      );
     } catch (_) {}
   }
 
   @override
   Future<bool> send(String peerUuid, String payload) async {
+    final payloadBytes = utf8.encode(payload);
+    if (payloadBytes.length > _maxPayloadBytes) {
+      debugPrint('[LAN] Refusing oversized payload to $peerUuid');
+      return false;
+    }
+
     final conn = _peerConns[peerUuid];
     if (conn == null) return false;
     Socket? socket;
     try {
-      socket = await Socket.connect(conn.address, conn.port,
-          timeout: const Duration(seconds: 5));
-      socket.write('$payload\n');
+      socket = await Socket.connect(
+        conn.address,
+        conn.port,
+        timeout: const Duration(seconds: 5),
+      );
+      socket.add(payloadBytes);
+      socket.add(const [10]);
       await socket.flush();
       return true;
     } catch (e) {
@@ -224,7 +333,9 @@ class LanTransport implements TransportInterface {
       _peerConns.remove(peerUuid);
       return false;
     } finally {
-      try { await socket?.close(); } catch (_) {}
+      try {
+        await socket?.close();
+      } catch (_) {}
     }
   }
 

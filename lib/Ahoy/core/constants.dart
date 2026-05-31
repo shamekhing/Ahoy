@@ -12,6 +12,10 @@ class AhoyConstants {
   static const int lanMessagingPort = 45679; // TCP
   static const int lanPeerExpirySeconds = 30;
   static const int lanBroadcastIntervalSeconds = 5;
+  static const int lanMaxAnnouncementBytes = 64 * 1024;
+  static const int lanMaxPayloadBytes = 16 * 1024 * 1024;
+  static const int lanTcpIdleTimeoutSeconds = 10;
+  static const int lanMaxMessagesPerConnection = 8;
 
   // Storage keys — SecureStore
   static const String keyUserId = 'ahoy_user_id';
