@@ -59,7 +59,7 @@ class CryptoService {
     final parts = storedHash.split(':');
     if (parts.length != 2) return false;
     final hash = sha256.convert(utf8.encode(parts[0] + password));
-    return hash.toString() == parts[1];
+    return _constantTimeEquals(hash.toString(), parts[1]);
   }
 
   /// Constant-time string comparison to prevent timing attacks.
@@ -88,30 +88,70 @@ class CryptoService {
 
   String encryptForPeer(String plaintext, String peerPublicKeyPEM) {
     _assertReady();
-    final peerPublicKey = enc.RSAKeyParser().parse(peerPublicKeyPEM) as pc.RSAPublicKey;
+    final peerPublicKey =
+        enc.RSAKeyParser().parse(peerPublicKeyPEM) as pc.RSAPublicKey;
     final aesKey = _randomBytes(32);
     final iv = enc.IV(_randomBytes(12));
-    final encrypter = enc.Encrypter(enc.AES(enc.Key(aesKey), mode: enc.AESMode.gcm));
+    final encrypter = enc.Encrypter(
+      enc.AES(enc.Key(aesKey), mode: enc.AESMode.gcm),
+    );
     final ct = encrypter.encrypt(plaintext, iv: iv);
     final encryptedKey = _rsaOaepEncrypt(aesKey, peerPublicKey);
-    return base64.encode(utf8.encode(jsonEncode({
-      'v': 2,
-      'ek': base64.encode(encryptedKey),
-      'iv': base64.encode(iv.bytes),
-      'ct': ct.base64,
-    })));
+    return base64.encode(
+      utf8.encode(
+        jsonEncode({
+          'v': 2,
+          'ek': base64.encode(encryptedKey),
+          'iv': base64.encode(iv.bytes),
+          'ct': ct.base64,
+        }),
+      ),
+    );
   }
 
   String decryptFromPeer(String encryptedBase64) {
     _assertReady();
-    final envelope = jsonDecode(utf8.decode(base64.decode(encryptedBase64))) as Map;
+    final envelope =
+        jsonDecode(utf8.decode(base64.decode(encryptedBase64))) as Map;
     if (envelope['v'] != 2) throw const CryptoNotInitialized();
     final encryptedKey = base64.decode(envelope['ek'] as String);
     final aesKey = _rsaOaepDecrypt(encryptedKey);
     final iv = enc.IV(base64.decode(envelope['iv'] as String));
     final ct = enc.Encrypted.fromBase64(envelope['ct'] as String);
-    final encrypter = enc.Encrypter(enc.AES(enc.Key(aesKey), mode: enc.AESMode.gcm));
+    final encrypter = enc.Encrypter(
+      enc.AES(enc.Key(aesKey), mode: enc.AESMode.gcm),
+    );
     return encrypter.decrypt(ct, iv: iv);
+  }
+
+  String signPayload(String payload) {
+    _assertReady();
+    final signer = pc.Signer('SHA-256/RSA')
+      ..init(true, pc.PrivateKeyParameter<pc.RSAPrivateKey>(_privateKey!));
+    final signature =
+        signer.generateSignature(Uint8List.fromList(utf8.encode(payload)))
+            as pc.RSASignature;
+    return base64.encode(signature.bytes);
+  }
+
+  bool verifyPayloadSignature(
+    String payload,
+    String signatureBase64,
+    String publicKeyPEM,
+  ) {
+    try {
+      final publicKey =
+          enc.RSAKeyParser().parse(publicKeyPEM) as pc.RSAPublicKey;
+      final verifier = pc.Signer('SHA-256/RSA')
+        ..init(false, pc.PublicKeyParameter<pc.RSAPublicKey>(publicKey));
+      final signature = pc.RSASignature(base64.decode(signatureBase64));
+      return verifier.verifySignature(
+        Uint8List.fromList(utf8.encode(payload)),
+        signature,
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   // --- Utilities ---
@@ -124,7 +164,10 @@ class CryptoService {
 
   static String conversationId(String myUuid, String peerUuid) {
     final sorted = [myUuid, peerUuid]..sort();
-    return sha256.convert(utf8.encode('${sorted[0]}:${sorted[1]}')).toString().substring(0, 32);
+    return sha256
+        .convert(utf8.encode('${sorted[0]}:${sorted[1]}'))
+        .toString()
+        .substring(0, 32);
   }
 
   Uint8List _randomBytes(int length) {
@@ -160,7 +203,8 @@ String _pbkdf2Hex(String saltHex, String password) {
   final passwordBytes = utf8.encode(password);
 
   final params = pc.Pbkdf2Parameters(saltBytes, 100000, 32);
-  final kdf = pc.PBKDF2KeyDerivator(pc.HMac(pc.SHA256Digest(), 64))..init(params);
+  final kdf = pc.PBKDF2KeyDerivator(pc.HMac(pc.SHA256Digest(), 64))
+    ..init(params);
   final dk = kdf.process(Uint8List.fromList(passwordBytes));
   return dk.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
@@ -168,14 +212,21 @@ String _pbkdf2Hex(String saltHex, String password) {
 // Top-level function — required for Isolate.run / compute.
 Map<String, String> _generateKeyPairInIsolate() {
   final secureRandom = pc.SecureRandom('Fortuna')
-    ..seed(pc.KeyParameter(
-        Uint8List.fromList(List.generate(32, (_) => Random.secure().nextInt(256)))));
+    ..seed(
+      pc.KeyParameter(
+        Uint8List.fromList(
+          List.generate(32, (_) => Random.secure().nextInt(256)),
+        ),
+      ),
+    );
 
   final keyGen = pc.RSAKeyGenerator()
-    ..init(pc.ParametersWithRandom(
-      pc.RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64),
-      secureRandom,
-    ));
+    ..init(
+      pc.ParametersWithRandom(
+        pc.RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64),
+        secureRandom,
+      ),
+    );
 
   final pair = keyGen.generateKeyPair();
   final pub = pair.publicKey as pc.RSAPublicKey;

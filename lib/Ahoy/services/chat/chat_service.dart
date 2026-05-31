@@ -13,6 +13,8 @@ import 'conversation_store.dart';
 import 'message_store.dart';
 
 class ChatService {
+  static final RegExp _pemWhitespace = RegExp(r'\s+');
+
   final TransportManager _transport;
   final ConversationStore _convStore;
   final MessageStore _msgStore;
@@ -39,7 +41,9 @@ class ChatService {
 
     if (type == MessageType.image || type == MessageType.voice) {
       if (mode == TransportMode.ble || mode == TransportMode.none) {
-        throw TransportError('Media messages require LAN or WiFi Direct connection');
+        throw TransportError(
+          'Media messages require LAN or WiFi Direct connection',
+        );
       }
     }
 
@@ -48,13 +52,28 @@ class ChatService {
     }
 
     final convId = MessageStore.conversationId(myUuid, peerUuid);
+    final existingConversation = _findConversation(convId);
+    final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
+      pinnedKey: existingConversation?.peerPublicKeyPEM,
+      candidateKey: peerPublicKeyPEM,
+      peerUuid: peerUuid,
+    );
     final msgId = const Uuid().v4();
     final timestamp = DateTime.now();
 
     // Build payload first so we know whether encryption actually succeeded.
     final payload = _buildPayload(
-      msgId, convId, myShortId, myDisplayName, type, content, replyToId, replyToPreview,
-      timestamp, myPublicKeyPEM, peerPublicKeyPEM,
+      msgId,
+      convId,
+      myShortId,
+      myDisplayName,
+      type,
+      content,
+      replyToId,
+      replyToPreview,
+      timestamp,
+      myPublicKeyPEM,
+      trustedPeerPublicKeyPEM,
     );
     final actuallyEncrypted = payload['isEncrypted'] as bool? ?? false;
 
@@ -73,9 +92,22 @@ class ChatService {
     );
 
     await _msgStore.addMessage(message);
-    await _updateConversationOnSend(convId, peerUuid, peerDisplayName, peerShortId, peerPublicKeyPEM, message);
+    await _updateConversationOnSend(
+      convId,
+      peerUuid,
+      peerDisplayName,
+      peerShortId,
+      trustedPeerPublicKeyPEM,
+      message,
+    );
 
-    final sent = await _transport.send(peerUuid, myUuid, myShortId, myDisplayName, payload);
+    final sent = await _transport.send(
+      peerUuid,
+      myUuid,
+      myShortId,
+      myDisplayName,
+      payload,
+    );
 
     final finalStatus = sent ? MessageStatus.sent : MessageStatus.failed;
     await _msgStore.updateMessageStatus(convId, msgId, finalStatus);
@@ -106,15 +138,11 @@ class ChatService {
     }
 
     if (peerPublicKeyPEM != null && _crypto.isReady) {
-      try {
-        wireContent = _crypto.encryptForPeer(wireContent, peerPublicKeyPEM);
-        encrypted = true;
-      } catch (e) {
-        debugPrint('[ChatService] Encryption failed, sending plaintext: $e');
-      }
+      wireContent = _crypto.encryptForPeer(wireContent, peerPublicKeyPEM);
+      encrypted = true;
     }
 
-    return {
+    final payload = {
       'msgType': 'chat',
       'msgId': msgId,
       'convId': convId,
@@ -126,6 +154,13 @@ class ChatService {
       'replyToPreview': replyToPreview,
       'timestamp': timestamp.toIso8601String(),
     };
+
+    if (myPublicKeyPEM != null && _crypto.isReady) {
+      payload['signatureVersion'] = 1;
+      payload['signature'] = _crypto.signPayload(_signatureMaterial(payload));
+    }
+
+    return payload;
   }
 
   String _encodeMediaContent(String filePath) {
@@ -155,8 +190,21 @@ class ChatService {
       if (blockedUuids.contains(peerUuid)) return null;
 
       final convId = MessageStore.conversationId(myUuid, peerUuid);
-      final isNewConversation = !_convStore.loadAll().any((c) => c.id == convId);
+      final isNewConversation = !_convStore.loadAll().any(
+        (c) => c.id == convId,
+      );
       if (isNewConversation && receiveOff) return null;
+
+      final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
+      final existingConversation = _findConversation(convId);
+      final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
+        pinnedKey: existingConversation?.peerPublicKeyPEM,
+        candidateKey: senderPublicKeyPEM,
+        peerUuid: peerUuid,
+      );
+      if (!_verifyInboundSignature(json, trustedPeerPublicKeyPEM, peerUuid)) {
+        return null;
+      }
 
       final type = MessageType.values.byName(json['type'] as String? ?? 'text');
       final isEncrypted = json['isEncrypted'] as bool? ?? false;
@@ -166,13 +214,17 @@ class ChatService {
         try {
           content = _crypto.decryptFromPeer(content);
         } catch (e) {
-          debugPrint('[ChatService] Decryption failed, dropping message: $e');
-          return null;
+          debugPrint('[ChatService] Decryption failed: $e');
+          content = '[Message could not be decrypted]';
         }
       }
 
       if (type == MessageType.image || type == MessageType.voice) {
-        content = await _saveMediaToFile(content, json['msgId'] as String, type);
+        content = await _saveMediaToFile(
+          content,
+          json['msgId'] as String,
+          type,
+        );
       }
 
       final message = Message(
@@ -189,11 +241,16 @@ class ChatService {
         isEncrypted: isEncrypted,
       );
 
-      final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
-
       await _msgStore.addMessage(message);
       await _updateConversationOnReceive(
-          convId, peerUuid, peerShortId, peerDisplayName, senderPublicKeyPEM, message, transport);
+        convId,
+        peerUuid,
+        peerShortId,
+        peerDisplayName,
+        trustedPeerPublicKeyPEM,
+        message,
+        transport,
+      );
       return message;
     } catch (e, st) {
       debugPrint('[ChatService] onInboundPacket failed: $e\n$st');
@@ -201,7 +258,11 @@ class ChatService {
     }
   }
 
-  Future<String> _saveMediaToFile(String base64Content, String msgId, MessageType type) async {
+  Future<String> _saveMediaToFile(
+    String base64Content,
+    String msgId,
+    MessageType type,
+  ) async {
     try {
       final bytes = base64.decode(base64Content);
       // Use app-private documents directory so the OS doesn't evict the files
@@ -224,24 +285,33 @@ class ChatService {
     String? peerPublicKeyPEM,
     Message msg,
   ) async {
-    final existing = _convStore.loadAll().firstWhere(
-      (c) => c.id == convId,
-      orElse: () => Conversation(
-        id: convId,
-        peerUuid: peerUuid,
-        peerDisplayName: peerDisplayName,
-        peerShortId: peerShortId,
-        peerPublicKeyPEM: peerPublicKeyPEM,
+    final existing = _findConversation(convId);
+    final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
+      pinnedKey: existing?.peerPublicKeyPEM,
+      candidateKey: peerPublicKeyPEM,
+      peerUuid: peerUuid,
+    );
+    final conversation =
+        existing ??
+        Conversation(
+          id: convId,
+          peerUuid: peerUuid,
+          peerDisplayName: peerDisplayName,
+          peerShortId: peerShortId,
+          peerPublicKeyPEM: trustedPeerPublicKeyPEM,
+          lastTransport: msg.transport,
+          createdAt: DateTime.now(),
+        );
+    await _convStore.upsert(
+      conversation.copyWith(
         lastTransport: msg.transport,
-        createdAt: DateTime.now(),
+        lastMessageAt: msg.timestamp,
+        lastMessagePreview: msg.type == MessageType.text
+            ? msg.content
+            : '[${msg.type.name}]',
+        peerPublicKeyPEM: trustedPeerPublicKeyPEM,
       ),
     );
-    await _convStore.upsert(existing.copyWith(
-      lastTransport: msg.transport,
-      lastMessageAt: msg.timestamp,
-      lastMessagePreview: msg.type == MessageType.text ? msg.content : '[${msg.type.name}]',
-      peerPublicKeyPEM: peerPublicKeyPEM ?? existing.peerPublicKeyPEM,
-    ));
   }
 
   Future<void> _updateConversationOnReceive(
@@ -253,27 +323,106 @@ class ChatService {
     Message msg,
     TransportMode transport,
   ) async {
-    final all = _convStore.loadAll();
-    final existing = all.firstWhere(
-      (c) => c.id == convId,
-      orElse: () => Conversation(
-        id: convId,
-        peerUuid: peerUuid,
-        peerShortId: peerShortId,
-        peerPublicKeyPEM: peerPublicKeyPEM,
-        peerDisplayName: peerDisplayName,
+    final existing = _findConversation(convId);
+    final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
+      pinnedKey: existing?.peerPublicKeyPEM,
+      candidateKey: peerPublicKeyPEM,
+      peerUuid: peerUuid,
+    );
+    final conversation =
+        existing ??
+        Conversation(
+          id: convId,
+          peerUuid: peerUuid,
+          peerShortId: peerShortId,
+          peerPublicKeyPEM: trustedPeerPublicKeyPEM,
+          peerDisplayName: peerDisplayName,
+          lastTransport: transport,
+          createdAt: DateTime.now(),
+        );
+    await _convStore.upsert(
+      conversation.copyWith(
         lastTransport: transport,
-        createdAt: DateTime.now(),
+        lastMessageAt: msg.timestamp,
+        lastMessagePreview: msg.type == MessageType.text
+            ? msg.content
+            : '[${msg.type.name}]',
+        unreadCount: conversation.unreadCount + 1,
+        // Update peer identity fields if we now have better data.
+        peerShortId: peerShortId.isNotEmpty ? peerShortId : null,
+        peerPublicKeyPEM: trustedPeerPublicKeyPEM,
       ),
     );
-    await _convStore.upsert(existing.copyWith(
-      lastTransport: transport,
-      lastMessageAt: msg.timestamp,
-      lastMessagePreview: msg.type == MessageType.text ? msg.content : '[${msg.type.name}]',
-      unreadCount: existing.unreadCount + 1,
-      // Update peer identity fields if we now have better data.
-      peerShortId: peerShortId.isNotEmpty ? peerShortId : null,
-      peerPublicKeyPEM: peerPublicKeyPEM ?? existing.peerPublicKeyPEM,
-    ));
+  }
+
+  Conversation? _findConversation(String convId) {
+    for (final conversation in _convStore.loadAll()) {
+      if (conversation.id == convId) return conversation;
+    }
+    return null;
+  }
+
+  String? _resolvePeerPublicKey({
+    required String? pinnedKey,
+    required String? candidateKey,
+    required String peerUuid,
+  }) {
+    if (pinnedKey == null || pinnedKey.isEmpty) return candidateKey;
+    if (candidateKey == null || candidateKey.isEmpty) return pinnedKey;
+    if (_samePublicKey(pinnedKey, candidateKey)) return pinnedKey;
+
+    debugPrint('[ChatService] Ignoring changed public key for peer $peerUuid');
+    return pinnedKey;
+  }
+
+  bool _verifyInboundSignature(
+    Map<String, dynamic> payload,
+    String? trustedPeerPublicKeyPEM,
+    String peerUuid,
+  ) {
+    if (trustedPeerPublicKeyPEM == null || trustedPeerPublicKeyPEM.isEmpty) {
+      return true;
+    }
+
+    final signature = payload['signature'] as String?;
+    if (signature == null || signature.isEmpty) {
+      debugPrint('[ChatService] Dropping unsigned message from peer $peerUuid');
+      return false;
+    }
+
+    final ok = _crypto.verifyPayloadSignature(
+      _signatureMaterial(payload),
+      signature,
+      trustedPeerPublicKeyPEM,
+    );
+    if (!ok) {
+      debugPrint(
+        '[ChatService] Dropping message with invalid signature from peer $peerUuid',
+      );
+    }
+    return ok;
+  }
+
+  String _signatureMaterial(Map<String, dynamic> payload) {
+    return jsonEncode({
+      'msgType': payload['msgType'],
+      'msgId': payload['msgId'],
+      'convId': payload['convId'],
+      'type': payload['type'],
+      'content': payload['content'],
+      'isEncrypted': payload['isEncrypted'],
+      'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
+      'replyToId': payload['replyToId'],
+      'replyToPreview': payload['replyToPreview'],
+      'timestamp': payload['timestamp'],
+    });
+  }
+
+  bool _samePublicKey(String a, String b) {
+    return _canonicalPublicKey(a) == _canonicalPublicKey(b);
+  }
+
+  String _canonicalPublicKey(String key) {
+    return key.replaceAll(_pemWhitespace, '');
   }
 }

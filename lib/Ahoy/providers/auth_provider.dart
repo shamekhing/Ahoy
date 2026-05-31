@@ -101,6 +101,10 @@ class AuthProvider extends ChangeNotifier {
     await _authService.enableBiometric();
   }
 
+  Future<void> disableBiometric() async {
+    await _authService.disableBiometric();
+  }
+
   void updateUser(LocalUser user) {
     _user = user;
     notifyListeners();

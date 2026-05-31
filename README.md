@@ -7,7 +7,7 @@ Ahoy is a Flutter/Android app that lets nearby devices discover each other and c
 ---
 
 ## Table of Contents
-
+[build](android/build)
 1. [Architecture Overview](#1-architecture-overview)
 2. [Project Structure](#2-project-structure)
 3. [Cold Start — App Launch](#3-cold-start--app-launch)
@@ -43,31 +43,31 @@ Ahoy is a Flutter/Android app that lets nearby devices discover each other and c
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        UI Layer (Dart)                       │
-│  SignIn  SignUp  Discover  Chats  Chat  Profile  Settings    │
-│               Widgets: PeerCard, MessageBubble, Badges       │
+│                        UI Layer (Dart)                      │
+│  SignIn  SignUp  Discover  Chats  Chat  Profile  Settings   │
+│               Widgets: PeerCard, MessageBubble, Badges      │
 └───────────────────────────┬─────────────────────────────────┘
                             │  context.watch / context.read
 ┌───────────────────────────▼─────────────────────────────────┐
-│                    Provider Layer (Dart)                      │
-│  AuthProvider  ChatProvider  DiscoveryProvider               │
-│  ProfileProvider  TransportProvider                          │
+│                    Provider Layer (Dart)                    │
+│  AuthProvider  ChatProvider  DiscoveryProvider              │
+│  ProfileProvider  TransportProvider                         │
 └──────┬────────────────┬───────────────────────┬─────────────┘
        │                │                       │
 ┌──────▼──────┐  ┌──────▼──────┐  ┌────────────▼────────────┐
-│ AuthService │  │ ChatService │  │    DiscoveryService      │
-│ ProfileSvc  │  │ MsgStore    │  │    TransportManager      │
-│ CryptoSvc   │  │ ConvStore   │  │                          │
-│ KeyStore    │  │ MediaSvc    │  │                          │
+│ AuthService │  │ ChatService │  │    DiscoveryService     │
+│ ProfileSvc  │  │ MsgStore    │  │    TransportManager     │
+│ CryptoSvc   │  │ ConvStore   │  │                         │
+│ KeyStore    │  │ MediaSvc    │  │                         │
 └──────┬──────┘  └─────────────┘  └────────────┬────────────┘
        │                                        │
-┌──────▼────────────────────────────────────────▼────────────┐
-│                    Transport Layer (Dart)                    │
+┌──────▼────────────────────────────────────────▼─────────────┐
+│                    Transport Layer (Dart)                   │
 │   WiFiDirectTransport   LanTransport   BleTransport         │
 └──────────────────────────────┬──────────────────────────────┘
                                │  MethodChannel
 ┌──────────────────────────────▼──────────────────────────────┐
-│               Android Native (Kotlin — MainActivity.kt)      │
+│               Android Native (Kotlin — MainActivity.kt)     │
 │   WiFi P2P Manager + TCP ServerSocket   BLE GATT Server     │
 └─────────────────────────────────────────────────────────────┘
 ```

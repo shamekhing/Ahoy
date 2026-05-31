@@ -96,6 +96,10 @@ class AuthService {
     await _secureStore.write(AhoyConstants.keyBiometricEnabled, 'true');
   }
 
+  Future<void> disableBiometric() async {
+    await _secureStore.delete(AhoyConstants.keyBiometricEnabled);
+  }
+
   // onTransportStop is async — we await it before wiping storage so transports
   // are fully stopped before their data disappears underneath them.
   Future<void> signOut({required Future<void> Function() onTransportStop}) async {

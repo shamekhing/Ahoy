@@ -33,9 +33,13 @@ class _ChatScreenState extends State<ChatScreen> {
   late String _convId;
 
   Conversation _currentConv(ChatProvider chat) => chat.conversations.firstWhere(
-        (c) => c.id == _convId,
-        orElse: () => widget.conversation,
-      );
+    (c) => c.id == _convId,
+    orElse: () => widget.conversation,
+  );
+
+  String? _peerPublicKeyFor(Conversation conv, NearbyPeer livePeer) {
+    return conv.peerPublicKeyPEM ?? livePeer.publicKeyPEM;
+  }
 
   @override
   void initState() {
@@ -82,11 +86,13 @@ class _ChatScreenState extends State<ChatScreen> {
       type: MessageType.text,
       content: text,
       myPublicKeyPEM: auth.user!.publicKeyPEM,
-      peerPublicKeyPEM: livePeer.publicKeyPEM,
+      peerPublicKeyPEM: _peerPublicKeyFor(conv, livePeer),
       replyToId: _replyTo?.id,
       replyToPreview: _replyTo == null
           ? null
-          : (_replyTo!.content.length > 80 ? '${_replyTo!.content.substring(0, 80)}…' : _replyTo!.content),
+          : (_replyTo!.content.length > 80
+                ? '${_replyTo!.content.substring(0, 80)}…'
+                : _replyTo!.content),
     );
     setState(() => _replyTo = null);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
@@ -111,7 +117,7 @@ class _ChatScreenState extends State<ChatScreen> {
       type: MessageType.image,
       content: path,
       myPublicKeyPEM: auth.user!.publicKeyPEM,
-      peerPublicKeyPEM: livePeer.publicKeyPEM,
+      peerPublicKeyPEM: _peerPublicKeyFor(conv, livePeer),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
@@ -140,7 +146,7 @@ class _ChatScreenState extends State<ChatScreen> {
           type: MessageType.voice,
           content: path,
           myPublicKeyPEM: auth.user!.publicKeyPEM,
-          peerPublicKeyPEM: livePeer.publicKeyPEM,
+          peerPublicKeyPEM: _peerPublicKeyFor(conv, livePeer),
         );
       }
     } else {
@@ -183,7 +189,10 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ListTile(
               leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Delete Conversation', style: TextStyle(color: Colors.red)),
+              title: const Text(
+                'Delete Conversation',
+                style: TextStyle(color: Colors.red),
+              ),
               onTap: () async {
                 Navigator.pop(context);
                 await _confirmDelete(chat);
@@ -202,7 +211,10 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const Text('Delete Conversation'),
         content: const Text('All messages will be permanently deleted.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -247,7 +259,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.more_vert), onPressed: _showOptions),
+          IconButton(
+            icon: const Icon(Icons.more_vert),
+            onPressed: _showOptions,
+          ),
         ],
       ),
       body: conv.isBlocked
@@ -267,7 +282,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   MaterialBanner(
                     content: Text(chat.error!),
                     actions: [
-                      TextButton(onPressed: chat.clearError, child: const Text('Dismiss')),
+                      TextButton(
+                        onPressed: chat.clearError,
+                        child: const Text('Dismiss'),
+                      ),
                     ],
                   ),
                 Expanded(
