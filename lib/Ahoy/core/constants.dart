@@ -6,6 +6,8 @@ class AhoyConstants {
   static const String bleProfileCharUuid =
       '12345678-1234-1234-1234-123456789aaa';
   static const int bleChunkSize = 180; // bytes per BLE chunk (ATT MTU safe)
+  static const int bleMaxPayloadBytes = 256 * 1024;
+  static const int bleMaxActiveAssemblies = 16;
 
   // LAN
   static const int lanDiscoveryPort = 45678; // UDP broadcast

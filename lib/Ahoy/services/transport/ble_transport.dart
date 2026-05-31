@@ -16,19 +16,24 @@ class BleTransport implements TransportInterface {
   TransportMode get mode => TransportMode.ble;
 
   final _packetController = StreamController<InboundPacket>.broadcast();
-  final _announcementController = StreamController<PeerAnnouncement>.broadcast();
+  final _announcementController =
+      StreamController<PeerAnnouncement>.broadcast();
+  final int _maxPayloadBytes;
+  final int _maxActiveAssemblies;
 
   @override
   Stream<InboundPacket> get packetStream => _packetController.stream;
   @override
-  Stream<PeerAnnouncement> get announcementStream => _announcementController.stream;
+  Stream<PeerAnnouncement> get announcementStream =>
+      _announcementController.stream;
 
   StreamSubscription? _scanSub;
   StreamSubscription? _scanStateSub;
 
-  // Chunk reassembly: msgId → { seqNo → base64Chunk }
-  final Map<String, Map<int, String>> _chunkBuffer = {};
+  // Chunk reassembly: msgId → { seqNo → decoded chunk bytes }
+  final Map<String, Map<int, Uint8List>> _chunkBuffer = {};
   final Map<String, int> _chunkTotal = {};
+  final Map<String, int> _chunkByteCounts = {};
   // Timestamp of last chunk received per msgId — used to evict stale assemblies.
   final Map<String, DateTime> _chunkTimestamps = {};
   Timer? _chunkCleanupTimer;
@@ -42,6 +47,24 @@ class BleTransport implements TransportInterface {
 
   // Used to filter out our own device from BLE scan results.
   String? _myShortId;
+
+  BleTransport({
+    int maxPayloadBytes = AhoyConstants.bleMaxPayloadBytes,
+    int maxActiveAssemblies = AhoyConstants.bleMaxActiveAssemblies,
+  }) : _maxPayloadBytes = maxPayloadBytes,
+       _maxActiveAssemblies = maxActiveAssemblies;
+
+  int get _maxTotalChunks {
+    final chunks = (_maxPayloadBytes / AhoyConstants.bleChunkSize).ceil();
+    return chunks < 1 ? 1 : chunks;
+  }
+
+  int get _maxChunkDataLength => ((AhoyConstants.bleChunkSize + 2) ~/ 3) * 4;
+
+  @visibleForTesting
+  void debugReceiveChunk(String rawChunk, String deviceAddress) {
+    _receiveChunk(rawChunk, deviceAddress);
+  }
 
   @override
   Future<void> startAdvertising({
@@ -119,7 +142,10 @@ class BleTransport implements TransportInterface {
     _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
     _scanning = true;
     _scanSub ??= FlutterBluePlus.onScanResults.listen(_onScanResult);
-    _chunkCleanupTimer ??= Timer.periodic(const Duration(seconds: 30), (_) => _evictStaleChunks());
+    _chunkCleanupTimer ??= Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _evictStaleChunks(),
+    );
     _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
       // Only react to the scan stopping when the PREVIOUS start actually
       // succeeded.  If it failed, the catch block in _restartScan() already
@@ -165,6 +191,11 @@ class BleTransport implements TransportInterface {
     _chunkCleanupTimer = null;
     await _scanStateSub?.cancel();
     _scanStateSub = null;
+    if (!Platform.isAndroid) {
+      await _scanSub?.cancel();
+      _scanSub = null;
+      return;
+    }
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
     _scanSub = null;
@@ -179,9 +210,12 @@ class BleTransport implements TransportInterface {
     for (final id in stale) {
       _chunkBuffer.remove(id);
       _chunkTotal.remove(id);
+      _chunkByteCounts.remove(id);
       _chunkTimestamps.remove(id);
     }
-    if (stale.isNotEmpty) debugPrint('[BLE] Evicted ${stale.length} stale chunk assemblies');
+    if (stale.isNotEmpty) {
+      debugPrint('[BLE] Evicted ${stale.length} stale chunk assemblies');
+    }
   }
 
   void _onScanResult(List<ScanResult> results) {
@@ -214,12 +248,14 @@ class BleTransport implements TransportInterface {
       final deviceId = result.device.remoteId.str;
       if (_myShortId != null && shortId == _myShortId) return;
 
-      _announcementController.add(PeerAnnouncement(
-        uuid: deviceId,
-        shortId: shortId,
-        displayName: displayName,
-        transport: TransportMode.ble,
-      ));
+      _announcementController.add(
+        PeerAnnouncement(
+          uuid: deviceId,
+          shortId: shortId,
+          displayName: displayName,
+          transport: TransportMode.ble,
+        ),
+      );
     } catch (_) {}
   }
 
@@ -237,8 +273,7 @@ class BleTransport implements TransportInterface {
         (c) => c.uuid == Guid(AhoyConstants.bleCharacteristicUuid),
         orElse: () => throw Exception('BLE characteristic not found'),
       );
-      await _sendChunked(char, payload);
-      return true;
+      return _sendChunked(char, payload);
     } catch (e) {
       debugPrint('[BLE] Send failed: $e');
       _connectedDevices.remove(peerUuid);
@@ -281,11 +316,20 @@ class BleTransport implements TransportInterface {
     }
   }
 
-  Future<void> _sendChunked(BluetoothCharacteristic char, String payload) async {
+  Future<bool> _sendChunked(
+    BluetoothCharacteristic char,
+    String payload,
+  ) async {
     final msgId = DateTime.now().millisecondsSinceEpoch.toString();
     final bytes = utf8.encode(payload);
+    if (bytes.length > _maxPayloadBytes) {
+      debugPrint('[BLE] Refusing oversized payload');
+      return false;
+    }
+
     final chunkSize = AhoyConstants.bleChunkSize;
     final totalChunks = (bytes.length / chunkSize).ceil();
+    if (totalChunks == 0 || totalChunks > _maxTotalChunks) return false;
 
     for (int seq = 0; seq < totalChunks; seq++) {
       final start = seq * chunkSize;
@@ -300,31 +344,57 @@ class BleTransport implements TransportInterface {
       await char.write(utf8.encode(envelope), withoutResponse: false);
       await Future.delayed(const Duration(milliseconds: 20));
     }
+    return true;
   }
 
   void _receiveChunk(String rawChunk, String deviceAddress) {
     try {
+      if (rawChunk.length > _maxChunkDataLength + 160) return;
       final json = jsonDecode(rawChunk) as Map<String, dynamic>;
-      final msgId = json['m'] as String;
-      final seq = json['seq'] as int;
-      final total = json['total'] as int;
-      final data = json['data'] as String;
+      final msgId = json['m'] as String? ?? '';
+      final seq = json['seq'] as int? ?? -1;
+      final total = json['total'] as int? ?? -1;
+      final data = json['data'] as String? ?? '';
+
+      if (msgId.isEmpty || msgId.length > 64) return;
+      if (total <= 0 || total > _maxTotalChunks) return;
+      if (seq < 0 || seq >= total) return;
+      if (data.isEmpty || data.length > _maxChunkDataLength) return;
+
+      final existingTotal = _chunkTotal[msgId];
+      if (existingTotal != null && existingTotal != total) {
+        _dropAssembly(msgId);
+        return;
+      }
+
+      if (!_chunkBuffer.containsKey(msgId) &&
+          _chunkBuffer.length >= _maxActiveAssemblies) {
+        _evictOldestAssembly();
+      }
+
+      final bytes = Uint8List.fromList(base64.decode(data));
+      if (bytes.length > AhoyConstants.bleChunkSize) return;
 
       _chunkBuffer.putIfAbsent(msgId, () => {});
       _chunkTotal[msgId] = total;
-      _chunkBuffer[msgId]![seq] = data;
+      final previousBytes = _chunkBuffer[msgId]![seq]?.length ?? 0;
+      _chunkBuffer[msgId]![seq] = bytes;
+      final byteCount =
+          (_chunkByteCounts[msgId] ?? 0) - previousBytes + bytes.length;
+      if (byteCount > _maxPayloadBytes) {
+        _dropAssembly(msgId);
+        return;
+      }
+      _chunkByteCounts[msgId] = byteCount;
       _chunkTimestamps[msgId] = DateTime.now();
 
       if (_chunkBuffer[msgId]!.length == total) {
         final sortedKeys = _chunkBuffer[msgId]!.keys.toList()..sort();
         final allBytes = sortedKeys
-            .map((k) => base64.decode(_chunkBuffer[msgId]![k]!))
-            .expand((b) => b)
+            .expand((k) => _chunkBuffer[msgId]![k]!)
             .toList();
         final payload = utf8.decode(allBytes);
-        _chunkBuffer.remove(msgId);
-        _chunkTotal.remove(msgId);
-        _chunkTimestamps.remove(msgId);
+        _dropAssembly(msgId);
 
         // Parse peer identity from the assembled payload so the packet
         // carries the real Ahoy UUID rather than the BT MAC address.
@@ -338,17 +408,39 @@ class BleTransport implements TransportInterface {
           peerName = pJson['fromName'] as String? ?? 'Unknown';
         } catch (_) {}
 
-        _packetController.add(InboundPacket(
-          peerUuid: peerUuid,
-          peerShortId: peerShortId,
-          peerDisplayName: peerName,
-          payload: payload,
-          transport: TransportMode.ble,
-        ));
+        _packetController.add(
+          InboundPacket(
+            peerUuid: peerUuid,
+            peerShortId: peerShortId,
+            peerDisplayName: peerName,
+            payload: payload,
+            transport: TransportMode.ble,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('[BLE] Chunk parse error: $e');
     }
+  }
+
+  void _dropAssembly(String msgId) {
+    _chunkBuffer.remove(msgId);
+    _chunkTotal.remove(msgId);
+    _chunkByteCounts.remove(msgId);
+    _chunkTimestamps.remove(msgId);
+  }
+
+  void _evictOldestAssembly() {
+    if (_chunkTimestamps.isEmpty) return;
+    var oldestId = _chunkTimestamps.keys.first;
+    var oldestTimestamp = _chunkTimestamps[oldestId]!;
+    for (final entry in _chunkTimestamps.entries.skip(1)) {
+      if (entry.value.isBefore(oldestTimestamp)) {
+        oldestId = entry.key;
+        oldestTimestamp = entry.value;
+      }
+    }
+    _dropAssembly(oldestId);
   }
 
   @override
@@ -366,6 +458,7 @@ class BleTransport implements TransportInterface {
     _scannedDevices.clear();
     _chunkBuffer.clear();
     _chunkTotal.clear();
+    _chunkByteCounts.clear();
     _chunkTimestamps.clear();
     _packetController.close();
     _announcementController.close();
