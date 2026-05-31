@@ -1,4 +1,4 @@
-package com.example.ahoy
+package com.ahoy.app
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
@@ -15,6 +15,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDeviceList
 import android.net.wifi.p2p.WifiP2pInfo
@@ -41,6 +42,22 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "Ahoy"
         private const val P2P_PORT = 8765
         private const val MAX_PAYLOAD = 10 * 1024 * 1024 // 10 MB guard
+    }
+
+    private val isDebugBuild: Boolean
+        get() = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    private fun logDebug(message: String) {
+        if (isDebugBuild) Log.d(TAG, message)
+    }
+
+    private fun logWarn(message: String) {
+        if (isDebugBuild) Log.w(TAG, message)
+    }
+
+    private fun logError(message: String, error: Throwable? = null) {
+        if (!isDebugBuild) return
+        if (error == null) Log.e(TAG, message) else Log.e(TAG, message, error)
     }
 
     // ── BLE advertiser state ──────────────────────────────────────────────────
@@ -148,7 +165,7 @@ class MainActivity : FlutterActivity() {
         // Open a GATT server so the service is discoverable
         bleGattServer = btManager.openGattServer(this, object : BluetoothGattServerCallback() {
             override fun onConnectionStateChange(device: android.bluetooth.BluetoothDevice, status: Int, newState: Int) {
-                Log.d(TAG, "BLE GATT connection: ${device.address} state=$newState")
+                logDebug("BLE GATT connection state changed")
             }
 
             override fun onCharacteristicWriteRequest(
@@ -173,7 +190,7 @@ class MainActivity : FlutterActivity() {
                             ))
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "BLE GATT write parse error: $e")
+                        logError("BLE GATT write parse error", e)
                     }
                 }
             }
@@ -219,11 +236,11 @@ class MainActivity : FlutterActivity() {
 
         val callback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-                Log.d(TAG, "BLE advertising started")
+                logDebug("BLE advertising started")
                 runOnUiThread { result.success(true) }
             }
             override fun onStartFailure(errorCode: Int) {
-                Log.e(TAG, "BLE advertising failed: errorCode=$errorCode")
+                logError("BLE advertising failed")
                 bleAdvertising = false
                 runOnUiThread { result.error("ADV_FAILED", "errorCode=$errorCode", null) }
             }
@@ -268,7 +285,7 @@ class MainActivity : FlutterActivity() {
         thread(name = "wd-server") {
             try {
                 serverSocket = ServerSocket(P2P_PORT)
-                Log.d(TAG, "Listening on port $P2P_PORT")
+                logDebug("WiFi Direct server listening")
                 runOnUiThread { result.success(true) }
                 while (true) {
                     val server = serverSocket
@@ -277,11 +294,11 @@ class MainActivity : FlutterActivity() {
                         val client = server.accept()
                         thread(name = "wd-client") { handleIncomingConnection(client) }
                     } catch (e: IOException) {
-                        if (server.isClosed.not()) Log.e(TAG, "accept() error: $e")
+                        if (server.isClosed.not()) logError("WiFi Direct accept error", e)
                     }
                 }
             } catch (e: IOException) {
-                Log.e(TAG, "ServerSocket failed: $e")
+                logError("WiFi Direct server socket failed", e)
                 runOnUiThread { result.success(false) }
             }
         }
@@ -290,11 +307,11 @@ class MainActivity : FlutterActivity() {
     private fun cmdDiscoverPeers(result: MethodChannel.Result) {
         wifiP2pManager.discoverPeers(wifiP2pChannel, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
-                Log.d(TAG, "Discovery initiated")
+                logDebug("WiFi Direct discovery initiated")
                 result.success(null)
             }
             override fun onFailure(reason: Int) {
-                Log.e(TAG, "discoverPeers failed: reason=$reason")
+                logError("WiFi Direct discovery failed")
                 result.error("DISCOVERY_FAILED", "reason=$reason", null)
             }
         })
@@ -309,11 +326,11 @@ class MainActivity : FlutterActivity() {
         val config = WifiP2pConfig().apply { this.deviceAddress = deviceAddress }
         wifiP2pManager.connect(wifiP2pChannel, config, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
-                Log.d(TAG, "Connect initiated → $deviceAddress")
+                logDebug("WiFi Direct connect initiated")
                 result.success(null)
             }
             override fun onFailure(reason: Int) {
-                Log.e(TAG, "connect failed: reason=$reason")
+                logError("WiFi Direct connect failed")
                 result.error("CONNECT_FAILED", "reason=$reason", null)
                 runOnUiThread { methodChannel.invokeMethod("onConnectionFailed", reason) }
             }
@@ -324,6 +341,10 @@ class MainActivity : FlutterActivity() {
         val data = call.argument<ByteArray>("data")
         if (data == null) {
             result.error("INVALID_ARGS", "data required", null)
+            return
+        }
+        if (data.isEmpty() || data.size > MAX_PAYLOAD) {
+            result.error("PAYLOAD_TOO_LARGE", "payload too large", null)
             return
         }
         val recipientIP = call.argument<String>("recipientIP")
@@ -355,7 +376,7 @@ class MainActivity : FlutterActivity() {
                         out.flush()
                     }
                 } catch (e: IOException) {
-                    Log.e(TAG, "Send to $ip failed: $e")
+                    logError("WiFi Direct send failed", e)
                     allOk = false
                 }
             }
@@ -375,13 +396,13 @@ class MainActivity : FlutterActivity() {
             override fun onSuccess() {
                 isGroupOwner = false
                 groupOwnerAddress = null
-                Log.d(TAG, "Group removed")
+                logDebug("WiFi Direct group removed")
                 result.success(null)
                 methodChannel.invokeMethod("onDisconnected", null)
             }
             override fun onFailure(reason: Int) {
                 // Not in a group is not a hard error on the Dart side.
-                Log.w(TAG, "removeGroup failed (may not be in a group): reason=$reason")
+                logWarn("WiFi Direct removeGroup failed")
                 isGroupOwner = false
                 groupOwnerAddress = null
                 result.success(null)
@@ -402,7 +423,7 @@ class MainActivity : FlutterActivity() {
             val input = DataInputStream(socket.getInputStream())
             val length = input.readInt()
             if (length <= 0 || length > MAX_PAYLOAD) {
-                Log.w(TAG, "Rejected packet: invalid length=$length from $senderIP")
+                logWarn("Rejected WiFi Direct packet with invalid length")
                 socket.close()
                 return
             }
@@ -416,7 +437,7 @@ class MainActivity : FlutterActivity() {
                 )
             }
         } catch (e: IOException) {
-            Log.e(TAG, "handleIncomingConnection error ($senderIP): $e")
+            logError("WiFi Direct incoming connection error", e)
             try { socket.close() } catch (_: IOException) {}
         }
     }
@@ -446,7 +467,7 @@ class MainActivity : FlutterActivity() {
         // Group owner uses null so cmdSendData broadcasts to connectedClients.
         groupOwnerAddress = if (info.isGroupOwner) null else info.groupOwnerAddress?.hostAddress
 
-        Log.d(TAG, "Connection: isGroupOwner=$isGroupOwner groupOwnerAddress=$groupOwnerAddress")
+        logDebug("WiFi Direct connection info available")
 
         methodChannel.invokeMethod(
             "onConnectionEstablished",

@@ -12,6 +12,7 @@ import 'services/discovery/discovery_service.dart';
 import 'services/chat/conversation_store.dart';
 import 'services/chat/message_store.dart';
 import 'services/chat/chat_service.dart';
+import 'services/maintenance/local_data_migrator.dart';
 import 'services/media/media_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/profile_provider.dart';
@@ -63,19 +64,27 @@ class _AhoyAppState extends State<AhoyApp> {
       _localDataCrypto = LocalDataCrypto(_secureStore);
       await _localDataCrypto.init();
 
-      _authService = AuthService(
-        _secureStore,
-        _prefsStore,
-        _cryptoService,
-        _keyStore,
-      );
-      _profileService = ProfileService(_prefsStore);
+      _profileService = ProfileService(_prefsStore, _localDataCrypto);
 
       _transportManager = TransportManager();
       _discoveryService = DiscoveryService();
 
       _convStore = ConversationStore(_prefsStore, _localDataCrypto);
       _msgStore = MessageStore(_prefsStore, _localDataCrypto);
+      await LocalDataMigrator(
+        _profileService,
+        _convStore,
+        _msgStore,
+        _localDataCrypto,
+      ).migrate();
+
+      _authService = AuthService(
+        _secureStore,
+        _prefsStore,
+        _profileService,
+        _cryptoService,
+        _keyStore,
+      );
       _chatService = ChatService(
         _transportManager,
         _convStore,

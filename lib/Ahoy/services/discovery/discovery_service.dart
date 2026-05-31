@@ -24,7 +24,8 @@ class DiscoveryService {
   void Function(List<String> removedUuids)? _onRemoved;
 
   Stream<List<NearbyPeer>> get peerStream => _controller.stream;
-  List<NearbyPeer> get currentPeers => List.unmodifiable(_peers.values.toList());
+  List<NearbyPeer> get currentPeers =>
+      List.unmodifiable(_peers.values.toList());
 
   /// Process a peer announcement from any transport.
   ///
@@ -32,7 +33,10 @@ class DiscoveryService {
   /// into a canonical Ahoy UUID that was learned from a higher-fidelity transport.
   /// The caller must pass this to TransportManager.registerAlias() so sends/receives
   /// are routed correctly.
-  PeerAlias? onAnnouncement(PeerAnnouncement announcement, Set<String> blockedUuids) {
+  PeerAlias? onAnnouncement(
+    PeerAnnouncement announcement,
+    Set<String> blockedUuids,
+  ) {
     PeerAlias? alias;
     String canonicalUuid = announcement.uuid;
 
@@ -52,14 +56,19 @@ class DiscoveryService {
 
         // Scan for an existing temp-ID entry with the same shortId and absorb it.
         final tempEntry = _peers.entries
-            .where((e) =>
-                e.value.shortId == announcement.shortId &&
-                e.key != announcement.uuid)
+            .where(
+              (e) =>
+                  e.value.shortId == announcement.shortId &&
+                  e.key != announcement.uuid,
+            )
             .toList();
         for (final e in tempEntry) {
           alias = PeerAlias(tempId: e.key, canonicalId: announcement.uuid);
           // Carry forward any transports that were already recorded for the temp id.
-          final merged = <TransportMode>{...e.value.transports, announcement.transport};
+          final merged = <TransportMode>{
+            ...e.value.transports,
+            announcement.transport,
+          };
           _peers.remove(e.key);
           // We'll write the merged transports below under the canonical UUID.
           final existingBest = e.value.transport;
@@ -85,12 +94,17 @@ class DiscoveryService {
 
     // Normal upsert under the canonical UUID.
     final existing = _peers[canonicalUuid];
-    final bestTransport = _bestTransport(existing?.transport, announcement.transport);
+    final bestTransport = _bestTransport(
+      existing?.transport,
+      announcement.transport,
+    );
     final allTransports = <TransportMode>{
       ...?existing?.transports,
       announcement.transport,
     };
-    if (announcement.transport == TransportMode.none) allTransports.remove(TransportMode.none);
+    if (announcement.transport == TransportMode.none) {
+      allTransports.remove(TransportMode.none);
+    }
 
     _peers[canonicalUuid] = NearbyPeer(
       uuid: canonicalUuid,
@@ -111,7 +125,10 @@ class DiscoveryService {
     return alias;
   }
 
-  TransportMode _bestTransport(TransportMode? existing, TransportMode incoming) {
+  TransportMode _bestTransport(
+    TransportMode? existing,
+    TransportMode incoming,
+  ) {
     const priority = [
       TransportMode.wifiDirect,
       TransportMode.lan,
@@ -125,13 +142,18 @@ class DiscoveryService {
 
   /// Returns true if [uuid] looks like a real Ahoy UUID v4 (not a BT/WFD MAC).
   bool _isRealUuid(String uuid) => RegExp(
-          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
-      .hasMatch(uuid);
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  ).hasMatch(uuid);
 
-  void startCleanupTimer({void Function(List<String> removedUuids)? onRemoved}) {
+  void startCleanupTimer({
+    void Function(List<String> removedUuids)? onRemoved,
+  }) {
     _onRemoved = onRemoved;
     _cleanupTimer?.cancel();
-    _cleanupTimer = Timer.periodic(const Duration(seconds: 10), (_) => _cleanup());
+    _cleanupTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _cleanup(),
+    );
   }
 
   void stopCleanupTimer() {

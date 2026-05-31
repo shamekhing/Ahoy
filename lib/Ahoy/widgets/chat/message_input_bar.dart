@@ -55,7 +55,9 @@ class _MessageInputBarState extends State<MessageInputBar> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
-          border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
         ),
         child: Row(
           children: [
@@ -71,9 +73,13 @@ class _MessageInputBarState extends State<MessageInputBar> {
                 onPressed: widget.onCapturePhoto,
               ),
               IconButton(
-                icon: Icon(widget.isRecording ? Icons.stop_circle : Icons.mic_outlined,
-                    color: widget.isRecording ? Colors.red : null),
-                tooltip: widget.isRecording ? 'Stop recording' : 'Voice message',
+                icon: Icon(
+                  widget.isRecording ? Icons.stop_circle : Icons.mic_outlined,
+                  color: widget.isRecording ? Colors.red : null,
+                ),
+                tooltip: widget.isRecording
+                    ? 'Stop recording'
+                    : 'Voice message',
                 onPressed: widget.onToggleRecord,
               ),
             ],
@@ -84,9 +90,16 @@ class _MessageInputBarState extends State<MessageInputBar> {
                 maxLines: 4,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
-                  hintText: widget.canSendMedia ? 'Message…' : 'Text only (BLE mode)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  hintText: widget.canSendMedia
+                      ? 'Message…'
+                      : 'Text only (BLE mode)',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   isDense: true,
                 ),
               ),

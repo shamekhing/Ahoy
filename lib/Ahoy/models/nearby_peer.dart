@@ -5,8 +5,10 @@ class NearbyPeer {
   final String uuid;
   final String shortId;
   final String displayName;
+
   /// Best/active transport (highest-bandwidth one currently available).
   final TransportMode transport;
+
   /// All transports via which this peer has been seen — used to render multi-badges.
   final Set<TransportMode> transports;
   final int? rssi;
@@ -26,8 +28,9 @@ class NearbyPeer {
     this.isBlocked = false,
     this.statusMessage,
     this.publicKeyPEM,
-  }) : transports = transports ??
-            (transport != TransportMode.none ? {transport} : const {});
+  }) : transports =
+           transports ??
+           (transport != TransportMode.none ? {transport} : const {});
 
   NearbyPeer copyWith({
     TransportMode? transport,
@@ -53,5 +56,6 @@ class NearbyPeer {
   }
 
   bool get isStale =>
-      DateTime.now().difference(lastSeen).inSeconds > AhoyConstants.peerStaleSeconds;
+      DateTime.now().difference(lastSeen).inSeconds >
+      AhoyConstants.peerStaleSeconds;
 }

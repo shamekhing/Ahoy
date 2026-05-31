@@ -19,6 +19,9 @@ class AhoyConstants {
   static const int lanTcpIdleTimeoutSeconds = 10;
   static const int lanMaxMessagesPerConnection = 8;
 
+  // WiFi Direct
+  static const int wifiDirectMaxPayloadBytes = 10 * 1024 * 1024;
+
   // Storage keys — SecureStore
   static const String keyUserId = 'ahoy_user_id';
   static const String keyPasswordHash = 'ahoy_password_hash';

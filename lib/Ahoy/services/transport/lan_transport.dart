@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
+import '../../core/logging.dart';
 import 'transport_interface.dart';
 
 class LanTransport implements TransportInterface {
@@ -93,10 +94,10 @@ class LanTransport implements TransportInterface {
       _udpSocket!.broadcastEnabled = true;
       _udpSocket!.listen(
         _onUdpDatagram,
-        onError: (e) => debugPrint('[LAN] UDP socket error: $e'),
+        onError: (e) => ahoyLog('[LAN] UDP socket error', e),
       );
     } catch (e) {
-      debugPrint('[LAN] UDP bind failed: $e');
+      ahoyLog('[LAN] UDP bind failed', e);
     }
 
     // Shared send socket — reused across all broadcast calls to avoid
@@ -105,7 +106,7 @@ class LanTransport implements TransportInterface {
       _sendSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       _sendSocket!.broadcastEnabled = true;
     } catch (e) {
-      debugPrint('[LAN] UDP send socket bind failed: $e');
+      ahoyLog('[LAN] UDP send socket bind failed', e);
     }
 
     try {
@@ -115,7 +116,7 @@ class LanTransport implements TransportInterface {
       );
       _tcpServer!.listen(_onTcpConnection);
     } catch (e) {
-      debugPrint('[LAN] TCP server bind failed: $e');
+      ahoyLog('[LAN] TCP server bind failed', e);
     }
   }
 
@@ -175,7 +176,7 @@ class LanTransport implements TransportInterface {
       try {
         sock.send(data, InternetAddress(target), _discoveryPort);
       } catch (e) {
-        debugPrint('[LAN] Broadcast to $target failed: $e');
+        ahoyLog('[LAN] broadcast failed', e);
       }
     }
   }
@@ -231,7 +232,7 @@ class LanTransport implements TransportInterface {
     bool processBufferedMessage() {
       if (buffer.isEmpty) return true;
       if (messagesProcessed >= _maxMessagesPerConnection) {
-        debugPrint('[LAN] Dropping TCP connection with too many messages');
+        ahoyLog('[LAN] dropping TCP connection with too many messages');
         close(discardBuffer: true);
         return false;
       }
@@ -263,7 +264,7 @@ class LanTransport implements TransportInterface {
           }
 
           if (buffer.length >= _maxPayloadBytes) {
-            debugPrint('[LAN] Dropping oversized TCP payload');
+            ahoyLog('[LAN] dropping oversized TCP payload');
             close(discardBuffer: true);
             return;
           }
@@ -310,7 +311,7 @@ class LanTransport implements TransportInterface {
   Future<bool> send(String peerUuid, String payload) async {
     final payloadBytes = utf8.encode(payload);
     if (payloadBytes.length > _maxPayloadBytes) {
-      debugPrint('[LAN] Refusing oversized payload to $peerUuid');
+      ahoyLog('[LAN] refusing oversized payload');
       return false;
     }
 
@@ -328,7 +329,7 @@ class LanTransport implements TransportInterface {
       await socket.flush();
       return true;
     } catch (e) {
-      debugPrint('[LAN] Send to $peerUuid failed: $e');
+      ahoyLog('[LAN] send failed', e);
       // Remove stale entry — the next UDP announcement will re-add it.
       _peerConns.remove(peerUuid);
       return false;

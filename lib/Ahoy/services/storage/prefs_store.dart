@@ -14,6 +14,8 @@ class PrefsStore {
 
   String? getString(String key) => _prefs.getString(key);
 
+  Set<String> keys() => _prefs.getKeys();
+
   Future<void> setBool(String key, {required bool value}) async {
     await _prefs.setBool(key, value);
   }

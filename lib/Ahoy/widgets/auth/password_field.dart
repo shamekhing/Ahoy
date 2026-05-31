@@ -27,7 +27,8 @@ class _PasswordFieldState extends State<PasswordField> {
       controller: widget.controller,
       obscureText: _obscure,
       textInputAction: widget.textInputAction,
-      validator: widget.validator ??
+      validator:
+          widget.validator ??
           (v) => (v == null || v.length < 8) ? 'At least 8 characters' : null,
       decoration: InputDecoration(
         labelText: widget.label,

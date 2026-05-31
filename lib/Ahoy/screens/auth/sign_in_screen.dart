@@ -8,7 +8,11 @@ class SignInScreen extends StatefulWidget {
   final VoidCallback onSignUp;
   final Future<void> Function() onSignedIn;
 
-  const SignInScreen({super.key, required this.onSignUp, required this.onSignedIn});
+  const SignInScreen({
+    super.key,
+    required this.onSignUp,
+    required this.onSignedIn,
+  });
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
@@ -67,17 +71,31 @@ class _SignInScreenState extends State<SignInScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SvgPicture.asset('assets/app_icon.svg', width: 64, height: 64),
+                  SvgPicture.asset(
+                    'assets/app_icon.svg',
+                    width: 64,
+                    height: 64,
+                  ),
                   const SizedBox(height: 12),
-                  Text('Ahoy', style: Theme.of(context).textTheme.headlineLarge),
+                  Text(
+                    'Ahoy',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
                   const SizedBox(height: 4),
-                  Text('Offline P2P Messaging',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey)),
+                  Text(
+                    'Offline P2P Messaging',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                  ),
                   const SizedBox(height: 32),
                   PasswordField(controller: _passwordCtrl),
                   if (auth.error != null) ...[
                     const SizedBox(height: 8),
-                    Text(auth.error!, style: const TextStyle(color: Colors.red)),
+                    Text(
+                      auth.error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   ],
                   const SizedBox(height: 16),
                   SizedBox(
@@ -86,8 +104,13 @@ class _SignInScreenState extends State<SignInScreen> {
                       onPressed: _loading ? null : _signIn,
                       child: _loading
                           ? const SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                           : const Text('Sign In'),
                     ),
                   ),

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../core/enums.dart';
+import '../core/logging.dart';
 import '../services/chat/chat_service.dart';
 import '../services/chat/conversation_store.dart';
 import '../services/chat/message_store.dart';
@@ -23,9 +24,15 @@ class ChatProvider extends ChangeNotifier {
   List<Conversation> get conversations => _conversations;
   String? get error => _error;
 
-  int get totalUnreadCount => _conversations.fold(0, (sum, conv) => sum + conv.unreadCount);
+  int get totalUnreadCount =>
+      _conversations.fold(0, (sum, conv) => sum + conv.unreadCount);
 
-  ChatProvider(this._chatService, this._convStore, this._msgStore, this._transport);
+  ChatProvider(
+    this._chatService,
+    this._convStore,
+    this._msgStore,
+    this._transport,
+  );
 
   void init({
     required String myUuid,
@@ -56,7 +63,7 @@ class ChatProvider extends ChangeNotifier {
           notifyListeners();
         }
       } catch (e) {
-        debugPrint('[ChatProvider] Inbound packet error: $e');
+        ahoyLog('[ChatProvider] inbound packet error', e);
       }
     });
   }

@@ -34,9 +34,18 @@ class DiscoveryProvider extends ChangeNotifier {
   DiscoveryProvider(this._discovery, this._transport, this._prefs) {
     _offGrid = _prefs.getBool(AhoyConstants.prefOffGrid);
     _receiveOff = _prefs.getBool(AhoyConstants.prefReceiveOff);
-    _bleEnabled = _prefs.getBool(AhoyConstants.prefBleEnabled, defaultValue: true);
-    _lanEnabled = _prefs.getBool(AhoyConstants.prefLanEnabled, defaultValue: true);
-    _wifiDirectEnabled = _prefs.getBool(AhoyConstants.prefWifiDirectEnabled, defaultValue: true);
+    _bleEnabled = _prefs.getBool(
+      AhoyConstants.prefBleEnabled,
+      defaultValue: true,
+    );
+    _lanEnabled = _prefs.getBool(
+      AhoyConstants.prefLanEnabled,
+      defaultValue: true,
+    );
+    _wifiDirectEnabled = _prefs.getBool(
+      AhoyConstants.prefWifiDirectEnabled,
+      defaultValue: true,
+    );
 
     _loadBlockedUuids();
 
@@ -46,11 +55,13 @@ class DiscoveryProvider extends ChangeNotifier {
     });
 
     // When stale peers are cleaned up, remove their routing state from TransportManager.
-    _discovery.startCleanupTimer(onRemoved: (removed) {
-      for (final uuid in removed) {
-        _transport.removePeer(uuid);
-      }
-    });
+    _discovery.startCleanupTimer(
+      onRemoved: (removed) {
+        for (final uuid in removed) {
+          _transport.removePeer(uuid);
+        }
+      },
+    );
   }
 
   void _loadBlockedUuids() {
@@ -64,7 +75,10 @@ class DiscoveryProvider extends ChangeNotifier {
   }
 
   Future<void> _saveBlockedUuids() async {
-    await _prefs.setString(AhoyConstants.prefBlockedUuids, jsonEncode(blockedUuids.toList()));
+    await _prefs.setString(
+      AhoyConstants.prefBlockedUuids,
+      jsonEncode(blockedUuids.toList()),
+    );
   }
 
   void onAnnouncement(PeerAnnouncement announcement) {
@@ -72,7 +86,10 @@ class DiscoveryProvider extends ChangeNotifier {
     if (alias != null) {
       // A temporary identifier (BT/WFD MAC) was resolved to a canonical Ahoy UUID.
       // Tell TransportManager so it routes sends/receives correctly.
-      _transport.registerAlias(tempId: alias.tempId, canonicalId: alias.canonicalId);
+      _transport.registerAlias(
+        tempId: alias.tempId,
+        canonicalId: alias.canonicalId,
+      );
     }
   }
 

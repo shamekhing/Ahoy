@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/enums.dart';
 import '../../core/errors.dart';
+import '../../core/logging.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
 import '../crypto/crypto_service.dart';
@@ -64,7 +65,6 @@ class ChatService {
     final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
       pinnedKey: existingConversation?.peerPublicKeyPEM,
       candidateKey: peerPublicKeyPEM,
-      peerUuid: peerUuid,
     );
     final msgId = const Uuid().v4();
     final timestamp = DateTime.now();
@@ -245,9 +245,8 @@ class ChatService {
       final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
         pinnedKey: existingConversation?.peerPublicKeyPEM,
         candidateKey: senderPublicKeyPEM,
-        peerUuid: peerUuid,
       );
-      if (!_verifyInboundSignature(json, trustedPeerPublicKeyPEM, peerUuid)) {
+      if (!_verifyInboundSignature(json, trustedPeerPublicKeyPEM)) {
         return null;
       }
 
@@ -259,7 +258,7 @@ class ChatService {
         try {
           content = _crypto.decryptFromPeer(content);
         } catch (e) {
-          debugPrint('[ChatService] Decryption failed: $e');
+          ahoyLog('[ChatService] decryption failed', e);
           content = '[Message could not be decrypted]';
         }
       }
@@ -297,8 +296,8 @@ class ChatService {
         transport,
       );
       return message;
-    } catch (e, st) {
-      debugPrint('[ChatService] onInboundPacket failed: $e\n$st');
+    } catch (e) {
+      ahoyLog('[ChatService] inbound packet failed', e);
       return null;
     }
   }
@@ -351,7 +350,6 @@ class ChatService {
     final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
       pinnedKey: existing?.peerPublicKeyPEM,
       candidateKey: peerPublicKeyPEM,
-      peerUuid: peerUuid,
     );
     final conversation =
         existing ??
@@ -389,7 +387,6 @@ class ChatService {
     final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
       pinnedKey: existing?.peerPublicKeyPEM,
       candidateKey: peerPublicKeyPEM,
-      peerUuid: peerUuid,
     );
     final conversation =
         existing ??
@@ -427,20 +424,18 @@ class ChatService {
   String? _resolvePeerPublicKey({
     required String? pinnedKey,
     required String? candidateKey,
-    required String peerUuid,
   }) {
     if (pinnedKey == null || pinnedKey.isEmpty) return candidateKey;
     if (candidateKey == null || candidateKey.isEmpty) return pinnedKey;
     if (_samePublicKey(pinnedKey, candidateKey)) return pinnedKey;
 
-    debugPrint('[ChatService] Ignoring changed public key for peer $peerUuid');
+    ahoyLog('[ChatService] ignoring changed peer public key');
     return pinnedKey;
   }
 
   bool _verifyInboundSignature(
     Map<String, dynamic> payload,
     String? trustedPeerPublicKeyPEM,
-    String peerUuid,
   ) {
     if (trustedPeerPublicKeyPEM == null || trustedPeerPublicKeyPEM.isEmpty) {
       return true;
@@ -448,7 +443,7 @@ class ChatService {
 
     final signature = payload['signature'] as String?;
     if (signature == null || signature.isEmpty) {
-      debugPrint('[ChatService] Dropping unsigned message from peer $peerUuid');
+      ahoyLog('[ChatService] dropping unsigned message');
       return false;
     }
 
@@ -458,9 +453,7 @@ class ChatService {
       trustedPeerPublicKeyPEM,
     );
     if (!ok) {
-      debugPrint(
-        '[ChatService] Dropping message with invalid signature from peer $peerUuid',
-      );
+      ahoyLog('[ChatService] dropping message with invalid signature');
     }
     return ok;
   }

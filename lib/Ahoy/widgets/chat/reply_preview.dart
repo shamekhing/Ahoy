@@ -13,7 +13,11 @@ class ReplyPreview extends StatelessWidget {
       color: Theme.of(context).colorScheme.secondaryContainer,
       child: Row(
         children: [
-          Container(width: 3, height: 32, color: Theme.of(context).colorScheme.primary),
+          Container(
+            width: 3,
+            height: 32,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -23,7 +27,10 @@ class ReplyPreview extends StatelessWidget {
               style: const TextStyle(fontSize: 13),
             ),
           ),
-          IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onClear),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: onClear,
+          ),
         ],
       ),
     );

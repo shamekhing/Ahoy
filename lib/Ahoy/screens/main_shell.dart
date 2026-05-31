@@ -34,7 +34,10 @@ class _MainShellState extends State<MainShell> {
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
-          const NavigationDestination(icon: Icon(Icons.radar), label: 'Discover'),
+          const NavigationDestination(
+            icon: Icon(Icons.radar),
+            label: 'Discover',
+          ),
           NavigationDestination(
             icon: hasUnread
                 ? Badge(
@@ -44,8 +47,14 @@ class _MainShellState extends State<MainShell> {
                 : const Icon(Icons.chat_bubble_outline),
             label: 'Chats',
           ),
-          const NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
-          const NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
+          const NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            label: 'Settings',
+          ),
         ],
       ),
     );

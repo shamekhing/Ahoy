@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../core/enums.dart';
 import '../../core/constants.dart';
+import '../../services/crypto/local_data_crypto.dart';
 import '../../services/transport_manager.dart';
 import '../../widgets/common/peer_avatar.dart';
 
@@ -48,6 +49,7 @@ class MyProfileScreen extends StatelessWidget {
                   avatarPath: user.avatarPath,
                   gender: user.gender,
                   radius: 48,
+                  localDataCrypto: context.read<LocalDataCrypto>(),
                 ),
                 Positioned(
                   right: 0,
@@ -65,16 +67,30 @@ class MyProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Center(
-            child: Text(user.username,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            child: Text(
+              user.username,
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
           ),
-          Center(child: Text('@${user.shortId}', style: const TextStyle(color: Colors.grey))),
+          Center(
+            child: Text(
+              '@${user.shortId}',
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ),
           if (user.statusMessage != null && user.statusMessage!.isNotEmpty) ...[
             const SizedBox(height: 8),
             Center(
-              child: Text('"${user.statusMessage}"',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.grey)),
+              child: Text(
+                '"${user.statusMessage}"',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
+              ),
             ),
           ],
           if (user.bio != null && user.bio!.isNotEmpty) ...[
@@ -83,20 +99,31 @@ class MyProfileScreen extends StatelessWidget {
           ],
           if (user.interests.isNotEmpty) ...[
             const SizedBox(height: 16),
-            const Text('Interests', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Interests',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 4,
               children: user.interests
-                  .map((i) => Chip(label: Text(i), visualDensity: VisualDensity.compact))
+                  .map(
+                    (i) => Chip(
+                      label: Text(i),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  )
                   .toList(),
             ),
           ],
           const SizedBox(height: 32),
           OutlinedButton.icon(
             icon: const Icon(Icons.logout, color: Colors.red),
-            label: const Text('Sign Out & Erase Data', style: TextStyle(color: Colors.red)),
+            label: const Text(
+              'Sign Out & Erase Data',
+              style: TextStyle(color: Colors.red),
+            ),
             onPressed: () => _confirmSignOut(context, auth),
           ),
         ],
@@ -110,9 +137,13 @@ class MyProfileScreen extends StatelessWidget {
       builder: (_) => AlertDialog(
         title: const Text('Sign Out'),
         content: const Text(
-            'This will erase all your messages, conversations, and account data from this device. This cannot be undone.'),
+          'This will erase all your messages, conversations, and account data from this device. This cannot be undone.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -145,13 +176,24 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
   bool _loading = false;
 
   static const _interestOptions = [
-    'Music', 'Tech', 'Sports', 'Food', 'Travel', 'Art', 'Gaming', 'Reading', 'Fitness', 'Nature'
+    'Music',
+    'Tech',
+    'Sports',
+    'Food',
+    'Travel',
+    'Art',
+    'Gaming',
+    'Reading',
+    'Fitness',
+    'Nature',
   ];
 
   @override
   void initState() {
     super.initState();
-    final user = context.read<ProfileProvider>().user ?? context.read<AuthProvider>().user!;
+    final user =
+        context.read<ProfileProvider>().user ??
+        context.read<AuthProvider>().user!;
     _usernameCtrl = TextEditingController(text: user.username);
     _bioCtrl = TextEditingController(text: user.bio ?? '');
     _statusCtrl = TextEditingController(text: user.statusMessage ?? '');
@@ -175,7 +217,9 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
       bio: _bioCtrl.text.trim().isEmpty ? null : _bioCtrl.text.trim(),
       gender: _gender,
       interests: _interests,
-      statusMessage: _statusCtrl.text.trim().isEmpty ? null : _statusCtrl.text.trim(),
+      statusMessage: _statusCtrl.text.trim().isEmpty
+          ? null
+          : _statusCtrl.text.trim(),
     );
     if (!mounted) return;
 
@@ -210,7 +254,11 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
           TextButton(
             onPressed: _loading ? null : _save,
             child: _loading
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text('Save'),
           ),
         ],
@@ -220,12 +268,18 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
         children: [
           TextFormField(
             controller: _usernameCtrl,
-            decoration: const InputDecoration(labelText: 'Display Name', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Display Name',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _bioCtrl,
-            decoration: const InputDecoration(labelText: 'Bio', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Bio',
+              border: OutlineInputBorder(),
+            ),
             maxLines: 3,
             maxLength: AhoyConstants.maxBioLength,
           ),
@@ -256,7 +310,10 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
             },
           ),
           const SizedBox(height: 16),
-          const Text('Interests', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            'Interests',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,

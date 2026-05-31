@@ -7,19 +7,28 @@ import '../../models/local_user.dart';
 import '../../core/enums.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/key_store.dart';
+import '../profile/profile_service.dart';
 import '../storage/prefs_store.dart';
 import '../storage/secure_store.dart';
 
 class AuthService {
   final SecureStore _secureStore;
   final PrefsStore _prefsStore;
+  final ProfileService _profileService;
   final CryptoService _cryptoService;
   final KeyStore _keyStore;
   final LocalAuthentication _localAuth = LocalAuthentication();
 
-  AuthService(this._secureStore, this._prefsStore, this._cryptoService, this._keyStore);
+  AuthService(
+    this._secureStore,
+    this._prefsStore,
+    this._profileService,
+    this._cryptoService,
+    this._keyStore,
+  );
 
-  Future<bool> get isSignedIn => _secureStore.has(AhoyConstants.keyPasswordHash);
+  Future<bool> get isSignedIn =>
+      _secureStore.has(AhoyConstants.keyPasswordHash);
 
   Future<LocalUser> signUp({
     required String username,
@@ -28,8 +37,12 @@ class AuthService {
     List<String> interests = const [],
     String? bio,
   }) async {
-    if (username.trim().isEmpty) throw const AuthFailed('Username cannot be empty');
-    if (password.length < 8) throw const AuthFailed('Password must be at least 8 characters');
+    if (username.trim().isEmpty) {
+      throw const AuthFailed('Username cannot be empty');
+    }
+    if (password.length < 8) {
+      throw const AuthFailed('Password must be at least 8 characters');
+    }
 
     final id = const Uuid().v4();
     final shortId = CryptoService.shortIdFromUuid(id);
@@ -54,30 +67,43 @@ class AuthService {
       createdAt: DateTime.now(),
     );
 
-    await _prefsStore.setJson(AhoyConstants.prefProfile, user.toJson());
+    await _profileService.saveProfile(user);
     return user;
   }
 
   Future<LocalUser> signIn({required String password}) async {
     final storedHash = await _secureStore.read(AhoyConstants.keyPasswordHash);
-    if (storedHash == null) throw const AuthFailed('No account found on this device');
+    if (storedHash == null) {
+      throw const AuthFailed('No account found on this device');
+    }
 
     if (!await _cryptoService.verifyPassword(password, storedHash)) {
       throw const AuthFailed('Incorrect password');
     }
 
+    if (_cryptoService.passwordHashNeedsUpgrade(storedHash)) {
+      await _secureStore.write(
+        AhoyConstants.keyPasswordHash,
+        await _cryptoService.hashPassword(password),
+      );
+    }
+
     await _keyStore.load();
 
-    final profileJson = _prefsStore.getJson(AhoyConstants.prefProfile);
-    if (profileJson == null) throw const AuthFailed('Profile data missing');
-    return LocalUser.fromJson(profileJson);
+    final profile = _profileService.loadProfile();
+    if (profile == null) throw const AuthFailed('Profile data missing');
+    return profile;
   }
 
   Future<LocalUser?> signInWithBiometric() async {
-    final biometricEnabled = await _secureStore.read(AhoyConstants.keyBiometricEnabled);
+    final biometricEnabled = await _secureStore.read(
+      AhoyConstants.keyBiometricEnabled,
+    );
     if (biometricEnabled != 'true') return null;
 
-    final canAuth = await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
+    final canAuth =
+        await _localAuth.canCheckBiometrics ||
+        await _localAuth.isDeviceSupported();
     if (!canAuth) return null;
 
     final authenticated = await _localAuth.authenticate(
@@ -87,9 +113,7 @@ class AuthService {
     if (!authenticated) return null;
 
     await _keyStore.load();
-    final profileJson = _prefsStore.getJson(AhoyConstants.prefProfile);
-    if (profileJson == null) return null;
-    return LocalUser.fromJson(profileJson);
+    return _profileService.loadProfile();
   }
 
   Future<void> enableBiometric() async {
@@ -102,7 +126,9 @@ class AuthService {
 
   // onTransportStop is async — we await it before wiping storage so transports
   // are fully stopped before their data disappears underneath them.
-  Future<void> signOut({required Future<void> Function() onTransportStop}) async {
+  Future<void> signOut({
+    required Future<void> Function() onTransportStop,
+  }) async {
     await onTransportStop();
     await _keyStore.clear();
     await _prefsStore.clearAll();
@@ -116,6 +142,7 @@ class AuthService {
 
   Future<bool> get isBiometricAvailable async {
     if (!Platform.isAndroid && !Platform.isIOS) return false;
-    return await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
+    return await _localAuth.canCheckBiometrics ||
+        await _localAuth.isDeviceSupported();
   }
 }

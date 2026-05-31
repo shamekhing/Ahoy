@@ -8,6 +8,9 @@ import 'package:pointycastle/export.dart' as pc;
 import '../../core/errors.dart';
 
 class CryptoService {
+  static const int passwordHashIterations = 310000;
+  static const int legacyPasswordHashIterations = 100000;
+
   bool _isReady = false;
   pc.RSAPrivateKey? _privateKey;
 
@@ -31,8 +34,11 @@ class CryptoService {
 
   // --- Password hashing ---
   //
-  // New passwords use PBKDF2-HMAC-SHA256 (100 000 iterations) run in an
-  // isolate so the UI thread is never blocked.  Stored format:
+  // New passwords use PBKDF2-HMAC-SHA256 run in an isolate so the UI thread is
+  // never blocked. Stored format:
+  //   "pbkdf2:v2:<iterations>:<saltHex>:<dkHex>"
+  //
+  // The previous PBKDF2 format used 100 000 iterations:
   //   "pbkdf2:<saltHex>:<dkHex>"
   //
   // Passwords hashed before this change used SHA-256 with a 16-byte salt:
@@ -42,17 +48,34 @@ class CryptoService {
   Future<String> hashPassword(String password) async {
     final salt = _randomBytes(16);
     final saltHex = _bytesToHex(salt);
-    final dkHex = await Isolate.run(() => _pbkdf2Hex(saltHex, password));
-    return 'pbkdf2:$saltHex:$dkHex';
+    final dkHex = await Isolate.run(
+      () => _pbkdf2Hex(saltHex, password, passwordHashIterations),
+    );
+    return 'pbkdf2:v2:$passwordHashIterations:$saltHex:$dkHex';
   }
 
   Future<bool> verifyPassword(String password, String storedHash) async {
+    if (storedHash.startsWith('pbkdf2:v2:')) {
+      final parts = storedHash.split(':');
+      if (parts.length != 5) return false;
+      final iterations = int.tryParse(parts[2]);
+      if (iterations == null || iterations <= 0) return false;
+      final saltHex = parts[3];
+      final expectedDkHex = parts[4];
+      final dkHex = await Isolate.run(
+        () => _pbkdf2Hex(saltHex, password, iterations),
+      );
+      return _constantTimeEquals(dkHex, expectedDkHex);
+    }
+
     if (storedHash.startsWith('pbkdf2:')) {
       final parts = storedHash.split(':');
       if (parts.length != 3) return false;
       final saltHex = parts[1];
       final expectedDkHex = parts[2];
-      final dkHex = await Isolate.run(() => _pbkdf2Hex(saltHex, password));
+      final dkHex = await Isolate.run(
+        () => _pbkdf2Hex(saltHex, password, legacyPasswordHashIterations),
+      );
       return _constantTimeEquals(dkHex, expectedDkHex);
     }
     // Legacy SHA-256 format — verify without blocking the UI (fast).
@@ -60,6 +83,16 @@ class CryptoService {
     if (parts.length != 2) return false;
     final hash = sha256.convert(utf8.encode(parts[0] + password));
     return _constantTimeEquals(hash.toString(), parts[1]);
+  }
+
+  bool passwordHashNeedsUpgrade(String storedHash) {
+    if (storedHash.startsWith('pbkdf2:v2:')) {
+      final parts = storedHash.split(':');
+      if (parts.length != 5) return true;
+      final iterations = int.tryParse(parts[2]);
+      return iterations == null || iterations < passwordHashIterations;
+    }
+    return true;
   }
 
   /// Constant-time string comparison to prevent timing attacks.
@@ -194,15 +227,15 @@ class CryptoService {
 // ── PBKDF2 (top-level so it can run in an isolate) ────────────────────────
 
 /// Derives a 32-byte key from [password] and [saltHex] using PBKDF2-HMAC-SHA256
-/// with 100 000 iterations and returns the result as a lowercase hex string.
-String _pbkdf2Hex(String saltHex, String password) {
+/// and returns the result as a lowercase hex string.
+String _pbkdf2Hex(String saltHex, String password, int iterations) {
   final saltBytes = Uint8List.fromList([
     for (var i = 0; i < saltHex.length; i += 2)
       int.parse(saltHex.substring(i, i + 2), radix: 16),
   ]);
   final passwordBytes = utf8.encode(password);
 
-  final params = pc.Pbkdf2Parameters(saltBytes, 100000, 32);
+  final params = pc.Pbkdf2Parameters(saltBytes, iterations, 32);
   final kdf = pc.PBKDF2KeyDerivator(pc.HMac(pc.SHA256Digest(), 64))
     ..init(params);
   final dk = kdf.process(Uint8List.fromList(passwordBytes));

@@ -23,10 +23,16 @@ class ConversationsScreen extends StatelessWidget {
                 children: [
                   Icon(Icons.chat_bubble_outline, size: 72, color: Colors.grey),
                   SizedBox(height: 16),
-                  Text('No conversations yet', style: TextStyle(color: Colors.grey)),
+                  Text(
+                    'No conversations yet',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                   SizedBox(height: 8),
-                  Text('Discover nearby people to start chatting',
-                      textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                  Text(
+                    'Discover nearby people to start chatting',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ],
               ),
             )
@@ -49,7 +55,9 @@ class _ConversationTile extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           CircleAvatar(
-            backgroundColor: conv.isBlocked ? Colors.red.shade100 : Colors.blue.shade100,
+            backgroundColor: conv.isBlocked
+                ? Colors.red.shade100
+                : Colors.blue.shade100,
             child: Icon(
               conv.isBlocked ? Icons.block : Icons.person,
               color: conv.isBlocked ? Colors.red : Colors.blue,
@@ -76,7 +84,9 @@ class _ConversationTile extends StatelessWidget {
             child: Text(
               conv.peerDisplayName,
               style: TextStyle(
-                fontWeight: conv.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
+                fontWeight: conv.unreadCount > 0
+                    ? FontWeight.bold
+                    : FontWeight.normal,
               ),
             ),
           ),
@@ -91,7 +101,10 @@ class _ConversationTile extends StatelessWidget {
             )
           : null,
       trailing: conv.lastMessageAt != null
-          ? Text(_formatDate(conv.lastMessageAt!), style: const TextStyle(fontSize: 11, color: Colors.grey))
+          ? Text(
+              _formatDate(conv.lastMessageAt!),
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            )
           : null,
       onTap: () => Navigator.push(
         context,

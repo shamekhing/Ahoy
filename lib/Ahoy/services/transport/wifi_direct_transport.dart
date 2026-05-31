@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import '../../core/constants.dart';
 import '../../core/enums.dart';
+import '../../core/logging.dart';
 import 'transport_interface.dart';
 
 /// WiFi Direct transport via Android P2P MethodChannel.
@@ -14,17 +16,24 @@ import 'transport_interface.dart';
 ///   Kotlin → Dart (via setMethodCallHandler): onPeersDiscovered, onConnectionEstablished, onDataReceived, onConnectionFailed, onDisconnected
 class WiFiDirectTransport implements TransportInterface {
   static const _channel = MethodChannel('wifi_direct');
+  final int _maxPayloadBytes;
+
+  WiFiDirectTransport({
+    int maxPayloadBytes = AhoyConstants.wifiDirectMaxPayloadBytes,
+  }) : _maxPayloadBytes = maxPayloadBytes;
 
   @override
   TransportMode get mode => TransportMode.wifiDirect;
 
   final _packetController = StreamController<InboundPacket>.broadcast();
-  final _announcementController = StreamController<PeerAnnouncement>.broadcast();
+  final _announcementController =
+      StreamController<PeerAnnouncement>.broadcast();
 
   @override
   Stream<InboundPacket> get packetStream => _packetController.stream;
   @override
-  Stream<PeerAnnouncement> get announcementStream => _announcementController.stream;
+  Stream<PeerAnnouncement> get announcementStream =>
+      _announcementController.stream;
 
   // WD device address (MAC) → Ahoy UUID. Populated on first data packet from peer.
   final Map<String, String> _addressToUuid = {};
@@ -49,6 +58,7 @@ class WiFiDirectTransport implements TransportInterface {
   String? _myShortId;
   String? _myDisplayName;
   String? _myStatusMessage;
+  String? _myPublicKeyPEM;
 
   @override
   Future<void> startAdvertising({
@@ -63,6 +73,7 @@ class WiFiDirectTransport implements TransportInterface {
     _myShortId = shortId;
     _myDisplayName = displayName;
     _myStatusMessage = statusMessage;
+    _myPublicKeyPEM = publicKeyPEM;
 
     // Register the handler here as well as in startScanning() so that
     // Kotlin→Dart callbacks (e.g. onDataReceived) are handled regardless of
@@ -73,9 +84,9 @@ class WiFiDirectTransport implements TransportInterface {
       try {
         final ok = await _channel.invokeMethod<bool>('initialize') ?? false;
         _initialized = ok;
-        if (!ok) debugPrint('[WiFiDirect] initialize returned false');
+        if (!ok) ahoyLog('[WiFiDirect] initialize returned false');
       } catch (e) {
-        debugPrint('[WiFiDirect] initialize failed: $e');
+        ahoyLog('[WiFiDirect] initialize failed', e);
       }
     }
   }
@@ -88,7 +99,7 @@ class WiFiDirectTransport implements TransportInterface {
     try {
       await _channel.invokeMethod('disconnect');
     } catch (e) {
-      debugPrint('[WiFiDirect] disconnect failed: $e');
+      ahoyLog('[WiFiDirect] disconnect failed', e);
     } finally {
       // Reset connection/routing state only — keep identity fields (_myUuid etc.)
       // so that _sendIdentity() can still complete a handshake if the OS
@@ -113,14 +124,17 @@ class WiFiDirectTransport implements TransportInterface {
 
     // Android's WiFi Direct discovery times out in ~2 minutes. Restart it
     // periodically so devices that appear later are still found.
-    _discoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) => _runDiscoverPeers());
+    _discoveryTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _runDiscoverPeers(),
+    );
   }
 
   Future<void> _runDiscoverPeers() async {
     try {
       await _channel.invokeMethod('discoverPeers');
     } catch (e) {
-      debugPrint('[WiFiDirect] discoverPeers failed: $e');
+      ahoyLog('[WiFiDirect] discoverPeers failed', e);
     }
   }
 
@@ -147,7 +161,7 @@ class WiFiDirectTransport implements TransportInterface {
         _handleDataReceived(call.arguments);
         break;
       case 'onConnectionFailed':
-        debugPrint('[WiFiDirect] Connection failed: ${call.arguments}');
+        ahoyLog('[WiFiDirect] connection failed');
         // Release only the address whose connect() just failed so that other
         // in-flight or already-established connections are not disturbed.
         if (_pendingConnectAddress != null) {
@@ -159,7 +173,7 @@ class WiFiDirectTransport implements TransportInterface {
         _isGroupOwner = false;
         _groupOwnerAddress = null;
         _connectingAddresses.clear();
-        debugPrint('[WiFiDirect] Disconnected');
+        ahoyLog('[WiFiDirect] disconnected');
         break;
     }
   }
@@ -170,9 +184,8 @@ class WiFiDirectTransport implements TransportInterface {
     try {
       final peers = (raw as List).cast<Map<Object?, Object?>>();
       for (final p in peers) {
-        final name = p['deviceName'] as String? ?? 'Unknown';
         final address = p['deviceAddress'] as String? ?? '';
-        debugPrint('[WiFiDirect] Peer found: $name @ $address');
+        ahoyLog('[WiFiDirect] peer found');
 
         // Do NOT emit a stub announcement here — the peer has no Ahoy identity yet
         // (shortId/UUID unknown) and would show as a duplicate "@" entry in the UI.
@@ -187,7 +200,7 @@ class WiFiDirectTransport implements TransportInterface {
         }
       }
     } catch (e) {
-      debugPrint('[WiFiDirect] onPeersDiscovered parse error: $e');
+      ahoyLog('[WiFiDirect] onPeersDiscovered parse error', e);
     }
   }
 
@@ -198,13 +211,13 @@ class WiFiDirectTransport implements TransportInterface {
       _isGroupOwner = args['isGroupOwner'] as bool? ?? false;
       final addr = args['address'] as String? ?? '';
       _groupOwnerAddress = addr.isEmpty ? null : addr;
-      debugPrint('[WiFiDirect] Connected. GroupOwner=$_isGroupOwner addr=$_groupOwnerAddress');
+      ahoyLog('[WiFiDirect] connected');
       // Group owner waits: connectedClients is empty until the client sends its first
       // TCP packet. The GO replies with its identity when it receives the client's
       // wdIdentity (see _handleDataReceived). Clients send proactively.
       if (!_isGroupOwner) _sendIdentity();
     } catch (e) {
-      debugPrint('[WiFiDirect] onConnectionEstablished parse error: $e');
+      ahoyLog('[WiFiDirect] onConnectionEstablished parse error', e);
     }
   }
 
@@ -223,10 +236,18 @@ class WiFiDirectTransport implements TransportInterface {
             : Uint8List.fromList((dataRaw as List).cast<int>());
       } else {
         // Fallback for raw bytes (should not occur with current Kotlin code).
-        bytes = raw is Uint8List ? raw : Uint8List.fromList((raw as List).cast<int>());
+        bytes = raw is Uint8List
+            ? raw
+            : Uint8List.fromList((raw as List).cast<int>());
       }
 
-      final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      if (bytes.isEmpty || bytes.length > _maxPayloadBytes) {
+        ahoyLog('[WiFiDirect] rejected invalid payload size');
+        return;
+      }
+
+      final payload = utf8.decode(bytes);
+      final json = jsonDecode(payload) as Map<String, dynamic>;
 
       if (json['type'] == 'wdIdentity') {
         final uuid = json['uuid'] as String? ?? '';
@@ -243,14 +264,19 @@ class WiFiDirectTransport implements TransportInterface {
           // Address is now mapped to a UUID — no longer needs to be in the
           // connecting set. Leaving it in would block reconnect after a failed
           // identity exchange (socket closed before write completed).
-          _connectingAddresses.remove(_isGroupOwner ? senderIP : _groupOwnerAddress);
-          _announcementController.add(PeerAnnouncement(
-            uuid: uuid,
-            shortId: json['shortId'] as String? ?? '',
-            displayName: json['displayName'] as String? ?? 'Unknown',
-            statusMessage: json['statusMessage'] as String?,
-            transport: TransportMode.wifiDirect,
-          ));
+          _connectingAddresses.remove(
+            _isGroupOwner ? senderIP : _groupOwnerAddress,
+          );
+          _announcementController.add(
+            PeerAnnouncement(
+              uuid: uuid,
+              shortId: json['shortId'] as String? ?? '',
+              displayName: json['displayName'] as String? ?? 'Unknown',
+              statusMessage: json['statusMessage'] as String?,
+              publicKeyPEM: json['publicKeyPEM'] as String?,
+              transport: TransportMode.wifiDirect,
+            ),
+          );
           // Group owner replies with its own identity so the client learns the GO's UUID.
           // The client connected first, so connectedClients now has the client's IP.
           if (_isGroupOwner && routeIP != null && routeIP.isNotEmpty) {
@@ -270,16 +296,18 @@ class WiFiDirectTransport implements TransportInterface {
             _addressToUuid[routeIP] = fromUuid;
           }
         }
-        _packetController.add(InboundPacket(
-          peerUuid: fromUuid,
-          peerShortId: json['fromShortId'] as String? ?? '',
-          peerDisplayName: json['fromName'] as String? ?? 'Unknown',
-          payload: utf8.decode(bytes),
-          transport: TransportMode.wifiDirect,
-        ));
+        _packetController.add(
+          InboundPacket(
+            peerUuid: fromUuid,
+            peerShortId: json['fromShortId'] as String? ?? '',
+            peerDisplayName: json['fromName'] as String? ?? 'Unknown',
+            payload: payload,
+            transport: TransportMode.wifiDirect,
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('[WiFiDirect] onDataReceived parse error: $e');
+      ahoyLog('[WiFiDirect] onDataReceived parse error', e);
     }
   }
 
@@ -288,9 +316,11 @@ class WiFiDirectTransport implements TransportInterface {
     try {
       await _channel.invokeMethod('connect', {'deviceAddress': deviceAddress});
     } catch (e) {
-      debugPrint('[WiFiDirect] connect to $deviceAddress failed: $e');
+      ahoyLog('[WiFiDirect] connect failed', e);
       _connectingAddresses.remove(deviceAddress);
-      if (_pendingConnectAddress == deviceAddress) _pendingConnectAddress = null;
+      if (_pendingConnectAddress == deviceAddress) {
+        _pendingConnectAddress = null;
+      }
     }
   }
 
@@ -309,6 +339,7 @@ class WiFiDirectTransport implements TransportInterface {
       'shortId': _myShortId ?? '',
       'displayName': _myDisplayName ?? 'Unknown',
       'statusMessage': _myStatusMessage,
+      'publicKeyPEM': _myPublicKeyPEM,
     });
     _sendBytes(utf8.encode(packet), recipientIP);
   }
@@ -318,26 +349,37 @@ class WiFiDirectTransport implements TransportInterface {
     if (!Platform.isAndroid) return false;
     final address = _uuidToAddress[peerUuid] ?? _groupOwnerAddress;
     if (address == null || address.isEmpty) {
-      debugPrint('[WiFiDirect] send: no route for $peerUuid — identity exchange not complete yet');
+      ahoyLog('[WiFiDirect] send has no route yet');
       return false;
     }
     return _sendBytes(utf8.encode(payload), address);
   }
 
   Future<bool> _sendBytes(List<int> bytes, String? recipientIP) async {
+    if (bytes.isEmpty || bytes.length > _maxPayloadBytes) {
+      ahoyLog('[WiFiDirect] refusing invalid payload size');
+      return false;
+    }
+
     try {
-      final args = <String, dynamic>{
-        'data': Uint8List.fromList(bytes),
-      };
+      final args = <String, dynamic>{'data': Uint8List.fromList(bytes)};
       if (recipientIP != null) {
         args['recipientIP'] = recipientIP;
       }
       final result = await _channel.invokeMethod<bool>('sendData', args);
       return result ?? false;
     } catch (e) {
-      debugPrint('[WiFiDirect] sendData failed: $e');
+      ahoyLog('[WiFiDirect] sendData failed', e);
       return false;
     }
+  }
+
+  @visibleForTesting
+  void debugHandleDataReceived(dynamic raw) => _handleDataReceived(raw);
+
+  @visibleForTesting
+  Future<bool> debugSendBytes(List<int> bytes, {String? recipientIP}) {
+    return _sendBytes(bytes, recipientIP);
   }
 
   @override
@@ -347,6 +389,7 @@ class WiFiDirectTransport implements TransportInterface {
     _myShortId = null;
     _myDisplayName = null;
     _myStatusMessage = null;
+    _myPublicKeyPEM = null;
     _packetController.close();
     _announcementController.close();
   }

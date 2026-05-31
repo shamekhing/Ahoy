@@ -21,11 +21,11 @@ class PeerCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
-        leading: PeerAvatar(
-          gender: Gender.unspecified,
-          radius: 22,
+        leading: PeerAvatar(gender: Gender.unspecified, radius: 22),
+        title: Text(
+          peer.displayName,
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        title: Text(peer.displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -35,13 +35,11 @@ class PeerCard extends StatelessWidget {
             TransportBadges(transports: peer.transports),
           ],
         ),
-        isThreeLine: peer.statusMessage != null && peer.statusMessage!.isNotEmpty,
+        isThreeLine:
+            peer.statusMessage != null && peer.statusMessage!.isNotEmpty,
         trailing: peer.isBlocked
             ? const Icon(Icons.block, color: Colors.red)
-            : TextButton(
-                onPressed: onConnect,
-                child: const Text('Chat'),
-              ),
+            : TextButton(onPressed: onConnect, child: const Text('Chat')),
         onTap: onViewProfile,
       ),
     );

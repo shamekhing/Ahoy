@@ -24,16 +24,16 @@ class PeerProfile {
   });
 
   Map<String, dynamic> toJson() => {
-        'uuid': uuid,
-        'shortId': shortId,
-        'displayName': displayName,
-        'bio': bio,
-        'gender': gender.name,
-        'avatarBase64': avatarBase64,
-        'interests': interests,
-        'publicKeyPEM': publicKeyPEM,
-        'statusMessage': statusMessage,
-      };
+    'uuid': uuid,
+    'shortId': shortId,
+    'displayName': displayName,
+    'bio': bio,
+    'gender': gender.name,
+    'avatarBase64': avatarBase64,
+    'interests': interests,
+    'publicKeyPEM': publicKeyPEM,
+    'statusMessage': statusMessage,
+  };
 
   factory PeerProfile.fromJson(Map<String, dynamic> json) {
     Gender parseGender(dynamic value) {

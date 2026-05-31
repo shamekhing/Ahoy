@@ -93,7 +93,9 @@ class DiscoverScreen extends StatelessWidget {
 
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ChatScreen(conversation: existing, peer: peer)),
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(conversation: existing, peer: peer),
+      ),
     );
   }
 
@@ -110,7 +112,11 @@ class _Banner extends StatelessWidget {
   final String message;
   final Color color;
 
-  const _Banner({required this.icon, required this.message, required this.color});
+  const _Banner({
+    required this.icon,
+    required this.message,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -122,7 +128,12 @@ class _Banner extends StatelessWidget {
         children: [
           Icon(icon, color: Colors.white, size: 18),
           const SizedBox(width: 8),
-          Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 13))),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
         ],
       ),
     );
@@ -139,12 +150,17 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(offGrid ? Icons.cloud_off : Icons.radar,
-              size: 72, color: Colors.grey.shade400),
+          Icon(
+            offGrid ? Icons.cloud_off : Icons.radar,
+            size: 72,
+            color: Colors.grey.shade400,
+          ),
           const SizedBox(height: 16),
           Text(
             offGrid ? 'You are off the grid' : 'No peers nearby',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(color: Colors.grey),
           ),
           const SizedBox(height: 8),
           Text(

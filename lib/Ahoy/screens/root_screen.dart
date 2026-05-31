@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/discovery_provider.dart';
+import '../core/logging.dart';
 import '../services/transport_manager.dart';
 import 'auth/sign_in_screen.dart';
 import 'auth/sign_up_screen.dart';
@@ -72,7 +73,7 @@ class _RootScreenState extends State<RootScreen> {
       }
       // _maybeStartTransports() will have fired via the listener if signIn succeeded.
     } catch (e) {
-      debugPrint('[RootScreen] bootstrap error: $e');
+      ahoyLog('[RootScreen] bootstrap error', e);
     } finally {
       if (mounted) setState(() => _checkingSession = false);
     }
@@ -131,7 +132,7 @@ class _RootScreenState extends State<RootScreen> {
         blockedUuids: discovery.blockedUuids,
       );
     } catch (e) {
-      debugPrint('[RootScreen] startTransports error: $e');
+      ahoyLog('[RootScreen] startTransports error', e);
     }
   }
 

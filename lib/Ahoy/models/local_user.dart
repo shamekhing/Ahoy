@@ -53,18 +53,18 @@ class LocalUser {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'username': username,
-        'bio': bio,
-        'gender': gender.name,
-        'avatarPath': avatarPath,
-        'interests': interests,
-        'publicKeyPEM': publicKeyPEM,
-        'shortId': shortId,
-        'statusMessage': statusMessage,
-        'createdAt': createdAt.toIso8601String(),
-        'biometricEnabled': biometricEnabled,
-      };
+    'id': id,
+    'username': username,
+    'bio': bio,
+    'gender': gender.name,
+    'avatarPath': avatarPath,
+    'interests': interests,
+    'publicKeyPEM': publicKeyPEM,
+    'shortId': shortId,
+    'statusMessage': statusMessage,
+    'createdAt': createdAt.toIso8601String(),
+    'biometricEnabled': biometricEnabled,
+  };
 
   factory LocalUser.fromJson(Map<String, dynamic> json) {
     Gender parseGender(dynamic value) {

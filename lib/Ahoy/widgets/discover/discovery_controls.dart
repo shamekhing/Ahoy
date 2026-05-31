@@ -17,11 +17,14 @@ class DiscoveryControls extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text('Transports',
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.primary)),
+            child: Text(
+              'Transports',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
           ),
           SwitchListTile(
             dense: true,

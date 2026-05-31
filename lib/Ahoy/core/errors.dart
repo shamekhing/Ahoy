@@ -1,7 +1,8 @@
 class CryptoNotInitialized implements Exception {
   const CryptoNotInitialized();
   @override
-  String toString() => 'CryptoService has not been activated. Call KeyStore.load() first.';
+  String toString() =>
+      'CryptoService has not been activated. Call KeyStore.load() first.';
 }
 
 class AuthFailed implements Exception {

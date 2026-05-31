@@ -28,7 +28,7 @@ fun releaseStoreFile(): File {
 }
 
 android {
-    namespace = "com.example.ahoy"
+    namespace = "com.ahoy.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -42,7 +42,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.ahoy"
+        applicationId = "com.ahoy.app"
         // flutter_secure_storage (encryptedSharedPreferences) requires API 23+.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion

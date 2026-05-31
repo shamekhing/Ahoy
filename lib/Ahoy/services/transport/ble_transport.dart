@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
+import '../../core/logging.dart';
 import 'transport_interface.dart';
 
 /// BLE transport with sequenced chunking for out-of-order delivery.
@@ -95,9 +96,9 @@ class BleTransport implements TransportInterface {
         'serviceUuid': AhoyConstants.bleServiceUuid,
         'payload': payload,
       });
-      debugPrint('[BLE] Advertising started ($shortId)');
+      ahoyLog('[BLE] advertising started');
     } catch (e) {
-      debugPrint('[BLE] startAdvertising failed: $e');
+      ahoyLog('[BLE] startAdvertising failed', e);
     }
   }
 
@@ -116,7 +117,7 @@ class BleTransport implements TransportInterface {
     try {
       await _advertiserChannel.invokeMethod('stopAdvertising');
     } catch (e) {
-      debugPrint('[BLE] stopAdvertising failed: $e');
+      ahoyLog('[BLE] stopAdvertising failed', e);
     }
   }
 
@@ -173,11 +174,11 @@ class BleTransport implements TransportInterface {
       // Success — reset backoff so the next natural restart uses the minimum.
       _lastStartSucceeded = true;
       _backoffSeconds = 8;
-      debugPrint('[BLE] Scan started (backoff reset to ${_backoffSeconds}s)');
+      ahoyLog('[BLE] scan started');
     } catch (e) {
       _lastStartSucceeded = false;
       _backoffSeconds = (_backoffSeconds * 2).clamp(8, _backoffMax);
-      debugPrint('[BLE] Scan failed, retrying in ${_backoffSeconds}s: $e');
+      ahoyLog('[BLE] scan failed; retry scheduled', e);
       if (_scanning) _scheduleScanRestart();
     }
   }
@@ -214,7 +215,7 @@ class BleTransport implements TransportInterface {
       _chunkTimestamps.remove(id);
     }
     if (stale.isNotEmpty) {
-      debugPrint('[BLE] Evicted ${stale.length} stale chunk assemblies');
+      ahoyLog('[BLE] evicted stale chunk assemblies');
     }
   }
 
@@ -275,7 +276,7 @@ class BleTransport implements TransportInterface {
       );
       return _sendChunked(char, payload);
     } catch (e) {
-      debugPrint('[BLE] Send failed: $e');
+      ahoyLog('[BLE] send failed', e);
       _connectedDevices.remove(peerUuid);
       return false;
     }
@@ -293,7 +294,7 @@ class BleTransport implements TransportInterface {
         .firstOrNull;
 
     if (device == null) {
-      debugPrint('[BLE] Device $peerUuid not in scan cache');
+      ahoyLog('[BLE] device not in scan cache');
       return null;
     }
 
@@ -311,7 +312,7 @@ class BleTransport implements TransportInterface {
       });
       return device;
     } catch (e) {
-      debugPrint('[BLE] Connect to $peerUuid failed: $e');
+      ahoyLog('[BLE] connect failed', e);
       return null;
     }
   }
@@ -323,7 +324,7 @@ class BleTransport implements TransportInterface {
     final msgId = DateTime.now().millisecondsSinceEpoch.toString();
     final bytes = utf8.encode(payload);
     if (bytes.length > _maxPayloadBytes) {
-      debugPrint('[BLE] Refusing oversized payload');
+      ahoyLog('[BLE] refusing oversized payload');
       return false;
     }
 
@@ -419,7 +420,7 @@ class BleTransport implements TransportInterface {
         );
       }
     } catch (e) {
-      debugPrint('[BLE] Chunk parse error: $e');
+      ahoyLog('[BLE] chunk parse error', e);
     }
   }
 

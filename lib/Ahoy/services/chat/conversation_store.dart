@@ -45,6 +45,21 @@ class ConversationStore {
       );
   }
 
+  bool get hasStoredData =>
+      _prefs.getString(AhoyConstants.prefConversations) != null;
+
+  bool get needsLegacyPlaintextMigration {
+    final raw = _prefs.getString(AhoyConstants.prefConversations);
+    final crypto = _localDataCrypto;
+    return raw != null && crypto != null && !crypto.isEncryptedValue(raw);
+  }
+
+  Future<void> rewriteAll() {
+    return _withLock(() async {
+      await _saveAll(_loadAllJson().map(Conversation.fromJson).toList());
+    });
+  }
+
   Future<void> _saveAll(List<Conversation> conversations) async {
     final jsonList = conversations.map((c) => c.toJson()).toList();
     final crypto = _localDataCrypto;

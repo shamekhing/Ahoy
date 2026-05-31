@@ -27,13 +27,13 @@ class Message {
     this.isEncrypted = true,
   });
 
-  Message copyWith({MessageStatus? status}) {
+  Message copyWith({String? content, MessageStatus? status}) {
     return Message(
       id: id,
       conversationId: conversationId,
       senderId: senderId,
       type: type,
-      content: content,
+      content: content ?? this.content,
       replyToId: replyToId,
       replyToPreview: replyToPreview,
       status: status ?? this.status,
@@ -44,21 +44,25 @@ class Message {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'conversationId': conversationId,
-        'senderId': senderId,
-        'type': type.name,
-        'content': content,
-        'replyToId': replyToId,
-        'replyToPreview': replyToPreview,
-        'status': status.name,
-        'transport': transport.name,
-        'timestamp': timestamp.toIso8601String(),
-        'isEncrypted': isEncrypted,
-      };
+    'id': id,
+    'conversationId': conversationId,
+    'senderId': senderId,
+    'type': type.name,
+    'content': content,
+    'replyToId': replyToId,
+    'replyToPreview': replyToPreview,
+    'status': status.name,
+    'transport': transport.name,
+    'timestamp': timestamp.toIso8601String(),
+    'isEncrypted': isEncrypted,
+  };
 
   factory Message.fromJson(Map<String, dynamic> json) {
-    T parseEnum<T extends Enum>(dynamic value, List<T> enumValues, T defaultValue) {
+    T parseEnum<T extends Enum>(
+      dynamic value,
+      List<T> enumValues,
+      T defaultValue,
+    ) {
       try {
         if (value == null) return defaultValue;
         if (value is String) return enumValues.byName(value);
@@ -81,8 +85,16 @@ class Message {
       content: json['content'] as String,
       replyToId: json['replyToId'] as String?,
       replyToPreview: json['replyToPreview'] as String?,
-      status: parseEnum(json['status'], MessageStatus.values, MessageStatus.sent),
-      transport: parseEnum(json['transport'], TransportMode.values, TransportMode.none),
+      status: parseEnum(
+        json['status'],
+        MessageStatus.values,
+        MessageStatus.sent,
+      ),
+      transport: parseEnum(
+        json['transport'],
+        TransportMode.values,
+        TransportMode.none,
+      ),
       timestamp: DateTime.parse(json['timestamp'] as String),
       isEncrypted: json['isEncrypted'] as bool? ?? false,
     );

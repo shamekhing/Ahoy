@@ -9,7 +9,11 @@ class SignUpScreen extends StatefulWidget {
   final VoidCallback onSignIn;
   final Future<void> Function() onSignedUp;
 
-  const SignUpScreen({super.key, required this.onSignIn, required this.onSignedUp});
+  const SignUpScreen({
+    super.key,
+    required this.onSignIn,
+    required this.onSignedUp,
+  });
 
   @override
   State<SignUpScreen> createState() => _SignUpScreenState();
@@ -25,7 +29,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _loading = false;
 
   static const _interestOptions = [
-    'Music', 'Tech', 'Sports', 'Food', 'Travel', 'Art', 'Gaming', 'Reading', 'Fitness', 'Nature'
+    'Music',
+    'Tech',
+    'Sports',
+    'Food',
+    'Travel',
+    'Art',
+    'Gaming',
+    'Reading',
+    'Fitness',
+    'Nature',
   ];
 
   @override
@@ -69,9 +82,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
               Center(
                 child: Column(
                   children: [
-                    SvgPicture.asset('assets/app_icon.svg', width: 64, height: 64),
+                    SvgPicture.asset(
+                      'assets/app_icon.svg',
+                      width: 64,
+                      height: 64,
+                    ),
                     const SizedBox(height: 12),
-                    Text('Create your Ahoy profile', style: Theme.of(context).textTheme.headlineSmall),
+                    Text(
+                      'Create your Ahoy profile',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -82,8 +102,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   labelText: 'Display Name',
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Name cannot be empty' : null,
+                validator: (v) => v == null || v.trim().isEmpty
+                    ? 'Name cannot be empty'
+                    : null,
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
@@ -108,7 +129,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 segments: const [
                   ButtonSegment(value: Gender.male, label: Text('Male')),
                   ButtonSegment(value: Gender.female, label: Text('Female')),
-                  ButtonSegment(value: Gender.unspecified, label: Text('Other')),
+                  ButtonSegment(
+                    value: Gender.unspecified,
+                    label: Text('Other'),
+                  ),
                 ],
                 selected: {_gender},
                 onSelectionChanged: (s) {
@@ -118,7 +142,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              Text('Interests (optional):', style: Theme.of(context).textTheme.labelLarge),
+              Text(
+                'Interests (optional):',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -149,8 +176,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   onPressed: _loading ? null : _signUp,
                   child: _loading
                       ? const SizedBox(
-                          width: 20, height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
                       : const Text('Create Account'),
                 ),
               ),

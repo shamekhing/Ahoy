@@ -17,7 +17,10 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         children: [
           const ListTile(
-            title: Text('Transports', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+            title: Text(
+              'Transports',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
             dense: true,
           ),
           SwitchListTile(
@@ -43,33 +46,46 @@ class SettingsScreen extends StatelessWidget {
           ),
           const Divider(),
           const ListTile(
-            title: Text('Discovery', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+            title: Text(
+              'Discovery',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
             dense: true,
           ),
           SwitchListTile(
             secondary: const Icon(Icons.visibility_off),
             title: const Text('Off the Grid'),
-            subtitle: const Text('Stop broadcasting your presence to nearby devices'),
+            subtitle: const Text(
+              'Stop broadcasting your presence to nearby devices',
+            ),
             value: discovery.offGrid,
             onChanged: discovery.setOffGrid,
           ),
           SwitchListTile(
             secondary: const Icon(Icons.block),
             title: const Text('Receive Off'),
-            subtitle: const Text('Silently reject all new incoming chat requests'),
+            subtitle: const Text(
+              'Silently reject all new incoming chat requests',
+            ),
             value: discovery.receiveOff,
             onChanged: discovery.setReceiveOff,
           ),
           const Divider(),
           const ListTile(
-            title: Text('Account', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+            title: Text(
+              'Account',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+            ),
             dense: true,
           ),
           _BiometricTile(auth: auth),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Sign Out & Erase Data', style: TextStyle(color: Colors.red)),
+            title: const Text(
+              'Sign Out & Erase Data',
+              style: TextStyle(color: Colors.red),
+            ),
             onTap: () => _confirmSignOut(context, auth),
           ),
         ],
@@ -82,9 +98,14 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Sign Out'),
-        content: const Text('All data will be permanently erased from this device.'),
+        content: const Text(
+          'All data will be permanently erased from this device.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -122,7 +143,12 @@ class _BiometricTileState extends State<_BiometricTile> {
   Future<void> _load() async {
     final available = await widget.auth.isBiometricAvailable;
     final enabled = await widget.auth.isBiometricEnabled;
-    if (mounted) setState(() { _available = available; _enabled = enabled; });
+    if (mounted) {
+      setState(() {
+        _available = available;
+        _enabled = enabled;
+      });
+    }
   }
 
   @override

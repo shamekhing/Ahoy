@@ -12,10 +12,12 @@ class TransportManager {
   final BleTransport _ble;
 
   final _packetController = StreamController<InboundPacket>.broadcast();
-  final _announcementController = StreamController<PeerAnnouncement>.broadcast();
+  final _announcementController =
+      StreamController<PeerAnnouncement>.broadcast();
 
   Stream<InboundPacket> get packetStream => _packetController.stream;
-  Stream<PeerAnnouncement> get announcementStream => _announcementController.stream;
+  Stream<PeerAnnouncement> get announcementStream =>
+      _announcementController.stream;
 
   final List<StreamSubscription> _subs = [];
 
@@ -40,9 +42,9 @@ class TransportManager {
   final Map<String, String> _peerAliases = {};
 
   TransportManager()
-      : _wifiDirect = WiFiDirectTransport(),
-        _lan = LanTransport(),
-        _ble = BleTransport();
+    : _wifiDirect = WiFiDirectTransport(),
+      _lan = LanTransport(),
+      _ble = BleTransport();
 
   Future<void> start({
     required String uuid,
@@ -68,18 +70,24 @@ class TransportManager {
     _subs.add(_lan.packetStream.listen(_onPacket));
     _subs.add(_ble.packetStream.listen(_onPacket));
 
-    _subs.add(_wifiDirect.announcementStream.listen((a) {
-      _recordTransport(a.uuid, TransportMode.wifiDirect);
-      _announcementController.add(a);
-    }));
-    _subs.add(_lan.announcementStream.listen((a) {
-      _recordTransport(a.uuid, TransportMode.lan);
-      _announcementController.add(a);
-    }));
-    _subs.add(_ble.announcementStream.listen((a) {
-      _recordTransport(a.uuid, TransportMode.ble);
-      _announcementController.add(a);
-    }));
+    _subs.add(
+      _wifiDirect.announcementStream.listen((a) {
+        _recordTransport(a.uuid, TransportMode.wifiDirect);
+        _announcementController.add(a);
+      }),
+    );
+    _subs.add(
+      _lan.announcementStream.listen((a) {
+        _recordTransport(a.uuid, TransportMode.lan);
+        _announcementController.add(a);
+      }),
+    );
+    _subs.add(
+      _ble.announcementStream.listen((a) {
+        _recordTransport(a.uuid, TransportMode.ble);
+        _announcementController.add(a);
+      }),
+    );
 
     await startAdvertising(
       uuid: uuid,
@@ -103,18 +111,30 @@ class TransportManager {
   }) async {
     if (_wifiDirectEnabled) {
       await _wifiDirect.startAdvertising(
-          uuid: uuid, shortId: shortId, displayName: displayName,
-          statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
+        uuid: uuid,
+        shortId: shortId,
+        displayName: displayName,
+        statusMessage: statusMessage,
+        publicKeyPEM: publicKeyPEM,
+      );
     }
     if (_lanEnabled) {
       await _lan.startAdvertising(
-          uuid: uuid, shortId: shortId, displayName: displayName,
-          statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
+        uuid: uuid,
+        shortId: shortId,
+        displayName: displayName,
+        statusMessage: statusMessage,
+        publicKeyPEM: publicKeyPEM,
+      );
     }
     if (_bleEnabled) {
       await _ble.startAdvertising(
-          uuid: uuid, shortId: shortId, displayName: displayName,
-          statusMessage: statusMessage, publicKeyPEM: publicKeyPEM);
+        uuid: uuid,
+        shortId: shortId,
+        displayName: displayName,
+        statusMessage: statusMessage,
+        publicKeyPEM: publicKeyPEM,
+      );
     }
   }
 
@@ -205,13 +225,15 @@ class TransportManager {
     if (canonical == packet.peerUuid) {
       _packetController.add(packet);
     } else {
-      _packetController.add(InboundPacket(
-        peerUuid: canonical,
-        peerShortId: packet.peerShortId,
-        peerDisplayName: packet.peerDisplayName,
-        payload: packet.payload,
-        transport: packet.transport,
-      ));
+      _packetController.add(
+        InboundPacket(
+          peerUuid: canonical,
+          peerShortId: packet.peerShortId,
+          peerDisplayName: packet.peerDisplayName,
+          payload: packet.payload,
+          transport: packet.transport,
+        ),
+      );
     }
   }
 
@@ -239,17 +261,29 @@ class TransportManager {
     final canonical = _peerAliases[peerUuid] ?? peerUuid;
     final modes = _peerTransports[canonical];
     if (modes == null || modes.isEmpty) return TransportMode.none;
-    if (modes.contains(TransportMode.wifiDirect)) return TransportMode.wifiDirect;
+    if (modes.contains(TransportMode.wifiDirect)) {
+      return TransportMode.wifiDirect;
+    }
     if (modes.contains(TransportMode.lan)) return TransportMode.lan;
     if (modes.contains(TransportMode.ble)) return TransportMode.ble;
     return TransportMode.none;
   }
 
   /// Send payload to peer, selecting the best available transport.
-  Future<bool> send(String peerUuid, String fromUuid, String fromShortId, String fromName,
-      Map<String, dynamic> data) async {
+  Future<bool> send(
+    String peerUuid,
+    String fromUuid,
+    String fromShortId,
+    String fromName,
+    Map<String, dynamic> data,
+  ) async {
     final canonical = _peerAliases[peerUuid] ?? peerUuid;
-    final payload = jsonEncode({...data, 'from': fromUuid, 'fromShortId': fromShortId, 'fromName': fromName});
+    final payload = jsonEncode({
+      ...data,
+      'from': fromUuid,
+      'fromShortId': fromShortId,
+      'fromName': fromName,
+    });
     final mode = currentModeFor(canonical);
     switch (mode) {
       case TransportMode.wifiDirect:

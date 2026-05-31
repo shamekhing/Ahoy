@@ -57,19 +57,19 @@ class Conversation {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'peerUuid': peerUuid,
-        'peerDisplayName': peerDisplayName,
-        'peerShortId': peerShortId,
-        'peerPublicKeyPEM': peerPublicKeyPEM,
-        'lastTransport': lastTransport.name,
-        'isBlocked': isBlocked,
-        'isDeleted': isDeleted,
-        'unreadCount': unreadCount,
-        'createdAt': createdAt.toIso8601String(),
-        'lastMessageAt': lastMessageAt?.toIso8601String(),
-        'lastMessagePreview': lastMessagePreview,
-      };
+    'id': id,
+    'peerUuid': peerUuid,
+    'peerDisplayName': peerDisplayName,
+    'peerShortId': peerShortId,
+    'peerPublicKeyPEM': peerPublicKeyPEM,
+    'lastTransport': lastTransport.name,
+    'isBlocked': isBlocked,
+    'isDeleted': isDeleted,
+    'unreadCount': unreadCount,
+    'createdAt': createdAt.toIso8601String(),
+    'lastMessageAt': lastMessageAt?.toIso8601String(),
+    'lastMessagePreview': lastMessagePreview,
+  };
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
     TransportMode parseTransport(dynamic value) {

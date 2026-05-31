@@ -24,7 +24,10 @@ class PeerProfileScreen extends StatelessWidget {
             onSelected: (action) => _handleAction(context, action, discovery),
             itemBuilder: (_) => [
               if (!isBlocked)
-                const PopupMenuItem(value: 'block', child: Text('Block', style: TextStyle(color: Colors.red)))
+                const PopupMenuItem(
+                  value: 'block',
+                  child: Text('Block', style: TextStyle(color: Colors.red)),
+                )
               else
                 const PopupMenuItem(value: 'unblock', child: Text('Unblock')),
             ],
@@ -34,18 +37,22 @@ class PeerProfileScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Center(
-            child: PeerAvatar(
-              gender: Gender.unspecified,
-              radius: 48,
-            ),
-          ),
+          Center(child: PeerAvatar(gender: Gender.unspecified, radius: 48)),
           const SizedBox(height: 16),
           Center(
-            child: Text(peer.displayName,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+            child: Text(
+              peer.displayName,
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
           ),
-          Center(child: Text('@${peer.shortId}', style: const TextStyle(color: Colors.grey))),
+          Center(
+            child: Text(
+              '@${peer.shortId}',
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ),
           const SizedBox(height: 8),
           Center(child: TransportBadges(transports: peer.transports)),
           if (peer.statusMessage != null && peer.statusMessage!.isNotEmpty) ...[
@@ -54,7 +61,10 @@ class PeerProfileScreen extends StatelessWidget {
               child: Text(
                 '"${peer.statusMessage}"',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
+                style: const TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
               ),
             ),
           ],
@@ -71,7 +81,10 @@ class PeerProfileScreen extends StatelessWidget {
                 children: [
                   Icon(Icons.block, color: Colors.red),
                   SizedBox(width: 8),
-                  Text('You have blocked this person', style: TextStyle(color: Colors.red)),
+                  Text(
+                    'You have blocked this person',
+                    style: TextStyle(color: Colors.red),
+                  ),
                 ],
               ),
             ),
@@ -81,17 +94,21 @@ class PeerProfileScreen extends StatelessWidget {
     );
   }
 
-  void _handleAction(BuildContext context, String action, DiscoveryProvider discovery) {
+  void _handleAction(
+    BuildContext context,
+    String action,
+    DiscoveryProvider discovery,
+  ) {
     if (action == 'block') {
       discovery.blockPeer(peer.uuid);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${peer.displayName} blocked')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${peer.displayName} blocked')));
     } else if (action == 'unblock') {
       discovery.unblockPeer(peer.uuid);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${peer.displayName} unblocked')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${peer.displayName} unblocked')));
     }
   }
 }

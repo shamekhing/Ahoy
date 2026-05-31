@@ -35,7 +35,21 @@ class MessageStore {
     }
   }
 
-  String _key(String conversationId) => 'ahoy_msgs_$conversationId';
+  static const String messageKeyPrefix = 'ahoy_msgs_';
+
+  String _key(String conversationId) => '$messageKeyPrefix$conversationId';
+
+  Set<String> get conversationIds => _prefs
+      .keys()
+      .where((key) => key.startsWith(messageKeyPrefix))
+      .map((key) => key.substring(messageKeyPrefix.length))
+      .toSet();
+
+  bool needsLegacyPlaintextMigration(String conversationId) {
+    final raw = _prefs.getString(_key(conversationId));
+    final crypto = _localDataCrypto;
+    return raw != null && crypto != null && !crypto.isEncryptedValue(raw);
+  }
 
   List<Message> loadMessages(String conversationId) {
     return _loadJsonList(conversationId).map(Message.fromJson).toList()
@@ -63,6 +77,15 @@ class MessageStore {
         all[idx] = all[idx].copyWith(status: status);
         await _saveMessages(conversationId, all);
       }
+    });
+  }
+
+  Future<void> replaceMessages(
+    String conversationId,
+    List<Message> messages,
+  ) async {
+    await _withLock(conversationId, () async {
+      await _saveMessages(conversationId, messages);
     });
   }
 
