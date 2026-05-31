@@ -4,6 +4,7 @@ import 'services/storage/secure_store.dart';
 import 'services/storage/prefs_store.dart';
 import 'services/crypto/crypto_service.dart';
 import 'services/crypto/key_store.dart';
+import 'services/crypto/local_data_crypto.dart';
 import 'services/auth/auth_service.dart';
 import 'services/profile/profile_service.dart';
 import 'services/transport_manager.dart';
@@ -35,6 +36,7 @@ class _AhoyAppState extends State<AhoyApp> {
   late final PrefsStore _prefsStore;
   late final CryptoService _cryptoService;
   late final KeyStore _keyStore;
+  late final LocalDataCrypto _localDataCrypto;
   late final AuthService _authService;
   late final ProfileService _profileService;
   late final TransportManager _transportManager;
@@ -58,18 +60,31 @@ class _AhoyAppState extends State<AhoyApp> {
 
       _cryptoService = CryptoService();
       _keyStore = KeyStore(_secureStore, _cryptoService);
+      _localDataCrypto = LocalDataCrypto(_secureStore);
+      await _localDataCrypto.init();
 
-      _authService = AuthService(_secureStore, _prefsStore, _cryptoService, _keyStore);
+      _authService = AuthService(
+        _secureStore,
+        _prefsStore,
+        _cryptoService,
+        _keyStore,
+      );
       _profileService = ProfileService(_prefsStore);
 
       _transportManager = TransportManager();
       _discoveryService = DiscoveryService();
 
-      _convStore = ConversationStore(_prefsStore);
-      _msgStore = MessageStore(_prefsStore);
-      _chatService = ChatService(_transportManager, _convStore, _msgStore, _cryptoService);
+      _convStore = ConversationStore(_prefsStore, _localDataCrypto);
+      _msgStore = MessageStore(_prefsStore, _localDataCrypto);
+      _chatService = ChatService(
+        _transportManager,
+        _convStore,
+        _msgStore,
+        _cryptoService,
+        _localDataCrypto,
+      );
 
-      _mediaService = MediaService();
+      _mediaService = MediaService(_localDataCrypto);
 
       setState(() => _ready = true);
     } catch (e) {
@@ -92,9 +107,11 @@ class _AhoyAppState extends State<AhoyApp> {
           body: Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Text('Startup error:\n$_initError',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red)),
+              child: Text(
+                'Startup error:\n$_initError',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red),
+              ),
             ),
           ),
         ),
@@ -113,6 +130,7 @@ class _AhoyAppState extends State<AhoyApp> {
         Provider<SecureStore>.value(value: _secureStore),
         Provider<PrefsStore>.value(value: _prefsStore),
         Provider<CryptoService>.value(value: _cryptoService),
+        Provider<LocalDataCrypto>.value(value: _localDataCrypto),
         Provider<TransportManager>.value(value: _transportManager),
         Provider<ProfileService>.value(value: _profileService),
         Provider<MediaService>.value(value: _mediaService),
@@ -121,26 +139,30 @@ class _AhoyAppState extends State<AhoyApp> {
         ChangeNotifierProvider(
           create: (_) => AuthProvider(_authService, _transportManager),
         ),
-        ChangeNotifierProvider(
-          create: (_) => ProfileProvider(_profileService),
-        ),
+        ChangeNotifierProvider(create: (_) => ProfileProvider(_profileService)),
         ChangeNotifierProvider(
           create: (_) => TransportProvider(_transportManager),
         ),
         ChangeNotifierProvider(
-          create: (_) => DiscoveryProvider(_discoveryService, _transportManager, _prefsStore),
+          create: (_) => DiscoveryProvider(
+            _discoveryService,
+            _transportManager,
+            _prefsStore,
+          ),
         ),
         ChangeNotifierProvider(
-          create: (_) => ChatProvider(_chatService, _convStore, _msgStore, _transportManager),
+          create: (_) => ChatProvider(
+            _chatService,
+            _convStore,
+            _msgStore,
+            _transportManager,
+          ),
         ),
       ],
       child: MaterialApp(
         title: 'Ahoy',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorSchemeSeed: Colors.blue,
-          useMaterial3: true,
-        ),
+        theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
         darkTheme: ThemeData(
           colorSchemeSeed: Colors.blue,
           brightness: Brightness.dark,

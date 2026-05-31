@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import '../../core/constants.dart';
 import '../../models/conversation.dart';
+import '../crypto/local_data_crypto.dart';
 import '../storage/prefs_store.dart';
 
 class ConversationStore {
   final PrefsStore _prefs;
+  final LocalDataCrypto? _localDataCrypto;
 
-  ConversationStore(this._prefs);
+  ConversationStore(this._prefs, [this._localDataCrypto]);
 
   // Simple async mutex: serialises all read-modify-write operations so
   // concurrent send + receive can't lose each other's updates.
@@ -31,28 +34,34 @@ class ConversationStore {
   }
 
   List<Conversation> loadAll() {
-    return _prefs
-        .getJsonList(AhoyConstants.prefConversations)
+    return _loadAllJson()
         .map(Conversation.fromJson)
         .where((c) => !c.isDeleted)
         .toList()
-      ..sort((a, b) =>
-          (b.lastMessageAt ?? b.createdAt).compareTo(a.lastMessageAt ?? a.createdAt));
+      ..sort(
+        (a, b) => (b.lastMessageAt ?? b.createdAt).compareTo(
+          a.lastMessageAt ?? a.createdAt,
+        ),
+      );
   }
 
   Future<void> _saveAll(List<Conversation> conversations) async {
-    await _prefs.setJsonList(
+    final jsonList = conversations.map((c) => c.toJson()).toList();
+    final crypto = _localDataCrypto;
+    if (crypto == null) {
+      await _prefs.setJsonList(AhoyConstants.prefConversations, jsonList);
+      return;
+    }
+
+    await _prefs.setString(
       AhoyConstants.prefConversations,
-      conversations.map((c) => c.toJson()).toList(),
+      crypto.encryptString(jsonEncode(jsonList)),
     );
   }
 
   Future<Conversation> upsert(Conversation conversation) {
     return _withLock(() async {
-      final all = _prefs
-          .getJsonList(AhoyConstants.prefConversations)
-          .map(Conversation.fromJson)
-          .toList();
+      final all = _loadAllJson().map(Conversation.fromJson).toList();
       final idx = all.indexWhere((c) => c.id == conversation.id);
       if (idx >= 0) {
         all[idx] = conversation;
@@ -66,10 +75,7 @@ class ConversationStore {
 
   Future<void> setBlocked(String conversationId, bool blocked) {
     return _withLock(() async {
-      final all = _prefs
-          .getJsonList(AhoyConstants.prefConversations)
-          .map(Conversation.fromJson)
-          .toList();
+      final all = _loadAllJson().map(Conversation.fromJson).toList();
       final idx = all.indexWhere((c) => c.id == conversationId);
       if (idx >= 0) {
         all[idx] = all[idx].copyWith(isBlocked: blocked);
@@ -80,10 +86,7 @@ class ConversationStore {
 
   Future<void> softDelete(String conversationId) {
     return _withLock(() async {
-      final all = _prefs
-          .getJsonList(AhoyConstants.prefConversations)
-          .map(Conversation.fromJson)
-          .toList();
+      final all = _loadAllJson().map(Conversation.fromJson).toList();
       final idx = all.indexWhere((c) => c.id == conversationId);
       if (idx >= 0) {
         all[idx] = all[idx].copyWith(isDeleted: true);
@@ -94,15 +97,25 @@ class ConversationStore {
 
   Future<void> markRead(String conversationId) {
     return _withLock(() async {
-      final all = _prefs
-          .getJsonList(AhoyConstants.prefConversations)
-          .map(Conversation.fromJson)
-          .toList();
+      final all = _loadAllJson().map(Conversation.fromJson).toList();
       final idx = all.indexWhere((c) => c.id == conversationId);
       if (idx >= 0) {
         all[idx] = all[idx].copyWith(unreadCount: 0);
         await _saveAll(all);
       }
     });
+  }
+
+  List<Map<String, dynamic>> _loadAllJson() {
+    final raw = _prefs.getString(AhoyConstants.prefConversations);
+    if (raw == null) return [];
+
+    final crypto = _localDataCrypto;
+    if (crypto != null && crypto.isEncryptedValue(raw)) {
+      final decoded = jsonDecode(crypto.decryptString(raw)) as List;
+      return decoded.cast<Map<String, dynamic>>();
+    }
+
+    return _prefs.getJsonList(AhoyConstants.prefConversations);
   }
 }

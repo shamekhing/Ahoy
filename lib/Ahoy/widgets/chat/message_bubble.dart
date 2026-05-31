@@ -2,12 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../../core/enums.dart';
+import '../../services/crypto/local_data_crypto.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMine;
   final VoidCallback? onReply;
   final VoidCallback? onPlayAudio;
+  final LocalDataCrypto? localDataCrypto;
 
   const MessageBubble({
     super.key,
@@ -15,6 +17,7 @@ class MessageBubble extends StatelessWidget {
     required this.isMine,
     this.onReply,
     this.onPlayAudio,
+    this.localDataCrypto,
   });
 
   @override
@@ -23,7 +26,9 @@ class MessageBubble extends StatelessWidget {
     final bgColor = isMine
         ? theme.colorScheme.primary
         : theme.colorScheme.surfaceContainerHighest;
-    final textColor = isMine ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface;
+    final textColor = isMine
+        ? theme.colorScheme.onPrimary
+        : theme.colorScheme.onSurface;
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -32,7 +37,9 @@ class MessageBubble extends StatelessWidget {
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.72,
+          ),
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.only(
@@ -47,7 +54,7 @@ class MessageBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (message.replyToPreview != null) _buildReplyHeader(textColor),
-              _buildContent(textColor),
+              _buildContent(context, textColor),
               const SizedBox(height: 2),
               _buildFooter(textColor),
             ],
@@ -74,27 +81,54 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildContent(Color textColor) {
+  Widget _buildContent(BuildContext context, Color textColor) {
     switch (message.type) {
       case MessageType.text:
         return Text(message.content, style: TextStyle(color: textColor));
       case MessageType.image:
-        return _buildImage(textColor);
+        return _buildImage(context, textColor);
       case MessageType.voice:
         return _buildVoice(textColor);
     }
   }
 
-  Widget _buildImage(Color textColor) {
+  Widget _buildImage(BuildContext context, Color textColor) {
     if (message.content.isEmpty) {
-      return Text('[Image unavailable]', style: TextStyle(color: textColor.withValues(alpha: 0.6)));
+      return Text(
+        '[Image unavailable]',
+        style: TextStyle(color: textColor.withValues(alpha: 0.6)),
+      );
     }
     final file = File(message.content);
+    final crypto = localDataCrypto;
+    if (crypto != null && crypto.isEncryptedFilePath(message.content)) {
+      try {
+        final bytes = crypto.readEncryptedFileSync(file);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            bytes,
+            width: 200,
+            height: 200,
+            fit: BoxFit.cover,
+          ),
+        );
+      } catch (_) {
+        return Text(
+          '[Image unavailable]',
+          style: TextStyle(color: textColor.withValues(alpha: 0.6)),
+        );
+      }
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: file.existsSync()
           ? Image.file(file, width: 200, height: 200, fit: BoxFit.cover)
-          : Text('[Image missing]', style: TextStyle(color: textColor.withValues(alpha: 0.6))),
+          : Text(
+              '[Image missing]',
+              style: TextStyle(color: textColor.withValues(alpha: 0.6)),
+            ),
     );
   }
 
@@ -117,7 +151,13 @@ class MessageBubble extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(time, style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6))),
+        Text(
+          time,
+          style: TextStyle(
+            fontSize: 10,
+            color: textColor.withValues(alpha: 0.6),
+          ),
+        ),
         if (isMine) ...[
           const SizedBox(width: 4),
           Icon(_statusIcon, size: 12, color: textColor.withValues(alpha: 0.6)),
@@ -133,8 +173,8 @@ class MessageBubble extends StatelessWidget {
   }
 
   IconData get _statusIcon => switch (message.status) {
-        MessageStatus.sending => Icons.schedule,
-        MessageStatus.sent => Icons.done,
-        MessageStatus.failed => Icons.error_outline,
-      };
+    MessageStatus.sending => Icons.schedule,
+    MessageStatus.sent => Icons.done,
+    MessageStatus.failed => Icons.error_outline,
+  };
 }

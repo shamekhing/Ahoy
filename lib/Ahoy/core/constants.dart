@@ -1,8 +1,10 @@
 class AhoyConstants {
   // BLE
   static const String bleServiceUuid = '12345678-1234-1234-1234-123456789abc';
-  static const String bleCharacteristicUuid = '12345678-1234-1234-1234-123456789def';
-  static const String bleProfileCharUuid = '12345678-1234-1234-1234-123456789aaa';
+  static const String bleCharacteristicUuid =
+      '12345678-1234-1234-1234-123456789def';
+  static const String bleProfileCharUuid =
+      '12345678-1234-1234-1234-123456789aaa';
   static const int bleChunkSize = 180; // bytes per BLE chunk (ATT MTU safe)
 
   // LAN
@@ -17,6 +19,7 @@ class AhoyConstants {
   static const String keyPrivateKey = 'ahoy_private_key';
   static const String keyPublicKey = 'ahoy_public_key';
   static const String keyBiometricEnabled = 'ahoy_biometric_enabled';
+  static const String keyLocalDataKey = 'ahoy_local_data_key';
 
   // Storage keys — PrefsStore
   static const String prefProfile = 'ahoy_profile';

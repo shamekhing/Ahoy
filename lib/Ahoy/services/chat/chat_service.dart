@@ -8,6 +8,7 @@ import '../../core/errors.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
 import '../crypto/crypto_service.dart';
+import '../crypto/local_data_crypto.dart';
 import '../transport_manager.dart';
 import 'conversation_store.dart';
 import 'message_store.dart';
@@ -19,8 +20,15 @@ class ChatService {
   final ConversationStore _convStore;
   final MessageStore _msgStore;
   final CryptoService _crypto;
+  final LocalDataCrypto? _localDataCrypto;
 
-  ChatService(this._transport, this._convStore, this._msgStore, this._crypto);
+  ChatService(
+    this._transport,
+    this._convStore,
+    this._msgStore,
+    this._crypto, [
+    this._localDataCrypto,
+  ]);
 
   /// Send a message to a peer. Throws [TransportError] for media over BLE.
   Future<Message> sendMessage({
@@ -76,13 +84,18 @@ class ChatService {
       trustedPeerPublicKeyPEM,
     );
     final actuallyEncrypted = payload['isEncrypted'] as bool? ?? false;
+    final storedContent = await _storedContentForLocalMessage(
+      type: type,
+      content: content,
+      msgId: msgId,
+    );
 
     final message = Message(
       id: msgId,
       conversationId: convId,
       senderId: myUuid,
       type: type,
-      content: content,
+      content: storedContent,
       replyToId: replyToId,
       replyToPreview: replyToPreview,
       status: MessageStatus.sending,
@@ -170,6 +183,38 @@ class ChatService {
       return base64.encode(file.readAsBytesSync());
     } catch (_) {
       return '';
+    }
+  }
+
+  Future<String> _storedContentForLocalMessage({
+    required MessageType type,
+    required String content,
+    required String msgId,
+  }) async {
+    if (type == MessageType.text ||
+        content.isEmpty ||
+        _localDataCrypto == null) {
+      return content;
+    }
+
+    try {
+      final source = File(content);
+      if (!await source.exists()) return content;
+      final bytes = await source.readAsBytes();
+      final storedPath = await _writeEncryptedMedia(bytes, msgId, type);
+
+      final fileName = source.uri.pathSegments.isEmpty
+          ? ''
+          : source.uri.pathSegments.last;
+      if (fileName.startsWith('ahoy_voice_')) {
+        try {
+          await source.delete();
+        } catch (_) {}
+      }
+
+      return storedPath;
+    } catch (_) {
+      return content;
     }
   }
 
@@ -265,16 +310,33 @@ class ChatService {
   ) async {
     try {
       final bytes = base64.decode(base64Content);
-      // Use app-private documents directory so the OS doesn't evict the files
-      // and other apps cannot read them without permission.
-      final dir = await getApplicationDocumentsDirectory();
-      final ext = type == MessageType.image ? 'jpg' : 'aac';
-      final file = File('${dir.path}/ahoy_media_$msgId.$ext');
-      await file.writeAsBytes(bytes);
-      return file.path;
+      return await _writeEncryptedMedia(bytes, msgId, type);
     } catch (_) {
       return '';
     }
+  }
+
+  Future<String> _writeEncryptedMedia(
+    List<int> bytes,
+    String msgId,
+    MessageType type,
+  ) async {
+    // Use app-private documents directory so the OS doesn't evict the files
+    // and other apps cannot read them without permission.
+    final dir = await getApplicationDocumentsDirectory();
+    final ext = type == MessageType.image ? 'jpg' : 'aac';
+    final crypto = _localDataCrypto;
+    if (crypto == null) {
+      final file = File('${dir.path}/ahoy_media_$msgId.$ext');
+      await file.writeAsBytes(bytes);
+      return file.path;
+    }
+
+    final file = File(
+      '${dir.path}/ahoy_media_$msgId.$ext${LocalDataCrypto.encryptedFileExtension}',
+    );
+    await crypto.writeEncryptedFile(file, Uint8List.fromList(bytes));
+    return file.path;
   }
 
   Future<void> _updateConversationOnSend(

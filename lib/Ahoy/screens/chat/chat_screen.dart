@@ -8,6 +8,7 @@ import '../../models/conversation.dart';
 import '../../models/nearby_peer.dart';
 import '../../models/message.dart';
 import '../../core/enums.dart';
+import '../../services/crypto/local_data_crypto.dart';
 import '../../services/media/media_service.dart';
 import '../../widgets/common/transport_badge.dart'; // TransportBadge + TransportBadges
 import '../../widgets/chat/message_bubble.dart';
@@ -236,6 +237,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final transport = context.watch<TransportProvider>();
     final discovery = context.watch<DiscoveryProvider>();
     final media = context.read<MediaService>();
+    final localDataCrypto = context.read<LocalDataCrypto>();
 
     final myUuid = auth.user?.id ?? '';
     final conv = _currentConv(chat);
@@ -302,6 +304,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPlayAudio: msg.type == MessageType.voice
                             ? () => media.playAudio(msg.content)
                             : null,
+                        localDataCrypto: localDataCrypto,
                       );
                     },
                   ),
