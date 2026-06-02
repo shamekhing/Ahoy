@@ -2,7 +2,7 @@
 
 > **Nothing Between** — privacy-first, peer-to-peer chat for people in the same space.
 
-Ahoy is a Flutter/Android app that lets nearby devices discover each other and chat with no server, no internet, and no account registration beyond a local password. All communication happens on-device over one of three transports — WiFi Direct, local network (LAN), or Bluetooth LE — chosen automatically by signal strength and capability. Every message is end-to-end encrypted with a per-user RSA-2048 keypair stored in the Android Keystore. Nothing leaves the physical space.
+Ahoy is a Flutter app for nearby-device messaging with no server, no internet, and no account registration beyond a local password. Communication happens on-device over the available transports — WiFi Direct on Android, local network (LAN), or Bluetooth LE — chosen automatically by signal strength and capability. Every message is end-to-end encrypted with a per-user RSA-2048 keypair stored in platform secure storage. Nothing leaves the physical space.
 
 ---
 
@@ -81,11 +81,11 @@ WiFi Direct  ──►  LAN  ──►  BLE
 
 **Storage split:**
 ```
-SecureStore (Android Keystore / EncryptedSharedPreferences)
+SecureStore (platform secure storage: Android Keystore / iOS Keychain)
   └─ RSA private key, RSA public key, password hash, user ID, biometric flag
 
 PrefsStore (SharedPreferences)
-  └─ Profile JSON, conversations, messages, transport flags, blocked UUIDs
+  └─ Encrypted profile, conversations, messages, transport flags, blocked UUIDs
 ```
 
 ---
@@ -186,7 +186,7 @@ main.dart
 AhoyApp (StatefulWidget)
   └─ initState() → _init() [async]
        │
-       ├─ 1.  SecureStore()                  — Android Keystore wrapper
+       ├─ 1.  SecureStore()                  — platform secure storage wrapper
        ├─ 2.  PrefsStore()                   — SharedPreferences (await .init())
        ├─ 3.  CryptoService()                — RSA/AES engine (inactive until keys loaded)
        ├─ 4.  KeyStore(secureStore, crypto)  — SecureStore ↔ CryptoService bridge
@@ -255,11 +255,11 @@ AuthService.signUp()
   │     DER-encode → PEM wrap
   ├─ KeyStore.save(privateKeyPEM, publicKeyPEM) → SecureStore
   ├─ KeyStore.load()  → CryptoService.activate()  (keys now in memory)
-  ├─ Hash password: PBKDF2-HMAC-SHA256, 100 000 iterations, 16-byte random salt
-  │     stored as "pbkdf2:{saltHex}:{derivedKeyHex}"
+  ├─ Hash password: PBKDF2-HMAC-SHA256, 310 000 iterations, 16-byte random salt
+  │     stored as "pbkdf2:v2:{iterations}:{saltHex}:{derivedKeyHex}"
   ├─ SecureStore.write(keyUserId, uuid)
   ├─ SecureStore.write(keyPasswordHash, hash)
-  └─ PrefsStore.setJson(prefProfile, LocalUser.toJson())
+  └─ ProfileService.saveProfile(LocalUser) → encrypted SharedPreferences value
 
 AuthProvider.state = AuthState.signedIn
 AuthProvider notifyListeners()
@@ -282,7 +282,7 @@ SignInScreen.initState()
             AuthProvider.signInWithBiometric()
               └─ LocalAuthentication.authenticate()   (fingerprint / face)
               └─ if approved: KeyStore.load() → CryptoService.activate()
-              └─ load LocalUser from PrefsStore
+             └─ load LocalUser from ProfileService
               └─ AuthState.signedIn
 ```
 
@@ -292,10 +292,12 @@ AuthProvider.signIn(password)
   └─ AuthService.signIn(password)
        ├─ Read stored hash from SecureStore
        ├─ CryptoService.verifyPassword(password, storedHash)
-       │     if "pbkdf2:" prefix: re-derive with stored salt, constant-time compare
-       │     else (legacy SHA-256): hash with stored salt, compare
+       │     if "pbkdf2:v2:" prefix: re-derive with stored params, constant-time compare
+       │     if legacy "pbkdf2:" prefix: verify, then upgrade on successful login
+       │     else (legacy SHA-256): verify, then upgrade on successful login
+       ├─ If hash needs upgrade: write new "pbkdf2:v2:{iterations}:{saltHex}:{derivedKeyHex}"
        ├─ KeyStore.load() → CryptoService.activate()
-       └─ Load LocalUser from PrefsStore
+       └─ Load LocalUser from ProfileService
 ```
 
 **Error handling:**
@@ -628,7 +630,7 @@ Save:
   → ProfileProvider.update(username?, bio?, gender?, interests?, statusMessage?)
        → ProfileService.updateProfile(current, ...)
             → Build new LocalUser with changed fields
-            → PrefsStore.setJson(prefProfile, user.toJson())
+            → ProfileService.saveProfile(user)   [encrypted at rest]
        → profileProvider.setUser(newUser)
   → AuthProvider.updateUser(newUser)   [syncs display name for outgoing messages]
   → TransportManager.startAdvertising(...)   [re-broadcasts updated identity to peers]
@@ -1177,17 +1179,21 @@ generateKeyPair()  [runs in Dart Isolate]
 
 ### Password Hashing
 ```
-New format (PBKDF2-HMAC-SHA256):
+Current format (PBKDF2-HMAC-SHA256):
   salt = Random.secure() → 16 bytes
-  dk   = PBKDF2(password, salt, 100_000 iterations, 32 output bytes)
-  stored: "pbkdf2:{saltHex}:{dkHex}"
+  dk   = PBKDF2(password, salt, 310_000 iterations, 32 output bytes)
+  stored: "pbkdf2:v2:{iterations}:{saltHex}:{dkHex}"
 
-Legacy format (SHA-256 + salt) — supported for verification only:
+Legacy PBKDF2 format — supported for verification and upgraded after login:
+  stored: "pbkdf2:{saltHex}:{dkHex}"   (100_000 iterations)
+
+Legacy SHA-256 format — supported for verification and upgraded after login:
   stored: "{saltHex}:{sha256Hex}"
 
 verifyPassword(password, storedHash):
-  if starts with "pbkdf2:": re-derive with extracted salt → constant-time compare
-  else: hash with extracted salt → compare
+  if starts with "pbkdf2:v2:": re-derive with stored iterations + salt → constant-time compare
+  if starts with legacy "pbkdf2:": re-derive with legacy iterations + salt → compare
+  else: hash with extracted salt → compare legacy SHA-256
 ```
 
 ### Message Encryption (Hybrid AES-256-GCM + RSA-OAEP)
@@ -1225,26 +1231,27 @@ shortIdFromUuid(uuid):
 ## 22. Storage Layer
 
 ### SecureStore (`lib/Ahoy/services/storage/secure_store.dart`)
-Backend: `flutter_secure_storage` → Android EncryptedSharedPreferences backed by Android Keystore. Keys are never exposed in plaintext outside the secure enclave.
+Backend: `flutter_secure_storage` -> Android EncryptedSharedPreferences/Keystore and iOS Keychain-backed secure storage.
 
 | Key constant | Value stored |
 |---|---|
 | `keyUserId` | User's UUID |
-| `keyPasswordHash` | `"pbkdf2:{saltHex}:{dkHex}"` |
+| `keyPasswordHash` | `"pbkdf2:v2:{iterations}:{saltHex}:{dkHex}"` |
 | `keyPrivateKey` | RSA-2048 private key PEM |
 | `keyPublicKey` | RSA-2048 public key PEM |
 | `keyBiometricEnabled` | `"true"` or key absent |
+| `keyLocalDataKey` | base64 AES-256 key for local encrypted prefs/files |
 
 Completely cleared on sign-out via `SecureStore.clearAll()`.
 
 ### PrefsStore (`lib/Ahoy/services/storage/prefs_store.dart`)
-Backend: `shared_preferences` → Android SharedPreferences.
+Backend: `shared_preferences` → Android SharedPreferences. Sensitive JSON blobs are wrapped by `LocalDataCrypto` as `ahoyenc:v1:{base64Envelope}` before storage.
 
 | Key constant | Value stored |
 |---|---|
-| `prefProfile` | `LocalUser` as JSON object |
-| `prefConversations` | `List<Conversation>` as JSON array |
-| `ahoy_msgs_{convId}` | `List<Message>` as JSON array (one key per conversation) |
+| `prefProfile` | encrypted `LocalUser` JSON object |
+| `prefConversations` | encrypted `List<Conversation>` JSON array |
+| `ahoy_msgs_{convId}` | encrypted `List<Message>` JSON array (one key per conversation) |
 | `prefOffGrid` | bool |
 | `prefReceiveOff` | bool |
 | `prefBleEnabled` | bool (default: true) |
@@ -1470,7 +1477,7 @@ Hardware features declared `android:required="false"` so app installs on devices
 | Package | Version | Used For |
 |---------|---------|----------|
 | `provider` | ^6.1.2 | State management (all 5 ChangeNotifier providers) |
-| `flutter_secure_storage` | ^9.2.2 | Android Keystore-backed storage for RSA keys and password hash |
+| `flutter_secure_storage` | ^9.2.2 | Platform secure storage for RSA keys, password hash, and local data key |
 | `shared_preferences` | ^2.3.5 | Profile, conversations, messages, all settings flags |
 | `local_auth` | ^2.3.0 | Biometric sign-in (fingerprint / face) |
 | `uuid` | ^4.5.1 | UUID v4 generation for user ID and message ID |

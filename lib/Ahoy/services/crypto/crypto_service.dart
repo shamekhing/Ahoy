@@ -212,13 +212,13 @@ class CryptoService {
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
   Uint8List _rsaOaepEncrypt(Uint8List data, pc.RSAPublicKey publicKey) {
-    final cipher = pc.OAEPEncoding(pc.RSAEngine())
+    final cipher = pc.OAEPEncoding.withSHA256(pc.RSAEngine())
       ..init(true, pc.PublicKeyParameter<pc.RSAPublicKey>(publicKey));
     return cipher.process(data);
   }
 
   Uint8List _rsaOaepDecrypt(Uint8List data) {
-    final cipher = pc.OAEPEncoding(pc.RSAEngine())
+    final cipher = pc.OAEPEncoding.withSHA256(pc.RSAEngine())
       ..init(false, pc.PrivateKeyParameter<pc.RSAPrivateKey>(_privateKey!));
     return cipher.process(data);
   }

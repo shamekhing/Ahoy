@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart' as enc;
 
 import '../../core/constants.dart';
+import 'local_file_policy.dart';
 import '../storage/secure_store.dart';
 
 class LocalDataCrypto {
@@ -75,6 +76,7 @@ class LocalDataCrypto {
 
   Future<void> writeEncryptedFile(File file, Uint8List bytes) async {
     await file.writeAsString(encryptString(base64.encode(bytes)), flush: true);
+    await LocalFilePolicy.excludeFromBackup(file);
   }
 
   Uint8List readEncryptedFileSync(File file) {

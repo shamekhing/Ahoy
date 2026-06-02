@@ -44,7 +44,7 @@ class MediaService {
   /// Start recording a voice message.
   Future<bool> startRecording() async {
     if (!await _recorder.hasPermission()) return false;
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await getTemporaryDirectory();
     final path =
         '${dir.path}/ahoy_voice_${DateTime.now().millisecondsSinceEpoch}.aac';
     await _recorder.start(
