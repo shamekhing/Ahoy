@@ -43,6 +43,7 @@ class ChatProvider extends ChangeNotifier {
     required Set<String> blockedUuids,
   }) {
     _inboundSub?.cancel();
+    _chatService.attachBlockedPeers(blockedUuids);
     _conversations = _convStore.loadAll();
     notifyListeners();
 

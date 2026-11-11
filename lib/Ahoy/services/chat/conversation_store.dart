@@ -88,6 +88,30 @@ class ConversationStore {
     });
   }
 
+  /// Atomic read-modify-write under the store lock: [mutate] sees the
+  /// freshest record and its result is written back inside the same locked
+  /// section, so concurrent updates (e.g. a Block tap racing an inbound
+  /// message) cannot be clobbered (third review #3). Creates the
+  /// conversation when [mutate] returns one for a missing record.
+  Future<Conversation> mutateOrCreate(
+    String conversationId,
+    Conversation Function(Conversation? existing) mutate,
+  ) {
+    return _withLock(() async {
+      final all = _loadAllJson().map(Conversation.fromJson).toList();
+      final idx = all.indexWhere((c) => c.id == conversationId);
+      final existing = idx >= 0 ? all[idx] : null;
+      final updated = mutate(existing);
+      if (idx >= 0) {
+        all[idx] = updated;
+      } else {
+        all.add(updated);
+      }
+      await _saveAll(all);
+      return updated;
+    });
+  }
+
   Future<void> setBlocked(String conversationId, bool blocked) {
     return _withLock(() async {
       final all = _loadAllJson().map(Conversation.fromJson).toList();

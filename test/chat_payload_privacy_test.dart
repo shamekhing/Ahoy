@@ -450,4 +450,57 @@ void main() {
     expect(bobSide.convStore.loadAll().single.peerPublicKeyPEM,
         aliceKeys['publicKey']);
   });
+
+  test('replays cannot resurrect deleted conversations (review #2)', () async {
+    final (alice, aliceKeys) = await _identity();
+    final (bob, bobKeys) = await _identity();
+    final aliceSide = await _createHarness(alice);
+    final bobSide = await _createHarness(bob);
+
+    await aliceSide.service.sendMessage(
+      myUuid: _aliceUuid,
+      myShortId: 'ALICE1',
+      myDisplayName: 'Alice',
+      peerUuid: _bobUuid,
+      peerDisplayName: 'Bob',
+      peerShortId: 'BOBBB1',
+      type: MessageType.text,
+      content: 'hello bob',
+      myPublicKeyPEM: aliceKeys['publicKey'],
+      peerPublicKeyPEM: bobKeys['publicKey'],
+    );
+
+    final wirePayload = _wire(aliceSide.transport.lastData!, _aliceUuid);
+    final first = await bobSide.service.onInboundPacket(
+      rawPayload: wirePayload,
+      peerUuid: _aliceUuid,
+      peerShortId: 'ALICE1',
+      peerDisplayName: 'Alice',
+      myUuid: _bobUuid,
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    expect(first, isNotNull);
+
+    // Bob deletes the conversation (messages removed from the store).
+    final convId = MessageStore.conversationId(_bobUuid, _aliceUuid);
+    await bobSide.convStore.softDelete(convId);
+    await bobSide.msgStore.deleteConversationMessages(convId);
+
+    // Replaying the same captured packet within the freshness window must
+    // not resurrect anything (third review #2).
+    final replayed = await bobSide.service.onInboundPacket(
+      rawPayload: wirePayload,
+      peerUuid: _aliceUuid,
+      peerShortId: 'ALICE1',
+      peerDisplayName: 'Alice',
+      myUuid: _bobUuid,
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    expect(replayed, isNull);
+    expect(bobSide.msgStore.loadMessages(convId), isEmpty);
+  });
 }

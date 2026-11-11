@@ -36,6 +36,21 @@ class ChatService {
   /// (audit #7).
   final _verifiedKeys = <String, String>{};
 
+  /// Live reference to the discovery-owned blocked set — enforced on the
+  /// sending path too (third review #4).
+  Set<String> _blockedUuids = const {};
+
+  /// Bounded replay guard: message ids seen this session are dropped on
+  /// replay even if the conversation was deleted meanwhile (third review
+  /// #2). Only authenticated messages enter the cache, so garbage cannot
+  /// flush it.
+  final _seenMessageIds = <String>{};
+  static const int _maxSeenMessageIds = 512;
+
+  /// Hands the live blocked-peers set to the service (audit #4). The set is
+  /// owned by DiscoveryProvider and mutated in place.
+  void attachBlockedPeers(Set<String> peers) => _blockedUuids = peers;
+
   /// Last identity send per peer — throttles identity broadcasts (audit #1).
   final _identitySentAt = <String, DateTime>{};
 
@@ -54,8 +69,9 @@ class ChatService {
     _verifiedKeys.clear();
     _identitySentAt.clear();
     _identityRepliedTo.clear();
+    _seenMessageIds.clear();
+    _blockedUuids = const {};
   }
-
   ChatService(
     this._transport,
     this._convStore,
@@ -91,6 +107,13 @@ class ChatService {
 
     if (mode == TransportMode.none) {
       throw TransportError('Peer is not reachable on any transport');
+    }
+
+    if (_blockedUuids.contains(peerUuid)) {
+      // The UI hides the composer for blocked conversations, but the service
+      // is the authority — block is enforced on the sending path too
+      // (third review #4).
+      throw const TransportError('Peer is blocked');
     }
 
     final convId = MessageStore.conversationId(myUuid, peerUuid);
@@ -515,6 +538,19 @@ class ChatService {
         return null;
       }
 
+      // Bounded replay guard — a captured packet replayed after the
+      // conversation was deleted must not resurrect messages (third review
+      // #2). Only authenticated messages reach this point, so garbage cannot
+      // flush the cache.
+      if (_seenMessageIds.contains(msgId)) {
+        ahoyLog('[ChatService] dropping replayed message');
+        return null;
+      }
+      _seenMessageIds.add(msgId);
+      if (_seenMessageIds.length > _maxSeenMessageIds) {
+        _seenMessageIds.remove(_seenMessageIds.first);
+      }
+
       final type = MessageType.values.byName(json['type'] as String? ?? 'text');
       final isEncrypted = isV3 || (json['isEncrypted'] as bool? ?? false);
       String content = json['content'] as String? ?? '';
@@ -621,32 +657,29 @@ class ChatService {
     String? peerPublicKeyPEM,
     Message msg,
   ) async {
-    final existing = _findConversation(convId);
-    final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
-      pinnedKey: existing?.peerPublicKeyPEM,
-      candidateKey: peerPublicKeyPEM,
-    );
-    final conversation =
-        existing ??
-        Conversation(
-          id: convId,
-          peerUuid: peerUuid,
-          peerDisplayName: peerDisplayName,
-          peerShortId: peerShortId,
-          peerPublicKeyPEM: trustedPeerPublicKeyPEM,
-          lastTransport: msg.transport,
-          createdAt: DateTime.now(),
-        );
-    await _convStore.upsert(
-      conversation.copyWith(
+    // Atomic read-modify-write (third review #3).
+    await _convStore.mutateOrCreate(convId, (existing) {
+      final conversation =
+          existing ??
+          Conversation(
+            id: convId,
+            peerUuid: peerUuid,
+            peerDisplayName: peerDisplayName,
+            peerShortId: peerShortId,
+            peerPublicKeyPEM: peerPublicKeyPEM,
+            lastTransport: msg.transport,
+            createdAt: DateTime.now(),
+          );
+      return conversation.copyWith(
         lastTransport: msg.transport,
         lastMessageAt: msg.timestamp,
         lastMessagePreview: msg.type == MessageType.text
             ? msg.content
             : '[${msg.type.name}]',
-        peerPublicKeyPEM: trustedPeerPublicKeyPEM,
-      ),
-    );
+        peerShortId: peerShortId.isNotEmpty ? peerShortId : null,
+        peerPublicKeyPEM: peerPublicKeyPEM,
+      );
+    });
   }
 
   Future<void> _updateConversationOnReceive(
@@ -658,24 +691,22 @@ class ChatService {
     Message msg,
     TransportMode transport,
   ) async {
-    final existing = _findConversation(convId);
-    final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
-      pinnedKey: existing?.peerPublicKeyPEM,
-      candidateKey: peerPublicKeyPEM,
-    );
-    final conversation =
-        existing ??
-        Conversation(
-          id: convId,
-          peerUuid: peerUuid,
-          peerShortId: peerShortId,
-          peerPublicKeyPEM: trustedPeerPublicKeyPEM,
-          peerDisplayName: peerDisplayName,
-          lastTransport: transport,
-          createdAt: DateTime.now(),
-        );
-    await _convStore.upsert(
-      conversation.copyWith(
+    // Atomic read-modify-write — a concurrent Block or markRead can no
+    // longer be clobbered by a stale full-record write-back (third
+    // review #3).
+    await _convStore.mutateOrCreate(convId, (existing) {
+      final conversation =
+          existing ??
+          Conversation(
+            id: convId,
+            peerUuid: peerUuid,
+            peerShortId: peerShortId,
+            peerPublicKeyPEM: peerPublicKeyPEM,
+            peerDisplayName: peerDisplayName,
+            lastTransport: transport,
+            createdAt: DateTime.now(),
+          );
+      return conversation.copyWith(
         lastTransport: transport,
         lastMessageAt: msg.timestamp,
         lastMessagePreview: msg.type == MessageType.text
@@ -684,9 +715,9 @@ class ChatService {
         unreadCount: conversation.unreadCount + 1,
         // Update peer identity fields if we now have better data.
         peerShortId: peerShortId.isNotEmpty ? peerShortId : null,
-        peerPublicKeyPEM: trustedPeerPublicKeyPEM,
-      ),
-    );
+        peerPublicKeyPEM: peerPublicKeyPEM,
+      );
+    });
   }
 
   Conversation? _findConversation(String convId) {
@@ -829,6 +860,19 @@ class ChatService {
     final ackFor = json['ackFor'] as String? ?? '';
     if (ackFor.isEmpty) return;
 
+    // The ack must reference a message we actually sent to this peer and
+    // that is not already delivered — unknown ids and replays of acks for
+    // messages in other states are ignored (third review #1).
+    final stored =
+        _msgStore.loadMessages(convId).where((m) => m.id == ackFor).firstOrNull;
+    if (stored == null ||
+        (stored.status != MessageStatus.sent &&
+            stored.status != MessageStatus.delivered)) {
+      ahoyLog('[ChatService] ignoring ack for unexpected message state');
+      return;
+    }
+    if (stored.status == MessageStatus.delivered) return; // idempotent
+
     // The ack is only trusted when it is signed with the peer key pinned for
     // this conversation — otherwise ignore it silently.
     final pinnedKey = _findConversation(convId)?.peerPublicKeyPEM;
@@ -842,6 +886,8 @@ class ChatService {
       ahoyLog('[ChatService] dropping ack with invalid signature');
       return;
     }
+
+    if (stored.status == MessageStatus.delivered) return; // idempotent
 
     await _msgStore.updateMessageStatus(convId, ackFor, MessageStatus.delivered);
   }

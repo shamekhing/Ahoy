@@ -158,15 +158,4 @@ class ProfileService {
       if (await file.exists()) await file.delete();
     } catch (_) {}
   }
-
-  String defaultAvatarAsset(Gender gender) {
-    switch (gender) {
-      case Gender.male:
-        return 'assets/avatars/male.png';
-      case Gender.female:
-        return 'assets/avatars/female.png';
-      case Gender.unspecified:
-        return 'assets/avatars/neutral.png';
-    }
-  }
 }

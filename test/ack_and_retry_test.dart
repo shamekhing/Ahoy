@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:ahoy/Ahoy/core/enums.dart';
+import 'package:ahoy/Ahoy/core/errors.dart';
 import 'package:ahoy/Ahoy/services/chat/chat_service.dart';
 import 'package:ahoy/Ahoy/services/chat/conversation_store.dart';
 import 'package:ahoy/Ahoy/services/chat/message_store.dart';
@@ -370,6 +371,112 @@ void main() {
     expect(
       aliceH.msgStore.loadMessages(convId).single.status,
       MessageStatus.failed,
+    );
+  });
+
+  test('acks for unknown or non-sent messages are ignored (review #1)', () async {
+    final (alice, aliceKeys) = await _identity();
+    final (bob, bobKeys) = await _identity();
+    final alicePrefs = await _prefs();
+    final tm = _FlakyTransportManager(alwaysFails: false);
+    final aliceConv = ConversationStore(alicePrefs);
+    final aliceMsg = MessageStore(alicePrefs);
+    final aliceH = _Harness(
+      ChatService(tm, aliceConv, aliceMsg, alice),
+      tm,
+      aliceConv,
+      aliceMsg,
+    );
+
+    // The first send fails, so the message exists with status `failed`.
+    await aliceH.service.sendMessage(
+      myUuid: _aliceUuid,
+      myShortId: 'ALICE1',
+      myDisplayName: 'Alice',
+      peerUuid: _bobUuid,
+      peerDisplayName: 'Bob',
+      peerShortId: 'BOBBB1',
+      type: MessageType.text,
+      content: 'hello',
+      myPublicKeyPEM: aliceKeys['publicKey'],
+      peerPublicKeyPEM: bobKeys['publicKey'],
+    );
+    final convId = MessageStore.conversationId(_aliceUuid, _bobUuid);
+    final failedMsg = aliceH.msgStore.loadMessages(convId).single;
+    expect(failedMsg.status, MessageStatus.failed);
+
+    Map<String, dynamic> sealedAckFor(String msgId) {
+      final inner = <String, dynamic>{
+        'msgType': 'ack',
+        'ackFor': msgId,
+        'convId': convId,
+        'senderUuid': _bobUuid,
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+      inner['signature'] = bob.signPayload(_ackMaterial(inner));
+      return {
+        'v': 3,
+        'ct': alice.encryptForPeer(jsonEncode(inner), aliceKeys['publicKey']!),
+      };
+    }
+
+    Future<void> deliverAck(String msgId) async {
+      await aliceH.service.onInboundPacket(
+        rawPayload: _wire(sealedAckFor(msgId), _bobUuid),
+        peerUuid: _bobUuid,
+        peerShortId: 'BOBBB1',
+        peerDisplayName: 'Bob',
+        myUuid: _aliceUuid,
+        transport: TransportMode.lan,
+        receiveOff: false,
+        blockedUuids: const {},
+      );
+    }
+
+    // A validly signed ack for a FAILED message must not flip it.
+    await deliverAck(failedMsg.id);
+    expect(
+      aliceH.msgStore.loadMessages(convId).single.status,
+      MessageStatus.failed,
+    );
+
+    // A validly signed ack for an unknown id must be ignored too.
+    await deliverAck('ffffffff-1111-2222-3333-444444444444');
+    expect(
+      aliceH.msgStore.loadMessages(convId).single.status,
+      MessageStatus.failed,
+    );
+  });
+
+  test('blocked peers are rejected on the sending path (review #4)', () async {
+    final (alice, aliceKeys) = await _identity();
+    final (_, bobKeys) = await _identity();
+    final alicePrefs = await _prefs();
+    final tm = _CapturingTransportManager();
+    final aliceConv = ConversationStore(alicePrefs);
+    final aliceMsg = MessageStore(alicePrefs);
+    final aliceH = _Harness(
+      ChatService(tm, aliceConv, aliceMsg, alice),
+      tm,
+      aliceConv,
+      aliceMsg,
+    );
+    aliceH.service.attachBlockedPeers({_bobUuid});
+
+    expect(
+      () => aliceH.service.sendMessage(
+        myUuid: _aliceUuid,
+        myShortId: 'ALICE1',
+        myDisplayName: 'Alice',
+        peerUuid: _bobUuid,
+        peerDisplayName: 'Bob',
+        peerShortId: 'BOBBB1',
+        type: MessageType.text,
+        content: 'hello',
+        myPublicKeyPEM: aliceKeys['publicKey'],
+        peerPublicKeyPEM: bobKeys['publicKey'],
+      ),
+      throwsA(isA<TransportError>()),
     );
   });
 }

@@ -7,7 +7,6 @@ Ahoy is a Flutter app for nearby-device messaging with no server, no internet, a
 ---
 
 ## Table of Contents
-[build](android/build)
 1. [Architecture Overview](#1-architecture-overview)
 2. [Project Structure](#2-project-structure)
 3. [Cold Start — App Launch](#3-cold-start--app-launch)
@@ -568,8 +567,9 @@ AppBar menu → "Block"
   → DiscoveryProvider.blockPeer(peerUuid)
        → DiscoveryService.updateBlockedStatus(peerUuid, true)
        → blockedUuids.add(peerUuid) → _saveBlockedUuids() → PrefsStore
-  → Overlay banner: "This conversation is blocked"
+  → In-chat placeholder: "This conversation is blocked" (body text, no banner)
   → Inbound packets from this peer silently dropped in ChatService.onInboundPacket()
+  → Outbound sends to this peer are rejected by ChatService.sendMessage()
 
 AppBar menu → "Unblock"
   → Reverses both operations
@@ -757,10 +757,9 @@ ChatService.sendMessage()
   │                   senderPublicKeyPEM }      ← all metadata inside the blob
   │         inner.signature = RSA-SHA256(_signatureMaterialV3(inner))
   │         → Returns { v: 3, ct: encryptForPeer(jsonEncode(inner), peerKey) }
-  │    └─ Else (legacy flat fallback, e.g. BLE-only first contact):
-  │         → Returns flat Map: { msgType, msgId, convId, senderUuid,
-  │           senderShortId, senderName, type, content, isEncrypted: false,
-  │           senderPublicKeyPEM, replyTo*, timestamp, signature? }
+  │    └─ Else (no verified recipient key): _buildPayload THROWS —
+  │         sendMessage first runs the signed identity handshake (§21) and
+  │         queues the message; plaintext content is never sent.
   │
   ├─ Message(status: sending) created
   │

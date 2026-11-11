@@ -79,3 +79,21 @@ A second review confirmed the primitives and prior fixes, and raised 7 High find
 | 7 | First-contact pinning trusted the sender | Discovery-verified keys are registered (`registerVerifiedPeerKey`); first contacts pinning a different key are dropped before any state is written. |
 
 Medium/Low/hygiene findings from this second review are queued for the next pass. Validated: `flutter analyze` clean, `flutter test` 65/65 passing.
+
+---
+
+# Third External Review (follow-up audit)
+
+A third review found ordering and edge-case issues. Priority items and the accepted ones are fixed:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | Acks could flip non-sent messages to `delivered` (replayed/forged-target acks) | `_handleInboundAck` now requires the acked msgId to exist in the conversation with status `sent` (or `delivered`, idempotent); anything else is ignored. |
+| 2 | Replay after conversation deletion resurrected messages | Bounded (512) session seen-msgId cache; only authenticated messages enter it, so garbage cannot flush it. Test: replay-after-delete drops. |
+| 3 | Conversation read-modify-write raced (Block/markRead clobbered) | `ConversationStore.mutateOrCreate` performs the read-modify-write inside the store lock; `_updateConversationOnSend/OnReceive` use it. |
+| 4 | Block not enforced on the sending path | `ChatService` holds the live blocked set (`attachBlockedPeers`, wired from DiscoveryProvider via ChatProvider) and `sendMessage` rejects blocked peers. |
+| 5 | Deleted conversations silently retain the pinned key | Documented as intentional (re-contact pinning) in code. |
+| 8 | GATT callback raced `bleGattServer` nulling | Server reference captured locally before `sendResponse`. |
+| 9/10/11/12 | Docs + build hygiene | README TOC stray link removed, §10g corrected to body-text placeholder + outbound-send rejection noted, §15 legacy-fallback text replaced with the throw + identity-handshake reality; `build/` gitignored and the committed Gradle report removed from the index; Gradle heap reduced to CI-safe sizes; `defaultAvatarAsset` dead code removed (referenced non-existent assets); launcher_icons switched to the raster PNG and the bogus `web:` section dropped; `DiscoveryControls` (unused, out-of-sync copy) deleted; dark-mode launch flash fixed with a `drawable-night` background. |
+
+Not actioned (accepted as-is): BLE assembly-eviction cost at the 16-assembly cap, `connectedClients` prune micro-race (non-security), identity send immediately after sign-out (in-flight race, benign). Validated: `flutter analyze` clean, `flutter test` 68/68 passing.

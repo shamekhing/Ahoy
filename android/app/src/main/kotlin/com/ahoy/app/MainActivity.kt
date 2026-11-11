@@ -188,7 +188,11 @@ class MainActivity : FlutterActivity() {
                 value: ByteArray?
             ) {
                 if (responseNeeded) {
-                    bleGattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+                    // Capture the server reference — stopBleAdvertising may
+                    // null the field from the UI thread while this binder
+                    // callback runs (third review #8).
+                    val server = bleGattServer
+                    server?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                 }
                 if (value != null && value.isNotEmpty()) {
                     try {
