@@ -23,8 +23,10 @@ class WiFiDirectTransport implements TransportInterface {
   WiFiDirectTransport({
     int maxPayloadBytes = AhoyConstants.wifiDirectMaxPayloadBytes,
     CryptoService? crypto,
+    Duration connectAttemptTtl = const Duration(seconds: 30),
   }) : _maxPayloadBytes = maxPayloadBytes,
-       _crypto = crypto;
+       _crypto = crypto,
+       _connectAttemptTtl = connectAttemptTtl;
 
   @override
   TransportMode get mode => TransportMode.wifiDirect;
@@ -49,13 +51,17 @@ class WiFiDirectTransport implements TransportInterface {
   String? _groupOwnerAddress;
   Timer? _discoveryTimer;
 
-  // Addresses for which a connect() call is already in flight or succeeded.
-  // Prevents duplicate connect() calls from repeated onPeersDiscovered events.
-  final _connectingAddresses = <String>{};
+  // Device addresses with a connect() attempt in flight or recently made.
+  // Prevents duplicate connect() calls from repeated onPeersDiscovered
+  // events. Entries expire after [_connectAttemptTtl] so a peer whose
+  // connect silently failed becomes retryable instead of staying wedged
+  // until the next group teardown (review #1/#2).
+  final Map<String, DateTime> _connectingAttempts = {};
 
-  // The single device address whose connect() call is currently in flight.
-  // WiFi Direct only allows one pending group-formation attempt at a time.
-  String? _pendingConnectAddress;
+  // Kotlin's onConnectionFailed does not identify the failed device, so
+  // exact bookkeeping is impossible — TTL expiry keeps the state honest
+  // (review #1).
+  final Duration _connectAttemptTtl;
 
   // Our own identity, cached for broadcasting after connection
   String? _myUuid;
@@ -114,8 +120,7 @@ class WiFiDirectTransport implements TransportInterface {
       _initialized = false;
       _isGroupOwner = false;
       _groupOwnerAddress = null;
-      _connectingAddresses.clear();
-      _pendingConnectAddress = null;
+      _connectingAttempts.clear();
       _addressToUuid.clear();
       _uuidToAddress.clear();
     }
@@ -169,17 +174,14 @@ class WiFiDirectTransport implements TransportInterface {
         break;
       case 'onConnectionFailed':
         ahoyLog('[WiFiDirect] connection failed');
-        // Release only the address whose connect() just failed so that other
-        // in-flight or already-established connections are not disturbed.
-        if (_pendingConnectAddress != null) {
-          _connectingAddresses.remove(_pendingConnectAddress);
-          _pendingConnectAddress = null;
-        }
+        // Kotlin does not identify which device failed — guessing from the
+        // single pending address removed the wrong peer under concurrency
+        // (review #1). The attempt entry expires via TTL instead.
         break;
       case 'onDisconnected':
         _isGroupOwner = false;
         _groupOwnerAddress = null;
-        _connectingAddresses.clear();
+        _connectingAttempts.clear();
         ahoyLog('[WiFiDirect] disconnected');
         break;
     }
@@ -189,6 +191,7 @@ class WiFiDirectTransport implements TransportInterface {
     // raw is List<Map<String, String>> with keys: deviceName, deviceAddress, status
     if (raw == null) return;
     try {
+      _pruneConnectingAttempts();
       final peers = (raw as List).cast<Map<Object?, Object?>>();
       for (final p in peers) {
         final address = p['deviceAddress'] as String? ?? '';
@@ -201,8 +204,8 @@ class WiFiDirectTransport implements TransportInterface {
         // Auto-connect to newly found peers if not already connected.
         if (address.isNotEmpty &&
             !_addressToUuid.containsKey(address) &&
-            !_connectingAddresses.contains(address)) {
-          _connectingAddresses.add(address);
+            !_connectingAttempts.containsKey(address)) {
+          _connectingAttempts[address] = DateTime.now();
           _tryConnect(address);
         }
       }
@@ -218,6 +221,10 @@ class WiFiDirectTransport implements TransportInterface {
       _isGroupOwner = args['isGroupOwner'] as bool? ?? false;
       final addr = args['address'] as String? ?? '';
       _groupOwnerAddress = addr.isEmpty ? null : addr;
+      // The group formed — any in-flight connect attempts are moot; peers
+      // outside the group are re-attempted on the next discovery cycle
+      // (review #1).
+      _connectingAttempts.clear();
       ahoyLog('[WiFiDirect] connected');
       // Group owner waits: connectedClients is empty until the client sends its first
       // TCP packet. The GO replies with its identity when it receives the client's
@@ -285,12 +292,9 @@ class WiFiDirectTransport implements TransportInterface {
             _addressToUuid[routeIP] = uuid;
             _uuidToAddress[uuid] = routeIP;
           }
-          // Address is now mapped to a UUID — no longer needs to be in the
-          // connecting set. Leaving it in would block reconnect after a failed
-          // identity exchange (socket closed before write completed).
-          _connectingAddresses.remove(
-            _isGroupOwner ? senderIP : _groupOwnerAddress,
-          );
+          // Connect-attempt bookkeeping expires via TTL — the sender's MAC
+          // is not derivable from its IP here, so no targeted removal
+          // (review #2).
           _announcementController.add(
             PeerAnnouncement(
               uuid: uuid,
@@ -333,17 +337,32 @@ class WiFiDirectTransport implements TransportInterface {
   }
 
   Future<void> _tryConnect(String deviceAddress) async {
-    _pendingConnectAddress = deviceAddress;
+    _pruneConnectingAttempts();
+    _connectingAttempts[deviceAddress] = DateTime.now();
     try {
       await _channel.invokeMethod('connect', {'deviceAddress': deviceAddress});
     } catch (e) {
       ahoyLog('[WiFiDirect] connect failed', e);
-      _connectingAddresses.remove(deviceAddress);
-      if (_pendingConnectAddress == deviceAddress) {
-        _pendingConnectAddress = null;
-      }
+      _connectingAttempts.remove(deviceAddress);
     }
   }
+
+  void _pruneConnectingAttempts() {
+    final now = DateTime.now();
+    _connectingAttempts.removeWhere(
+      (address, startedAt) => now.difference(startedAt) > _connectAttemptTtl,
+    );
+  }
+
+  @visibleForTesting
+  int get debugConnectingAttemptCount => _connectingAttempts.length;
+
+  @visibleForTesting
+  void debugPruneConnectingAttempts() => _pruneConnectingAttempts();
+
+  @visibleForTesting
+  Future<void> debugTryConnect(String deviceAddress) =>
+      _tryConnect(deviceAddress);
 
   void _sendIdentity() {
     if (_myUuid == null) return;
@@ -406,6 +425,10 @@ class WiFiDirectTransport implements TransportInterface {
 
   @override
   Future<void> dispose() async {
+    // Tear down the native group and server socket too — stopScanning only
+    // stops discovery, so without this the group and server socket stay
+    // alive after disposal (review #3).
+    await stopAdvertising();
     await stopScanning();
     _myUuid = null;
     _myShortId = null;

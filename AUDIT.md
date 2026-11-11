@@ -97,3 +97,17 @@ A third review found ordering and edge-case issues. Priority items and the accep
 | 9/10/11/12 | Docs + build hygiene | README TOC stray link removed, §10g corrected to body-text placeholder + outbound-send rejection noted, §15 legacy-fallback text replaced with the throw + identity-handshake reality; `build/` gitignored and the committed Gradle report removed from the index; Gradle heap reduced to CI-safe sizes; `defaultAvatarAsset` dead code removed (referenced non-existent assets); launcher_icons switched to the raster PNG and the bogus `web:` section dropped; `DiscoveryControls` (unused, out-of-sync copy) deleted; dark-mode launch flash fixed with a `drawable-night` background. |
 
 Not actioned (accepted as-is): BLE assembly-eviction cost at the 16-assembly cap, `connectedClients` prune micro-race (non-security), identity send immediately after sign-out (in-flight race, benign). Validated: `flutter analyze` clean, `flutter test` 68/68 passing.
+
+---
+
+# Fourth External Review (WiFi Direct transport focus)
+
+A transport-focused review of `wifi_direct_transport.dart` raised three findings — all verified and fixed:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | `onConnectionFailed` guessed the failed peer from the single `_pendingConnectAddress`; concurrent in-flight connects stale-overwrite it, so the wrong address was removed from `_connectingAddresses` and another peer stayed wedged | Replaced the set + pending-address bookkeeping with a TTL-based `_connectingAttempts` map (30 s, injectable): attempts are pruned on discovery cycles, cleared when the group forms, and a thrown connect removes its own address. The guessing handler was deleted — Kotlin does not identify the failed device, so expiry is the only honest bookkeeping. |
+| 2 | Identity completion removed an *IP address* from a MAC-keyed set, so the entry never cleared and reconnects stayed blocked until a group teardown | The mismatched removal was deleted; TTL expiry handles retryability. |
+| 3 | `dispose()` never tore down the native group/server socket | `dispose()` now awaits `stopAdvertising()` (which invokes the Kotlin `disconnect`) before stopping discovery. |
+
+New tests: TTL expiry frees wedged peers, concurrent in-flight attempts are tracked independently (regression for the cross-removal), failed connects free the address for immediate retry. Validated: `flutter analyze` clean, `flutter test` 71/71 passing.

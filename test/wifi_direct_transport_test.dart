@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:ahoy/Ahoy/services/transport/wifi_direct_transport.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test(
     'WiFi Direct refuses oversized outbound payloads before platform send',
     () async {
@@ -97,5 +100,72 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(emitted, isFalse);
+  });
+
+  test('connect attempts expire via TTL instead of wedging peers (review #1/#2)', () async {
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('wifi_direct'), (call) async {
+      calls.add(call);
+      return;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('wifi_direct'), null));
+
+    final transport = WiFiDirectTransport(
+      maxPayloadBytes: 4096,
+      connectAttemptTtl: Duration.zero,
+    );
+    addTearDown(transport.dispose);
+
+    await transport.debugTryConnect('AA:BB:CC:DD:EE:FF');
+    expect(
+      calls.map((c) => c.method),
+      contains('connect'),
+    );
+    // The attempt is tracked while fresh…
+    expect(transport.debugConnectingAttemptCount, 1);
+    // …and TTL expiry frees the peer for a retry instead of wedging it.
+    transport.debugPruneConnectingAttempts();
+    expect(transport.debugConnectingAttemptCount, 0);
+  });
+
+  test('concurrent connect attempts are tracked independently (review #1)', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('wifi_direct'), (call) async {
+      if (call.method == 'connect') {
+        // Never completes — the attempt stays in flight.
+        return Completer<void>().future;
+      }
+      return;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('wifi_direct'), null));
+
+    final transport = WiFiDirectTransport(maxPayloadBytes: 4096);
+    addTearDown(transport.dispose);
+
+    unawaited(transport.debugTryConnect('AA:BB:CC:DD:EE:01'));
+    unawaited(transport.debugTryConnect('AA:BB:CC:DD:EE:02'));
+    await Future<void>.delayed(Duration.zero);
+
+    // Both attempts are tracked; nothing was cross-removed.
+    expect(transport.debugConnectingAttemptCount, 2);
+  });
+
+  test('failed connect frees the address for an immediate retry', () async {
+    final transport = WiFiDirectTransport(maxPayloadBytes: 4096);
+    addTearDown(transport.dispose);
+
+    // No platform handler registered → invokeMethod throws → the failure
+    // path removes the attempt.
+    await transport.debugTryConnect('AA:BB:CC:DD:EE:FF');
+    expect(transport.debugConnectingAttemptCount, 0);
+
+    // The peer can immediately be attempted again.
+    await transport.debugTryConnect('AA:BB:CC:DD:EE:FF');
+    expect(transport.debugConnectingAttemptCount, 0);
   });
 }
