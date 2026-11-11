@@ -44,6 +44,13 @@ class LanTransport implements TransportInterface {
   // peerUuid → InternetAddress + port for TCP
   final Map<String, _PeerConn> _peerConns = {};
 
+  /// /24 prefixes (e.g. "192.168.1") from which a valid UDP announcement was
+  /// received — TCP connections from other networks are rejected (audit M-4).
+  final Set<String> _announceSubnets = {};
+
+  DateTime? _localSubnetsAt;
+  Set<String> _localSubnetsCache = const {};
+
   LanTransport({
     int discoveryPort = AhoyConstants.lanDiscoveryPort,
     int messagingPort = AhoyConstants.lanMessagingPort,
@@ -89,6 +96,7 @@ class LanTransport implements TransportInterface {
 
   @override
   Future<void> startScanning() async {
+    await _refreshLocalSubnets();
     try {
       _udpSocket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
@@ -125,6 +133,7 @@ class LanTransport implements TransportInterface {
 
   @override
   Future<void> stopScanning() async {
+    _announceSubnets.clear();
     _udpSocket?.close();
     _udpSocket = null;
     _sendSocket?.close();
@@ -144,6 +153,8 @@ class LanTransport implements TransportInterface {
 
   Future<void> _broadcast() async {
     if (!_advertising || _myUuid == null) return;
+    // Keep the interface cache fresh for the subnet filters (audit M-4).
+    await _refreshLocalSubnets();
     final data = utf8.encode(
       jsonEncode({
         'type': 'ahoy_announce',
@@ -153,7 +164,6 @@ class LanTransport implements TransportInterface {
         'statusMessage': _myStatusMessage,
         'publicKeyPEM': _myPublicKeyPEM,
         'signature': _myAnnouncementSignature,
-        'port': _tcpServer?.port ?? _messagingPort,
       }),
     );
 
@@ -195,11 +205,20 @@ class LanTransport implements TransportInterface {
       if (json['type'] != 'ahoy_announce') return;
       final uuid = json['uuid'] as String?;
       if (uuid == null || uuid == _myUuid) return;
-      final announcedPort = json['port'];
-      final port = announcedPort is int ? announcedPort : _messagingPort;
-      if (port <= 0 || port > 65535) return;
 
-      _peerConns[uuid] = _PeerConn(dg.address, port);
+      // Only trust announcements that originate from our own interface
+      // subnets (or loopback) — cross-network spoofs are dropped and can
+      // never poison the connect targets (audit M-4).
+      if (!_isLocalOrLoopback(dg.address)) {
+        ahoyLog('[LAN] dropping announcement from foreign subnet');
+        return;
+      }
+      final prefix = _subnetPrefix(dg.address.address);
+      if (prefix != null) _announceSubnets.add(prefix);
+
+      // The announced port is never trusted (audit M-5): the messaging port
+      // is fixed on both ends of the protocol.
+      _peerConns[uuid] = _PeerConn(dg.address, _messagingPort);
 
       _announcementController.add(
         PeerAnnouncement(
@@ -216,6 +235,11 @@ class LanTransport implements TransportInterface {
   }
 
   void _onTcpConnection(Socket socket) {
+    if (!_isAllowedTcpPeer(socket.remoteAddress)) {
+      ahoyLog('[LAN] rejecting TCP connection from unexpected network');
+      socket.destroy();
+      return;
+    }
     final buffer = <int>[];
     var messagesProcessed = 0;
     var closed = false;
@@ -311,6 +335,78 @@ class LanTransport implements TransportInterface {
       );
     } catch (_) {}
   }
+
+  /// /24 prefixes of this host's non-loopback IPv4 interfaces. Refreshed
+  /// on transport start and with each broadcast cycle; the sync path below
+  /// only ever reads the cache.
+  Future<void> _refreshLocalSubnets() async {
+    final prefixes = <String>{};
+    try {
+      final ifaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      for (final iface in ifaces) {
+        for (final addr in iface.addresses) {
+          final prefix = _subnetPrefix(addr.address);
+          if (prefix != null) prefixes.add(prefix);
+        }
+      }
+    } catch (_) {}
+    _localSubnetsCache = prefixes;
+    _localSubnetsAt = DateTime.now();
+  }
+
+  Set<String> get _localSubnets {
+    final now = DateTime.now();
+    final cachedAt = _localSubnetsAt;
+    if (cachedAt != null &&
+        now.difference(cachedAt) < const Duration(seconds: 15)) {
+      return _localSubnetsCache;
+    }
+    // Stale or missing — refresh in the background and use what we have.
+    unawaited(_refreshLocalSubnets());
+    return _localSubnetsCache;
+  }
+
+  static String? _subnetPrefix(String ipv4) {
+    final parts = ipv4.split('.');
+    if (parts.length != 4) return null;
+    return '${parts[0]}.${parts[1]}.${parts[2]}';
+  }
+
+  /// True for loopback addresses and addresses inside one of this host's own
+  /// interface subnets — the only legitimate origins of announcements.
+  bool _isLocalOrLoopback(InternetAddress address) {
+    if (address.type == InternetAddressType.IPv4) {
+      if (address.address.startsWith('127.')) return true;
+      final prefix = _subnetPrefix(address.address);
+      return prefix != null && _localSubnets.contains(prefix);
+    }
+    return address.isLoopback;
+  }
+
+  /// TCP peers must come from a subnet that actually announced itself
+  /// (audit M-4) — or from loopback, which keeps local tooling working.
+  bool _isAllowedTcpPeer(InternetAddress address) {
+    if (address.type == InternetAddressType.IPv4 &&
+        address.address.startsWith('127.')) {
+      return true;
+    }
+    final prefix = _subnetPrefix(address.address);
+    return prefix != null && _announceSubnets.contains(prefix);
+  }
+
+  @visibleForTesting
+  void debugAllowSubnet(String prefix) => _announceSubnets.add(prefix);
+
+  @visibleForTesting
+  bool debugIsAllowedTcpPeer(String ipv4) =>
+      _isAllowedTcpPeer(InternetAddress(ipv4));
+
+  @visibleForTesting
+  bool debugIsLocalOrLoopback(String ipv4) =>
+      _isLocalOrLoopback(InternetAddress(ipv4));
 
   @override
   Future<bool> send(String peerUuid, String payload) async {

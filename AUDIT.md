@@ -20,8 +20,8 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 | M-1 | **FIXED (v=3 sealed format):** wire carries only `{v:3, from, ct}` — identity, convId, timestamp, names and content are inside the encrypted+signed blob. Legacy flat format remains only as the no-peer-key fallback (still identity-bound and signed). | `chat_service.dart _buildPayload`, `transport_manager.dart send` |
 | M-2 | **FIXED:** signed `senderUuid` cross-checked against wire identity; `convId` bound to the computed conversation (kills cross-conversation replay); ±15 min freshness window on signed timestamps; msgId length/charset validation. | `chat_service.dart onInboundPacket` |
 | M-3 | **FIXED:** receivers return a sealed, signed delivery ack; senders upgrade `sent → delivered` after verification (new `MessageStatus.delivered`, ✓✓ icon). Failed text sends enter a per-peer outbox (max 50, max 3 attempts) and are retried automatically when a discovery announcement shows the peer back. | `chat_service.dart _sendAck/_handleInboundAck/retryPendingFor` |
-| M-4 | LAN TCP server binds all interfaces (`anyIPv4`); Kotlin WD `ServerSocket(P2P_PORT)` likewise — injectable chat from unrelated joined networks. | `lan_transport.dart:113-116`, `MainActivity.kt:287` |
-| M-5 | Announced TCP port trusted (range-checked only) → victim connects to arbitrary host:port with attacker-chosen payload on send. | `lan_transport.dart:194-198` |
+| M-4 | **FIXED:** LAN announces/connections are filtered to the host's own interface subnets, and TCP connections are only accepted from /24 subnets that actually announced themselves (loopback exempt for local tooling). Kotlin WD server rejects connections outside the group subnet derived from `WifiP2pInfo.groupOwnerAddress` (fail-closed), and `cmdSendData` only sends into that subnet. | `lan_transport.dart`, `MainActivity.kt` |
+| M-5 | **FIXED:** the announce no longer carries a TCP port and inbound announces never trusted it — the messaging port is fixed (45679) on both ends, eliminating the arbitrary host:port connect vector. | `lan_transport.dart _broadcast/_onUdpDatagram` |
 | M-6 | No key-verification UX (no fingerprint/safety number) — users cannot detect impersonation. | — |
 
 ### Low
@@ -59,4 +59,4 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 ## Recommended fix order (remaining)
 
-1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. ~~M-1/M-2~~ (done: v=3 sealed wire format; sender/conv binding + freshness window) → 4. ~~M-3~~ (done: signed sealed acks, `delivered` status, retry outbox) → 5. M-4/M-5 (interface-scoped binds, fixed port) → 6. hygiene leftovers (L-3/L-6/L-7).
+1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. ~~M-1/M-2~~ (done: v=3 sealed wire format; sender/conv binding + freshness window) → 4. ~~M-3~~ (done: signed sealed acks, `delivered` status, retry outbox) → 5. ~~M-4/M-5~~ (done: subnet-scoped LAN + WD, fixed messaging port) → 6. hygiene leftovers (L-3/L-6/L-7).

@@ -75,6 +75,10 @@ class MainActivity : FlutterActivity() {
     private var isGroupOwner = false
     private var groupOwnerAddress: String? = null
 
+    // /24 prefix of the WiFi Direct group (derived from the group owner's
+    // address) — connections from outside it are rejected (audit M-4).
+    private var p2pSubnetPrefix: String? = null
+
     // IPs of clients that have connected to our server socket (group-owner side).
     // Accessed from both UI thread and wd-client background threads → use thread-safe set.
     private val connectedClients = java.util.Collections.synchronizedSet(mutableSetOf<String>())
@@ -360,14 +364,23 @@ class MainActivity : FlutterActivity() {
             else                            -> emptyList()
         }
 
-        if (targets.isEmpty()) {
+        // Only send into the WiFi Direct group subnet (audit M-4) — fail
+        // closed when the group subnet is not (yet) known.
+        val prefix = p2pSubnetPrefix
+        val safeTargets = if (prefix == null) {
+            emptyList()
+        } else {
+            targets.filter { it.startsWith("$prefix.") }
+        }
+
+        if (safeTargets.isEmpty()) {
             result.error("NO_PEER", "No connected peers to send to", null)
             return
         }
 
         thread(name = "wd-send") {
             var allOk = true
-            for (ip in targets) {
+            for (ip in safeTargets) {
                 try {
                     Socket(ip, P2P_PORT).use { sock ->
                         val out = DataOutputStream(sock.getOutputStream())
@@ -417,6 +430,16 @@ class MainActivity : FlutterActivity() {
 
     private fun handleIncomingConnection(socket: Socket) {
         val senderIP = socket.inetAddress.hostAddress ?: ""
+
+        // Reject connections from outside the WiFi Direct group subnet
+        // (audit M-4) — fail closed when the group subnet is unknown.
+        val prefix = p2pSubnetPrefix
+        if (prefix == null || !senderIP.startsWith("$prefix.")) {
+            logWarn("Rejected WiFi Direct connection from outside the group subnet")
+            try { socket.close() } catch (_: IOException) {}
+            return
+        }
+
         if (senderIP.isNotEmpty()) connectedClients.add(senderIP)
         try {
             socket.soTimeout = 10_000 // 10 s — prevent threads from blocking forever
@@ -463,6 +486,11 @@ class MainActivity : FlutterActivity() {
             return
         }
         isGroupOwner = info.isGroupOwner
+        // Derive the WiFi Direct group subnet from the group owner's address
+        // so incoming connections can be scoped to the group (audit M-4).
+        p2pSubnetPrefix = info.groupOwnerAddress?.hostAddress
+            ?.split(".")?.takeIf { it.size == 4 }
+            ?.let { "${it[0]}.${it[1]}.${it[2]}" }
         // Clients route all outbound traffic to the group owner's IP.
         // Group owner uses null so cmdSendData broadcasts to connectedClients.
         groupOwnerAddress = if (info.isGroupOwner) null else info.groupOwnerAddress?.hostAddress
@@ -481,6 +509,7 @@ class MainActivity : FlutterActivity() {
     fun onWifiDirectDisconnected() {
         isGroupOwner = false
         groupOwnerAddress = null
+        p2pSubnetPrefix = null
         connectedClients.clear()
         methodChannel.invokeMethod("onDisconnected", null)
     }

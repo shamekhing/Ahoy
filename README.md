@@ -371,7 +371,7 @@ Shows a red `Badge` widget with count. Displays nothing when count is zero.
 Every 5 seconds:
   _broadcast()
     → UDP packet to 255.255.255.255:45678 AND each interface's X.Y.Z.255:45678
-    → JSON: { type, uuid, shortId, displayName, statusMessage, publicKeyPEM, signature, port }
+    → JSON: { type, uuid, shortId, displayName, statusMessage, publicKeyPEM, signature }
 
 On receive (_onUdpDatagram):
   → Parse JSON, ignore self (uuid == _myUuid)
@@ -979,6 +979,8 @@ Send (cmdSendData):
   flush()
 
 Receive (handleIncomingConnection) per connection:
+  sender must be inside the WiFi Direct group subnet (derived from the
+    group owner's address — outside connections are closed, audit M-4)
   socket.soTimeout = 10_000              ← prevents thread blocking forever
   DataInputStream.readInt()              ← 4 bytes → length
   validate: 0 < length ≤ 10 MB
@@ -1007,12 +1009,18 @@ Announcement JSON:
   "displayName": "Alice",
   "statusMessage": "optional",
   "publicKeyPEM": "-----BEGIN RSA PUBLIC KEY-----...",
-  "signature": "base64(RSA-SHA256 over identity fields)",
-  "port": 45679
+  "signature": "base64(RSA-SHA256 over identity fields)"
 }
 
+Announcement policy (audit M-4/M-5):
+  - Announcements from outside this host's interface subnets are dropped.
+  - The TCP messaging port is fixed (45679) on both ends — announces carry
+    no port and announced ports are never trusted.
+  - TCP connections are only accepted from /24 subnets that actually
+    announced themselves (or loopback for local tooling).
+
 Peer expiry: 30 seconds after last announcement (isStale check)
-_peerConns cache: uuid → (InternetAddress, port); removed on send failure
+_peerConns cache: uuid → (InternetAddress, fixed messaging port); removed on send failure
 ```
 
 ### Messaging (TCP)
