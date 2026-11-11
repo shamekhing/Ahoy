@@ -278,7 +278,7 @@ class BleTransport implements TransportInterface {
         (c) => c.uuid == Guid(AhoyConstants.bleCharacteristicUuid),
         orElse: () => throw Exception('BLE characteristic not found'),
       );
-      return _sendChunked(char, payload);
+      return await _sendChunked(char, payload);
     } catch (e) {
       ahoyLog('[BLE] send failed', e);
       _connectedDevices.remove(peerUuid);

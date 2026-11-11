@@ -189,7 +189,7 @@ String _inboundPacket({String? senderPublicKeyPEM}) {
 Map<String, dynamic> _inboundPayload({String? senderPublicKeyPEM}) {
   return {
     'msgType': 'chat',
-    'msgId': 'message-1',
+    'msgId': 'aaaaaaaa-1111-2222-3333-444444444444',
     'convId': MessageStore.conversationId(_myUuid, _peerUuid),
     'senderUuid': _peerUuid,
     'senderShortId': 'PEER12',
@@ -197,7 +197,7 @@ Map<String, dynamic> _inboundPayload({String? senderPublicKeyPEM}) {
     'type': MessageType.text.name,
     'content': 'hello',
     'isEncrypted': false,
-    if (senderPublicKeyPEM != null) 'senderPublicKeyPEM': senderPublicKeyPEM,
+    'senderPublicKeyPEM': ?senderPublicKeyPEM,
     'timestamp': DateTime.now().toIso8601String(),
   };
 }

@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/enums.dart';
 import '../../core/errors.dart';
 import '../../core/logging.dart';
+import '../../core/constants.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
 import '../crypto/crypto_service.dart';

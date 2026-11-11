@@ -129,10 +129,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('sealed v3 round-trip hides metadata and delivers the message', () async {
-    final (_, aliceKeys) = await _identity();
-    final (alice, _) = await _identity();
-    final (_, bobKeys) = await _identity();
-    final (bob, _) = await _identity();
+    final (alice, aliceKeys) = await _identity();
+    final (bob, bobKeys) = await _identity();
 
     final aliceSide = await _createHarness(alice);
     final bobSide = await _createHarness(bob);
@@ -191,10 +189,8 @@ void main() {
   });
 
   test('drops sealed messages whose inner sender does not match the wire', () async {
-    final (_, malloryKeys) = await _identity();
-    final (mallory, _) = await _identity();
-    final (_, bobKeys) = await _identity();
-    final (bob, _) = await _identity();
+    final (mallory, malloryKeys) = await _identity();
+    final (bob, bobKeys) = await _identity();
 
     final bobSide = await _createHarness(bob);
 
