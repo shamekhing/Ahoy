@@ -105,7 +105,7 @@ class ChatProvider extends ChangeNotifier {
         replyToId: replyToId,
         replyToPreview: replyToPreview,
       );
-      _messages.putIfAbsent(sentMsg.conversationId, () => []).add(sentMsg);
+      _messages.remove(sentMsg.conversationId);
       _conversations = _convStore.loadAll();
       notifyListeners();
       return sentMsg;
@@ -144,6 +144,21 @@ class ChatProvider extends ChangeNotifier {
 
   void clearError() {
     _error = null;
+    notifyListeners();
+  }
+
+  void maybeRetryFor(String peerUuid) {
+    if (!_chatService.hasPendingFor(peerUuid)) return;
+    unawaited(_retryPending(peerUuid));
+  }
+
+  Future<void> _retryPending(String peerUuid) async {
+    final touched = await _chatService.retryPendingFor(peerUuid);
+    if (touched.isEmpty) return;
+    for (final convId in touched) {
+      _messages.remove(convId);
+    }
+    _conversations = _convStore.loadAll();
     notifyListeners();
   }
 

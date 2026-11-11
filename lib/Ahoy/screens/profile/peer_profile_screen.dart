@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/nearby_peer.dart';
 import '../../providers/discovery_provider.dart';
+import '../../services/crypto/crypto_service.dart';
 import '../../widgets/common/peer_avatar.dart';
 import '../../widgets/common/transport_badge.dart';
 import '../../core/enums.dart';
@@ -55,6 +56,31 @@ class PeerProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Center(child: TransportBadges(transports: peer.transports)),
+          if (peer.publicKeyPEM != null && peer.publicKeyPEM!.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Safety number',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 4),
+            SelectableText(
+              CryptoService.fingerprintFromPublicKey(peer.publicKeyPEM!),
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Compare with the safety number on your peer\'s device to '
+              'confirm there is no impersonation.',
+              style: TextStyle(color: Colors.grey, fontSize: 11),
+            ),
+          ],
           if (peer.statusMessage != null && peer.statusMessage!.isNotEmpty) ...[
             const SizedBox(height: 16),
             Center(

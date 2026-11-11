@@ -19,6 +19,16 @@ class TransportError implements Exception {
   String toString() => 'TransportError: $reason';
 }
 
+/// Thrown when a crypto envelope is malformed or from an unsupported
+/// protocol version — distinct from [CryptoNotInitialized], which means the
+/// key material has not been loaded yet.
+class CryptoFormatError implements Exception {
+  final String reason;
+  const CryptoFormatError(this.reason);
+  @override
+  String toString() => 'CryptoFormatError: $reason';
+}
+
 class StorageError implements Exception {
   final String reason;
   const StorageError(this.reason);

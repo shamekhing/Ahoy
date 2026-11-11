@@ -3,8 +3,6 @@ class AhoyConstants {
   static const String bleServiceUuid = '12345678-1234-1234-1234-123456789abc';
   static const String bleCharacteristicUuid =
       '12345678-1234-1234-1234-123456789def';
-  static const String bleProfileCharUuid =
-      '12345678-1234-1234-1234-123456789aaa';
   static const int bleChunkSize = 180; // bytes per BLE chunk (ATT MTU safe)
   static const int bleMaxPayloadBytes = 256 * 1024;
   static const int bleMaxActiveAssemblies = 16;
@@ -38,6 +36,14 @@ class AhoyConstants {
   static const String prefBleEnabled = 'ahoy_ble_enabled';
   static const String prefLanEnabled = 'ahoy_lan_enabled';
   static const String prefWifiDirectEnabled = 'ahoy_wifi_direct_enabled';
+
+  // Inbound hardening (audit M-2)
+  static const int inboundMaxClockSkewSeconds = 15 * 60;
+  static const int maxMsgIdLength = 64;
+
+  // Delivery retries (audit M-3)
+  static const int maxSendRetries = 3;
+  static const int maxOutboxPerPeer = 50;
 
   // Misc
   static const int shortIdLength = 6;

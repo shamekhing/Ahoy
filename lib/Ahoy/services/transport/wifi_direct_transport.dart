@@ -59,6 +59,7 @@ class WiFiDirectTransport implements TransportInterface {
   String? _myDisplayName;
   String? _myStatusMessage;
   String? _myPublicKeyPEM;
+  String? _myAnnouncementSignature;
 
   @override
   Future<void> startAdvertising({
@@ -67,6 +68,7 @@ class WiFiDirectTransport implements TransportInterface {
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    String? announcementSignature,
   }) async {
     if (!Platform.isAndroid) return;
     _myUuid = uuid;
@@ -74,6 +76,7 @@ class WiFiDirectTransport implements TransportInterface {
     _myDisplayName = displayName;
     _myStatusMessage = statusMessage;
     _myPublicKeyPEM = publicKeyPEM;
+    _myAnnouncementSignature = announcementSignature;
 
     // Register the handler here as well as in startScanning() so that
     // Kotlin→Dart callbacks (e.g. onDataReceived) are handled regardless of
@@ -274,6 +277,7 @@ class WiFiDirectTransport implements TransportInterface {
               displayName: json['displayName'] as String? ?? 'Unknown',
               statusMessage: json['statusMessage'] as String?,
               publicKeyPEM: json['publicKeyPEM'] as String?,
+              signature: json['signature'] as String?,
               transport: TransportMode.wifiDirect,
             ),
           );
@@ -340,6 +344,7 @@ class WiFiDirectTransport implements TransportInterface {
       'displayName': _myDisplayName ?? 'Unknown',
       'statusMessage': _myStatusMessage,
       'publicKeyPEM': _myPublicKeyPEM,
+      'signature': _myAnnouncementSignature,
     });
     _sendBytes(utf8.encode(packet), recipientIP);
   }

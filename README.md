@@ -99,12 +99,11 @@ lib/
     ├── ahoy_app.dart                 App root: service init, MultiProvider wiring
     ├── core/
     │   ├── constants.dart            UUIDs, ports, key names, size limits
-    │   ├── enums.dart                TransportMode, MessageType, MessageStatus, Gender, PeerStatus
+    │   ├── enums.dart                TransportMode, MessageType, MessageStatus, Gender
     │   └── errors.dart               TransportError (thrown for BLE media attempts)
     ├── models/
     │   ├── local_user.dart           Signed-in user profile (stored locally)
-    │   ├── peer_profile.dart         Peer's public profile (sent over-the-air)
-    │   ├── nearby_peer.dart          In-memory discovered peer (multi-transport)
+    │   ├── nearby_peer.dart           In-memory discovered peer (multi-transport)
     │   ├── message.dart              Single chat message
     │   └── conversation.dart         Chat thread metadata (last message, unread count)
     ├── providers/
@@ -170,7 +169,7 @@ lib/
             ├── peer_card.dart         Peer list tile with transport badges
             └── discovery_controls.dart  Transport toggle bottom sheet (referenced from Settings)
 
-android/app/src/main/kotlin/com/example/ahoy/
+android/app/src/main/kotlin/com/ahoy/app/
 └── MainActivity.kt   WiFi P2P manager, TCP ServerSocket, BLE GATT server, both MethodChannels
 ```
 
@@ -371,7 +370,7 @@ Shows a red `Badge` widget with count. Displays nothing when count is zero.
 Every 5 seconds:
   _broadcast()
     → UDP packet to 255.255.255.255:45678 AND each interface's X.Y.Z.255:45678
-    → JSON: { type, uuid, shortId, displayName, statusMessage, publicKeyPEM, port }
+    → JSON: { type, uuid, shortId, displayName, statusMessage, publicKeyPEM, signature }
 
 On receive (_onUdpDatagram):
   → Parse JSON, ignore self (uuid == _myUuid)
@@ -752,12 +751,16 @@ ChatService.sendMessage()
   ├─ _buildPayload():
   │    ├─ For text:  wireContent = content
   │    ├─ For media: wireContent = base64(File(content).readAsBytesSync())
-  │    └─ If peerPublicKeyPEM != null && crypto.isReady:
-  │         wireContent = CryptoService.encryptForPeer(wireContent, peerPublicKeyPEM)
-  │         encrypted = true
-  │         [falls back to plaintext on exception, logs error]
-  │    → Returns Map: { msgType, msgId, convId, type, content, isEncrypted,
-  │                     senderPublicKeyPEM, replyToId, replyToPreview, timestamp }
+  │    ├─ If peerPublicKeyPEM != null && crypto.isReady  (v3 — sealed, audit M-1):
+  │         inner = { msgType, msgId, convId, senderUuid, senderShortId,
+  │                   senderName, type, content, replyTo*, timestamp,
+  │                   senderPublicKeyPEM }      ← all metadata inside the blob
+  │         inner.signature = RSA-SHA256(_signatureMaterialV3(inner))
+  │         → Returns { v: 3, ct: encryptForPeer(jsonEncode(inner), peerKey) }
+  │    └─ Else (legacy flat fallback, e.g. BLE-only first contact):
+  │         → Returns flat Map: { msgType, msgId, convId, senderUuid,
+  │           senderShortId, senderName, type, content, isEncrypted: false,
+  │           senderPublicKeyPEM, replyTo*, timestamp, signature? }
   │
   ├─ Message(status: sending) created
   │
@@ -770,7 +773,7 @@ ChatService.sendMessage()
   │
   ├─ TransportManager.send(peerUuid, myUuid, myShortId, myDisplayName, payload)
   │    ├─ canonical = _peerAliases[peerUuid] ?? peerUuid
-  │    ├─ jsonPayload = jsonEncode({...payload, from, fromShortId, fromName})
+  │    ├─ jsonPayload = jsonEncode({...payload, from})   [routing UUID only]
   │    ├─ mode = currentModeFor(canonical)
   │    └─ Switch mode:
   │         ├─ wifiDirect → WiFiDirectTransport.send(canonical, jsonPayload)
@@ -860,19 +863,29 @@ TransportManager._onPacket(packet)
 
 ChatProvider._inboundSub.listen(packet)
   → ChatService.onInboundPacket(rawPayload, peerUuid, myUuid, transport, receiveOff, blockedUuids)
-       ├─ json = jsonDecode(rawPayload)
-       ├─ if json['msgType'] != 'chat': return null
+       ├─ outer = jsonDecode(rawPayload)
        ├─ if peerUuid in blockedUuids: return null
+       ├─ if outer['v'] == 3 (sealed — audit M-1):
+       │    plain = CryptoService.decryptFromPeer(outer['ct'])
+       │    json = jsonDecode(plain)     ← metadata was inside the blob
+       │    [undecryptable → return null]
+       │  else: json = outer (legacy flat fallback)
+       ├─ if json['msgType'] != 'chat': return null
        ├─ convId = conversationId(myUuid, peerUuid)
        ├─ if new conversation AND receiveOff: return null
+       ├─ if json['senderUuid'] != peerUuid: return null      [spoofed identity]
+       ├─ if json['convId'] != convId: return null            [cross-conv replay]
+       ├─ if |now - json['timestamp']| > 15 min: return null  [stale replay]
+       ├─ if msgId empty / > 64 chars / non-hex: return null
+       ├─ trusted key = pinned conversation key OR payload senderPublicKeyPEM
+       │    verify signature (v3 material for v3, legacy material otherwise)
+       │    [unkeyed or unsigned → return null (audit H-1)]
        ├─ type = MessageType.values.byName(json['type'])
-       ├─ if json['isEncrypted'] && crypto.isReady:
+       ├─ if legacy && json['isEncrypted'] && crypto.isReady:
        │    content = CryptoService.decryptFromPeer(json['content'])
        │      → decode base64 envelope → parse {v, ek, iv, ct}
        │      → RSA-OAEP decrypt ek → aesKey
        │      → AES-256-GCM decrypt ct with aesKey + iv
-       │      → return plaintext
-       │    [on failure: log + return null — message dropped]
        ├─ if type == image/voice:
        │    content = _saveMediaToFile(content, msgId, type)
        │      → base64.decode → write to app docs/ahoy_media_{msgId}.{ext}
@@ -882,6 +895,9 @@ ChatProvider._inboundSub.listen(packet)
             → ConversationStore.upsert() [async mutex]
                  → unreadCount++
                  → update lastMessageAt, lastMessagePreview, peerPublicKeyPEM
+       └─ _sendAck()   [audit M-3]
+            → sealed signed ack { v:3, ct } back to the sender's pinned key
+            → best-effort; sender upgrades the message to `delivered`
 
   → if message != null:
        _messages.remove(convId)         [invalidate cache]
@@ -899,7 +915,7 @@ UI:
 ## 17. WiFi Direct Transport
 
 **File:** `lib/Ahoy/services/transport/wifi_direct_transport.dart`  
-**Native:** `android/app/src/main/kotlin/com/example/ahoy/MainActivity.kt`  
+**Native:** `android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt`  
 **MethodChannel:** `"wifi_direct"`
 
 ### Connection Lifecycle
@@ -936,7 +952,9 @@ wdIdentity packet format:
   "uuid": "real-ahoy-uuid",
   "shortId": "ABCDEF",
   "displayName": "Alice",
-  "statusMessage": "optional"
+  "statusMessage": "optional",
+  "publicKeyPEM": "-----BEGIN RSA PUBLIC KEY-----...",
+  "signature": "base64(RSA-SHA256 over identity fields)"
 }
 
 Sequence:
@@ -960,6 +978,8 @@ Send (cmdSendData):
   flush()
 
 Receive (handleIncomingConnection) per connection:
+  sender must be inside the WiFi Direct group subnet (derived from the
+    group owner's address — outside connections are closed, audit M-4)
   socket.soTimeout = 10_000              ← prevents thread blocking forever
   DataInputStream.readInt()              ← 4 bytes → length
   validate: 0 < length ≤ 10 MB
@@ -988,11 +1008,18 @@ Announcement JSON:
   "displayName": "Alice",
   "statusMessage": "optional",
   "publicKeyPEM": "-----BEGIN RSA PUBLIC KEY-----...",
-  "port": 45679
+  "signature": "base64(RSA-SHA256 over identity fields)"
 }
 
+Announcement policy (audit M-4/M-5):
+  - Announcements from outside this host's interface subnets are dropped.
+  - The TCP messaging port is fixed (45679) on both ends — announces carry
+    no port and announced ports are never trusted.
+  - TCP connections are only accepted from /24 subnets that actually
+    announced themselves (or loopback for local tooling).
+
 Peer expiry: 30 seconds after last announcement (isStale check)
-_peerConns cache: uuid → (InternetAddress, port); removed on send failure
+_peerConns cache: uuid → (InternetAddress, fixed messaging port); removed on send failure
 ```
 
 ### Messaging (TCP)
@@ -1095,6 +1122,14 @@ The key challenge: BLE and WiFi Direct initially identify peers by MAC address, 
 
 ### Announcement Processing
 ```
+Announcement verification (before onAnnouncement — DiscoveryProvider._acceptAnnouncement):
+  1. shortId must equal shortIdFromUuid(uuid) for real Ahoy UUIDs
+     (forged/spoofed announcements are dropped)
+  2. announcements carrying publicKeyPEM must carry a valid RSA-SHA256 signature
+     over (uuid, shortId, displayName, statusMessage, publicKeyPEM) made with that key
+  3. BLE scan-response announcements (uuid = BT MAC, no key) are display-only;
+     identity is bound at the first signed chat message
+
 onAnnouncement(announcement, blockedUuids) → PeerAlias?
 
 Step 1: shortId lookup
@@ -1226,6 +1261,26 @@ shortIdFromUuid(uuid):
   → Deterministic 6-char alphanumeric code shown as @ABCDEF
 ```
 
+### Announcement Signing & Identity Binding (audit H-2)
+```
+announcementMaterial = jsonEncode({ uuid, shortId, displayName, statusMessage, publicKeyPEM })
+                       (frozen field set — both sides must derive identical bytes)
+
+signAnnouncement(...):    RSA-SHA256(announcementMaterial) with own private key
+verifyAnnouncement(...):  verify with the announced public key
+
+DiscoveryProvider._acceptAnnouncement:
+  - drop if shortId != shortIdFromUuid(uuid)      (shortId is deterministic → forgery-proof)
+  - drop keyed announcements without a valid signature
+  - BLE (MAC uuid, no key) passes for display only
+
+fingerprintFromPublicKey(publicKeyPEM)  →  "Safety number"
+  sha256(PEM with whitespace stripped)[0:51 hex] → 204 bits
+  → 12 chunks of 17 bits → value % 100000 → 5-digit groups joined by spaces
+  → Shown in My Profile (own key) and Peer Profile (announced key);
+    identical on both devices for the same key pair
+```
+
 ---
 
 ## 22. Storage Layer
@@ -1273,7 +1328,7 @@ Per-conversation async mutex (`_withLock`) serialises all read-modify-write oper
 
 ## 23. Android Native Bridge
 
-**File:** `android/app/src/main/kotlin/com/example/ahoy/MainActivity.kt`
+**File:** `android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt`
 
 ### MethodChannel: `"wifi_direct"`
 
@@ -1345,7 +1400,6 @@ In-memory representation of a discovered peer. Never persisted directly.
 | `displayName` | String | Peer's display name |
 | `transport` | TransportMode | Best (highest-priority) current transport |
 | `transports` | Set\<TransportMode\> | All transports currently active for this peer |
-| `rssi` | int? | BLE signal strength (unused in UI currently) |
 | `lastSeen` | DateTime | Time of last announcement; used for stale detection |
 | `isBlocked` | bool | Whether this peer is blocked |
 | `statusMessage` | String? | Peer's status message |
@@ -1380,24 +1434,10 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 | `content` | String | Text content, or local file path for media |
 | `replyToId` | String? | ID of replied-to message |
 | `replyToPreview` | String? | First 80 chars of replied-to content |
-| `status` | MessageStatus | sending → sent / failed |
+| `status` | MessageStatus | sending → sent → delivered / failed |
 | `transport` | TransportMode | Transport used to send/receive |
 | `timestamp` | DateTime | Message creation time |
 | `isEncrypted` | bool | Whether content was encrypted in transit |
-
-### PeerProfile (`lib/Ahoy/models/peer_profile.dart`)
-Serializable peer identity for over-the-air transmission. Superset of what fits in BLE scan response.
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | String | Ahoy UUID |
-| `shortId` | String | 6-char code |
-| `displayName` | String | Display name |
-| `bio` | String? | Biography |
-| `gender` | Gender | Gender preference |
-| `avatarBase64` | String? | Base64-encoded JPEG (max 40 KB) |
-| `interests` | List\<String\> | Interest tags |
-| `publicKeyPEM` | String | RSA public key |
-| `statusMessage` | String? | Status |
 
 ---
 
@@ -1422,8 +1462,9 @@ Serializable peer identity for over-the-air transmission. Superset of what fits 
 | Value | Icon | Meaning |
 |-------|------|---------|
 | `sending` | spinner / clock | awaiting transport ACK |
-| `sent` | ✓ | delivered to peer |
-| `failed` | ✗ | transport returned false |
+| `sent` | ✓ | transport accepted the payload |
+| `delivered` | ✓✓ | peer returned a signed delivery ack |
+| `failed` | ✗ | transport returned false (text messages auto-retry when the peer returns) |
 
 **`Gender`** — profile and avatar display:
 | Value | Avatar color |
@@ -1431,13 +1472,6 @@ Serializable peer identity for over-the-air transmission. Superset of what fits 
 | `male` | blue |
 | `female` | pink |
 | `unspecified` | purple |
-
-**`PeerStatus`** — declared but not yet fully wired in UI:
-| Value | Meaning |
-|-------|---------|
-| `available` | Normal |
-| `busy` | Do Not Disturb |
-| `offGrid` | Not broadcasting |
 
 ---
 

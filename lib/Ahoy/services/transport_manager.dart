@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import '../core/enums.dart';
+import 'crypto/crypto_service.dart';
 import 'transport/transport_interface.dart';
 import 'transport/wifi_direct_transport.dart';
 import 'transport/lan_transport.dart';
@@ -10,6 +11,7 @@ class TransportManager {
   final WiFiDirectTransport _wifiDirect;
   final LanTransport _lan;
   final BleTransport _ble;
+  final CryptoService? _crypto;
 
   final _packetController = StreamController<InboundPacket>.broadcast();
   final _announcementController =
@@ -32,6 +34,7 @@ class TransportManager {
   String? _myDisplayName;
   String? _myStatusMessage;
   String? _myPublicKeyPEM;
+  String? _myAnnouncementSignature;
 
   /// peerUuid → set of transports that have seen this peer.
   final Map<String, Set<TransportMode>> _peerTransports = {};
@@ -41,7 +44,7 @@ class TransportManager {
   /// the mapping here so sends and incoming packets are routed to the right peer.
   final Map<String, String> _peerAliases = {};
 
-  TransportManager()
+  TransportManager([this._crypto])
     : _wifiDirect = WiFiDirectTransport(),
       _lan = LanTransport(),
       _ble = BleTransport();
@@ -109,6 +112,9 @@ class TransportManager {
     String? statusMessage,
     String? publicKeyPEM,
   }) async {
+    // Compute (and cache) the announcement signature for the current identity
+    // so every transport advertises a signature-bound identity (audit H-2).
+    _myAnnouncementSignature = _computeAnnouncementSignature();
     if (_wifiDirectEnabled) {
       await _wifiDirect.startAdvertising(
         uuid: uuid,
@@ -116,6 +122,7 @@ class TransportManager {
         displayName: displayName,
         statusMessage: statusMessage,
         publicKeyPEM: publicKeyPEM,
+        announcementSignature: _myAnnouncementSignature,
       );
     }
     if (_lanEnabled) {
@@ -125,6 +132,7 @@ class TransportManager {
         displayName: displayName,
         statusMessage: statusMessage,
         publicKeyPEM: publicKeyPEM,
+        announcementSignature: _myAnnouncementSignature,
       );
     }
     if (_bleEnabled) {
@@ -134,8 +142,30 @@ class TransportManager {
         displayName: displayName,
         statusMessage: statusMessage,
         publicKeyPEM: publicKeyPEM,
+        announcementSignature: _myAnnouncementSignature,
       );
     }
+  }
+
+  /// Signs the currently cached identity with the loaded private key.
+  /// Returns null when crypto is unavailable or not ready — receivers then
+  /// treat the announcement as legacy and bind identity at the first chat
+  /// message instead.
+  String? _computeAnnouncementSignature() {
+    final crypto = _crypto;
+    if (crypto == null ||
+        !crypto.isReady ||
+        _myUuid == null ||
+        _myPublicKeyPEM == null) {
+      return null;
+    }
+    return crypto.signAnnouncement(
+      uuid: _myUuid!,
+      shortId: _myShortId ?? '',
+      displayName: _myDisplayName ?? '',
+      statusMessage: _myStatusMessage,
+      publicKeyPEM: _myPublicKeyPEM,
+    );
   }
 
   Future<void> stopAdvertising() async {
@@ -168,6 +198,7 @@ class TransportManager {
           displayName: _myDisplayName!,
           statusMessage: _myStatusMessage,
           publicKeyPEM: _myPublicKeyPEM,
+          announcementSignature: _myAnnouncementSignature,
         );
       }
     } else {
@@ -187,6 +218,7 @@ class TransportManager {
           displayName: _myDisplayName!,
           statusMessage: _myStatusMessage,
           publicKeyPEM: _myPublicKeyPEM,
+          announcementSignature: _myAnnouncementSignature,
         );
       }
     } else {
@@ -206,6 +238,7 @@ class TransportManager {
           displayName: _myDisplayName!,
           statusMessage: _myStatusMessage,
           publicKeyPEM: _myPublicKeyPEM,
+          announcementSignature: _myAnnouncementSignature,
         );
       }
     } else {
@@ -278,11 +311,13 @@ class TransportManager {
     Map<String, dynamic> data,
   ) async {
     final canonical = _peerAliases[peerUuid] ?? peerUuid;
+    // Only the routing UUID rides outside the encrypted payload (audit M-1):
+    // display identity and all metadata now live inside the signed/encrypted
+    // body. fromShortId/fromName remain in the signature for interface
+    // stability but are no longer serialized.
     final payload = jsonEncode({
       ...data,
       'from': fromUuid,
-      'fromShortId': fromShortId,
-      'fromName': fromName,
     });
     final mode = currentModeFor(canonical);
     switch (mode) {

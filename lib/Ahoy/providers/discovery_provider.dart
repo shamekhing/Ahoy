@@ -7,11 +7,14 @@ import '../services/transport_manager.dart';
 import '../services/transport/transport_interface.dart';
 import '../services/storage/prefs_store.dart';
 import '../core/constants.dart';
+import '../core/logging.dart';
+import '../services/crypto/crypto_service.dart';
 
 class DiscoveryProvider extends ChangeNotifier {
   final DiscoveryService _discovery;
   final TransportManager _transport;
   final PrefsStore _prefs;
+  final CryptoService _crypto;
 
   List<NearbyPeer> _peers = [];
   bool _offGrid = false;
@@ -31,7 +34,7 @@ class DiscoveryProvider extends ChangeNotifier {
 
   final Set<String> blockedUuids = {};
 
-  DiscoveryProvider(this._discovery, this._transport, this._prefs) {
+  DiscoveryProvider(this._discovery, this._transport, this._prefs, this._crypto) {
     _offGrid = _prefs.getBool(AhoyConstants.prefOffGrid);
     _receiveOff = _prefs.getBool(AhoyConstants.prefReceiveOff);
     _bleEnabled = _prefs.getBool(
@@ -82,6 +85,7 @@ class DiscoveryProvider extends ChangeNotifier {
   }
 
   void onAnnouncement(PeerAnnouncement announcement) {
+    if (!_acceptAnnouncement(announcement)) return;
     final alias = _discovery.onAnnouncement(announcement, blockedUuids);
     if (alias != null) {
       // A temporary identifier (BT/WFD MAC) was resolved to a canonical Ahoy UUID.
@@ -91,6 +95,44 @@ class DiscoveryProvider extends ChangeNotifier {
         canonicalId: alias.canonicalId,
       );
     }
+  }
+
+  /// Identity-binding policy (audit H-2):
+  /// 1. shortId is deterministically derived from the UUID — any announcement
+  ///    whose shortId does not match its claimed UUID is forged and dropped.
+  /// 2. Announcements carrying a public key must carry a valid RSA-SHA256
+  ///    signature made with that key, binding the key to the claimed identity.
+  /// 3. BLE scan-response announcements (uuid = BT MAC, no key) are accepted
+  ///    for display only; identity is bound at the first signed chat message.
+  bool _acceptAnnouncement(PeerAnnouncement announcement) {
+    final isRealUuid = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    ).hasMatch(announcement.uuid);
+    if (isRealUuid &&
+        announcement.shortId.isNotEmpty &&
+        announcement.shortId.toUpperCase() !=
+            CryptoService.shortIdFromUuid(announcement.uuid)) {
+      ahoyLog('[Discovery] dropping announcement with mismatched shortId');
+      return false;
+    }
+    if (announcement.publicKeyPEM == null) return true;
+    final signature = announcement.signature;
+    if (signature == null || signature.isEmpty) {
+      ahoyLog('[Discovery] dropping keyed announcement without signature');
+      return false;
+    }
+    final ok = _crypto.verifyAnnouncement(
+      uuid: announcement.uuid,
+      shortId: announcement.shortId,
+      displayName: announcement.displayName,
+      statusMessage: announcement.statusMessage,
+      publicKeyPEM: announcement.publicKeyPEM!,
+      signature: signature,
+    );
+    if (!ok) {
+      ahoyLog('[Discovery] dropping announcement with invalid signature');
+    }
+    return ok;
   }
 
   Future<void> setOffGrid(bool value) async {

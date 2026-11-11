@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:ahoy/Ahoy/core/errors.dart';
 import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,21 @@ void main() {
     expect(
       crypto.verifyPayloadSignature('tampered', signature, keys['publicKey']!),
       isFalse,
+    );
+  });
+
+  test('wrong envelope versions raise a format error, not a state error', () async {
+    final crypto = CryptoService();
+    final keys = await crypto.generateKeyPair();
+    crypto.activate(keys['privateKey']!, keys['publicKey']!);
+
+    final wrongVersion = base64.encode(
+      utf8.encode(jsonEncode({'v': 99, 'ek': 'x', 'iv': 'y', 'ct': 'z'})),
+    );
+
+    expect(
+      () => crypto.decryptFromPeer(wrongVersion),
+      throwsA(isA<CryptoFormatError>()),
     );
   });
 

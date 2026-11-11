@@ -74,7 +74,11 @@ class BleTransport implements TransportInterface {
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    String? announcementSignature,
   }) async {
+    // announcementSignature is ignored here: the BLE scan response has a
+    // 13-byte budget and cannot carry an RSA signature. BLE identity is
+    // bound at the first signed chat message (audit H-2).
     _myShortId = shortId;
     // Register here so GATT writes arriving right after the server opens are handled.
     _advertiserChannel.setMethodCallHandler(_onBleMethodCall);
@@ -274,7 +278,7 @@ class BleTransport implements TransportInterface {
         (c) => c.uuid == Guid(AhoyConstants.bleCharacteristicUuid),
         orElse: () => throw Exception('BLE characteristic not found'),
       );
-      return _sendChunked(char, payload);
+      return await _sendChunked(char, payload);
     } catch (e) {
       ahoyLog('[BLE] send failed', e);
       _connectedDevices.remove(peerUuid);

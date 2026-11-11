@@ -66,7 +66,7 @@ class _AhoyAppState extends State<AhoyApp> {
 
       _profileService = ProfileService(_prefsStore, _localDataCrypto);
 
-      _transportManager = TransportManager();
+      _transportManager = TransportManager(_cryptoService);
       _discoveryService = DiscoveryService();
 
       _convStore = ConversationStore(_prefsStore, _localDataCrypto);
@@ -157,6 +157,7 @@ class _AhoyAppState extends State<AhoyApp> {
             _discoveryService,
             _transportManager,
             _prefsStore,
+            _cryptoService,
           ),
         ),
         ChangeNotifierProvider(

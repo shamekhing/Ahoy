@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/enums.dart';
 import '../../core/errors.dart';
 import '../../core/logging.dart';
+import '../../core/constants.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
 import '../crypto/crypto_service.dart';
@@ -17,11 +18,18 @@ import 'message_store.dart';
 class ChatService {
   static final RegExp _pemWhitespace = RegExp(r'\s+');
 
+  /// msgId ends up in media file paths — keep it a bounded UUID-like token.
+  static final RegExp _msgIdPattern = RegExp(r'^[0-9a-fA-F-]{1,64}$');
+
   final TransportManager _transport;
   final ConversationStore _convStore;
   final MessageStore _msgStore;
   final CryptoService _crypto;
   final LocalDataCrypto? _localDataCrypto;
+
+  /// Text messages that failed to send, queued per peer for automatic retry
+  /// when the peer is next seen in discovery (audit M-3).
+  final _outbox = <String, List<_PendingSend>>{};
 
   ChatService(
     this._transport,
@@ -71,6 +79,7 @@ class ChatService {
 
     // Build payload first so we know whether encryption actually succeeded.
     final payload = _buildPayload(
+      myUuid,
       msgId,
       convId,
       myShortId,
@@ -83,7 +92,8 @@ class ChatService {
       myPublicKeyPEM,
       trustedPeerPublicKeyPEM,
     );
-    final actuallyEncrypted = payload['isEncrypted'] as bool? ?? false;
+    // v3 messages are sealed end-to-end: the whole payload is encrypted.
+    final actuallyEncrypted = payload['v'] == 3;
     final storedContent = await _storedContentForLocalMessage(
       type: type,
       content: content,
@@ -125,10 +135,99 @@ class ChatService {
     final finalStatus = sent ? MessageStatus.sent : MessageStatus.failed;
     await _msgStore.updateMessageStatus(convId, msgId, finalStatus);
 
+    if (!sent &&
+        type == MessageType.text &&
+        (_outbox[peerUuid]?.length ?? 0) < AhoyConstants.maxOutboxPerPeer &&
+        !_outboxHas(peerUuid, msgId)) {
+      _outbox.putIfAbsent(peerUuid, () => []).add(
+        _PendingSend(
+          msgId: msgId,
+          convId: convId,
+          peerUuid: peerUuid,
+          peerDisplayName: peerDisplayName,
+          peerShortId: peerShortId,
+          type: type,
+          content: content,
+          replyToId: replyToId,
+          replyToPreview: replyToPreview,
+          myUuid: myUuid,
+          myShortId: myShortId,
+          myDisplayName: myDisplayName,
+          myPublicKeyPEM: myPublicKeyPEM,
+          peerPublicKeyPEM: trustedPeerPublicKeyPEM,
+        ),
+      );
+      ahoyLog('[ChatService] queued message for retry when peer returns');
+    }
+
     return message.copyWith(status: finalStatus);
   }
 
+  /// True when [peerUuid] has messages waiting for a send retry.
+  bool hasPendingFor(String peerUuid) =>
+      _outbox[peerUuid]?.isNotEmpty ?? false;
+
+  bool _outboxHas(String peerUuid, String msgId) =>
+      _outbox[peerUuid]?.any((p) => p.msgId == msgId) ?? false;
+
+  /// Re-attempts all pending sends to [peerUuid]. Called when discovery
+  /// suggests the peer is reachable again. Returns the conversation ids whose
+  /// message statuses changed.
+  Future<List<String>> retryPendingFor(String peerUuid) async {
+    final queue = _outbox.remove(peerUuid);
+    if (queue == null || queue.isEmpty) return const [];
+
+    final touched = <String>{};
+    final requeue = <_PendingSend>[];
+    for (final item in queue) {
+      item.attempts += 1;
+      try {
+        // Resolve the peer key fresh — the pinned key may have been set since.
+        final peerKey =
+            _findConversation(item.convId)?.peerPublicKeyPEM ??
+            item.peerPublicKeyPEM;
+        final payload = _buildPayload(
+          item.myUuid,
+          item.msgId,
+          item.convId,
+          item.myShortId,
+          item.myDisplayName,
+          item.type,
+          item.content,
+          item.replyToId,
+          item.replyToPreview,
+          DateTime.now(), // fresh signature timestamp for the retry
+          item.myPublicKeyPEM,
+          peerKey,
+        );
+        final sent = await _transport.send(
+          item.peerUuid,
+          item.myUuid,
+          item.myShortId,
+          item.myDisplayName,
+          payload,
+        );
+        if (sent) {
+          await _msgStore.updateMessageStatus(
+            item.convId,
+            item.msgId,
+            MessageStatus.sent,
+          );
+          touched.add(item.convId);
+        } else if (item.attempts < AhoyConstants.maxSendRetries) {
+          requeue.add(item);
+        }
+      } catch (e) {
+        ahoyLog('[ChatService] retry failed', e);
+        if (item.attempts < AhoyConstants.maxSendRetries) requeue.add(item);
+      }
+    }
+    if (requeue.isNotEmpty) _outbox[peerUuid] = requeue;
+    return touched.toList();
+  }
+
   Map<String, dynamic> _buildPayload(
+    String myUuid,
     String msgId,
     String convId,
     String myShortId,
@@ -141,34 +240,59 @@ class ChatService {
     String? myPublicKeyPEM,
     String? peerPublicKeyPEM,
   ) {
-    String wireContent;
-    bool encrypted = false;
+    final wireContent = type == MessageType.text
+        ? content
+        : _encodeMediaContent(content);
 
-    if (type == MessageType.text) {
-      wireContent = content;
-    } else {
-      wireContent = _encodeMediaContent(content);
+    final canSeal = peerPublicKeyPEM != null && _crypto.isReady;
+    final canSign = myPublicKeyPEM != null && _crypto.isReady;
+
+    // v3: the whole message — identity, metadata and content — is encrypted
+    // as one blob; only the routing UUID rides outside (audit M-1). The
+    // signature over the plaintext inner material travels inside the blob.
+    if (canSeal) {
+      final inner = <String, dynamic>{
+        'msgType': 'chat',
+        'msgId': msgId,
+        'convId': convId,
+        'senderUuid': myUuid,
+        'senderShortId': myShortId,
+        'senderName': myDisplayName,
+        'type': type.name,
+        'content': wireContent,
+        'replyToId': replyToId,
+        'replyToPreview': replyToPreview,
+        'timestamp': timestamp.toIso8601String(),
+        'senderPublicKeyPEM': myPublicKeyPEM,
+      };
+      if (canSign) {
+        inner['signature'] = _crypto.signPayload(_signatureMaterialV3(inner));
+      }
+      return {
+        'v': 3,
+        'ct': _crypto.encryptForPeer(jsonEncode(inner), peerPublicKeyPEM),
+      };
     }
 
-    if (peerPublicKeyPEM != null && _crypto.isReady) {
-      wireContent = _crypto.encryptForPeer(wireContent, peerPublicKeyPEM);
-      encrypted = true;
-    }
-
-    final payload = {
+    // Legacy flat fallback (no peer key available — e.g. a BLE-only first
+    // contact): plaintext metadata, but identity-bound and signed.
+    final payload = <String, dynamic>{
       'msgType': 'chat',
       'msgId': msgId,
       'convId': convId,
+      'senderUuid': myUuid,
+      'senderShortId': myShortId,
+      'senderName': myDisplayName,
       'type': type.name,
       'content': wireContent,
-      'isEncrypted': encrypted,
+      'isEncrypted': false,
       'senderPublicKeyPEM': myPublicKeyPEM,
       'replyToId': replyToId,
       'replyToPreview': replyToPreview,
       'timestamp': timestamp.toIso8601String(),
     };
 
-    if (myPublicKeyPEM != null && _crypto.isReady) {
+    if (canSign) {
       payload['signatureVersion'] = 1;
       payload['signature'] = _crypto.signPayload(_signatureMaterial(payload));
     }
@@ -230,9 +354,37 @@ class ChatService {
     required Set<String> blockedUuids,
   }) async {
     try {
-      final json = jsonDecode(rawPayload) as Map<String, dynamic>;
-      if (json['msgType'] != 'chat') return null;
+      final outer = jsonDecode(rawPayload) as Map<String, dynamic>;
+      final isV3 = outer['v'] == 3;
+
       if (blockedUuids.contains(peerUuid)) return null;
+
+      // v3: everything except the routing UUID lives inside the encrypted
+      // blob — decrypt first, then validate (audit M-1).
+      Map<String, dynamic> json;
+      if (isV3) {
+        if (!_crypto.isReady) {
+          ahoyLog('[ChatService] dropping sealed message; crypto not ready');
+          return null;
+        }
+        final ct = outer['ct'] as String?;
+        if (ct == null || ct.isEmpty) return null;
+        try {
+          final plain = _crypto.decryptFromPeer(ct);
+          json = jsonDecode(plain) as Map<String, dynamic>;
+        } catch (e) {
+          ahoyLog('[ChatService] dropping undecryptable sealed message', e);
+          return null;
+        }
+      } else {
+        json = outer;
+      }
+
+      if (json['msgType'] == 'ack') {
+        await _handleInboundAck(json, peerUuid, myUuid);
+        return null;
+      }
+      if (json['msgType'] != 'chat') return null;
 
       final convId = MessageStore.conversationId(myUuid, peerUuid);
       final isNewConversation = !_convStore.loadAll().any(
@@ -240,21 +392,61 @@ class ChatService {
       );
       if (isNewConversation && receiveOff) return null;
 
+      // The claimed sender must match the transport-level identity — for v3
+      // the claim is inside the signature, so a spoofed `from` cannot pass.
+      final senderUuid = json['senderUuid'] as String? ?? peerUuid;
+      if (senderUuid != peerUuid) {
+        ahoyLog('[ChatService] dropping message with spoofed sender identity');
+        return null;
+      }
+
+      // Bind the message to this conversation — captured payloads replayed
+      // into another conversation fail here (audit M-2).
+      final innerConvId = json['convId'] as String? ?? '';
+      if (innerConvId != convId) {
+        ahoyLog('[ChatService] dropping message for a different conversation');
+        return null;
+      }
+
+      // Freshness window — the timestamp is covered by the signature, so
+      // captured payloads older than the skew bound cannot be replayed.
+      final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
+      if (timestamp == null) return null;
+      final age = DateTime.now().difference(timestamp);
+      if (age.abs() >
+          const Duration(seconds: AhoyConstants.inboundMaxClockSkewSeconds)) {
+        ahoyLog('[ChatService] dropping message outside freshness window');
+        return null;
+      }
+
+      // msgId ends up in media file names — bound length and charset.
+      final msgId = json['msgId'] as String? ?? '';
+      if (msgId.isEmpty ||
+          msgId.length > AhoyConstants.maxMsgIdLength ||
+          !_msgIdPattern.hasMatch(msgId)) {
+        ahoyLog('[ChatService] dropping message with invalid msgId');
+        return null;
+      }
+
       final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
       final existingConversation = _findConversation(convId);
       final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
         pinnedKey: existingConversation?.peerPublicKeyPEM,
         candidateKey: senderPublicKeyPEM,
       );
-      if (!_verifyInboundSignature(json, trustedPeerPublicKeyPEM)) {
+      if (!_verifyInboundSignature(
+        json,
+        trustedPeerPublicKeyPEM,
+        v3: isV3,
+      )) {
         return null;
       }
 
       final type = MessageType.values.byName(json['type'] as String? ?? 'text');
-      final isEncrypted = json['isEncrypted'] as bool? ?? false;
+      final isEncrypted = isV3 || (json['isEncrypted'] as bool? ?? false);
       String content = json['content'] as String? ?? '';
 
-      if (isEncrypted && _crypto.isReady) {
+      if (!isV3 && isEncrypted && _crypto.isReady) {
         try {
           content = _crypto.decryptFromPeer(content);
         } catch (e) {
@@ -263,16 +455,19 @@ class ChatService {
         }
       }
 
+      // Signed identity fields win over transport-level hints (which are
+      // empty for sealed messages).
+      final senderShortId =
+          _nonEmpty(json['senderShortId'] as String?) ?? peerShortId;
+      final senderName =
+          _nonEmpty(json['senderName'] as String?) ?? peerDisplayName;
+
       if (type == MessageType.image || type == MessageType.voice) {
-        content = await _saveMediaToFile(
-          content,
-          json['msgId'] as String,
-          type,
-        );
+        content = await _saveMediaToFile(content, msgId, type);
       }
 
       final message = Message(
-        id: json['msgId'] as String,
+        id: msgId,
         conversationId: convId,
         senderId: peerUuid,
         type: type,
@@ -281,7 +476,7 @@ class ChatService {
         replyToPreview: json['replyToPreview'] as String?,
         status: MessageStatus.sent,
         transport: transport,
-        timestamp: DateTime.parse(json['timestamp'] as String),
+        timestamp: timestamp,
         isEncrypted: isEncrypted,
       );
 
@@ -289,11 +484,18 @@ class ChatService {
       await _updateConversationOnReceive(
         convId,
         peerUuid,
-        peerShortId,
-        peerDisplayName,
+        senderShortId,
+        senderName,
         trustedPeerPublicKeyPEM,
         message,
         transport,
+      );
+      await _sendAck(
+        convId: convId,
+        ackFor: msgId,
+        senderKey: trustedPeerPublicKeyPEM,
+        myUuid: myUuid,
+        peerUuid: peerUuid,
       );
       return message;
     } catch (e) {
@@ -435,10 +637,14 @@ class ChatService {
 
   bool _verifyInboundSignature(
     Map<String, dynamic> payload,
-    String? trustedPeerPublicKeyPEM,
-  ) {
+    String? trustedPeerPublicKeyPEM, {
+    bool v3 = false,
+  }) {
     if (trustedPeerPublicKeyPEM == null || trustedPeerPublicKeyPEM.isEmpty) {
-      return true;
+      // No pinned key and none presented — there is nothing to verify against.
+      // Unauthenticated messages must never be displayed or stored (audit H-1).
+      ahoyLog('[ChatService] dropping unkeyed inbound message');
+      return false;
     }
 
     final signature = payload['signature'] as String?;
@@ -448,7 +654,7 @@ class ChatService {
     }
 
     final ok = _crypto.verifyPayloadSignature(
-      _signatureMaterial(payload),
+      v3 ? _signatureMaterialV3(payload) : _signatureMaterial(payload),
       signature,
       trustedPeerPublicKeyPEM,
     );
@@ -458,11 +664,15 @@ class ChatService {
     return ok;
   }
 
+  /// Signature material for legacy flat (pre-v3) payloads.
   String _signatureMaterial(Map<String, dynamic> payload) {
     return jsonEncode({
       'msgType': payload['msgType'],
       'msgId': payload['msgId'],
       'convId': payload['convId'],
+      'senderUuid': payload['senderUuid'],
+      'senderShortId': payload['senderShortId'],
+      'senderName': payload['senderName'],
       'type': payload['type'],
       'content': payload['content'],
       'isEncrypted': payload['isEncrypted'],
@@ -473,11 +683,155 @@ class ChatService {
     });
   }
 
+  /// Signature material for sealed (v3) inner payloads. Frozen field set —
+  /// changing it breaks verification of previously sent messages.
+  String _signatureMaterialV3(Map<String, dynamic> payload) {
+    return jsonEncode({
+      'msgType': payload['msgType'],
+      'msgId': payload['msgId'],
+      'convId': payload['convId'],
+      'senderUuid': payload['senderUuid'],
+      'senderShortId': payload['senderShortId'],
+      'senderName': payload['senderName'],
+      'type': payload['type'],
+      'content': payload['content'],
+      'replyToId': payload['replyToId'],
+      'replyToPreview': payload['replyToPreview'],
+      'timestamp': payload['timestamp'],
+      'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
+    });
+  }
+
+  /// Signature material for delivery acknowledgments. Frozen field set.
+  String _ackMaterial(Map<String, dynamic> payload) {
+    return jsonEncode({
+      'msgType': payload['msgType'],
+      'ackFor': payload['ackFor'],
+      'convId': payload['convId'],
+      'senderUuid': payload['senderUuid'],
+      'timestamp': payload['timestamp'],
+    });
+  }
+
   bool _samePublicKey(String a, String b) {
     return _canonicalPublicKey(a) == _canonicalPublicKey(b);
+  }
+
+  String? _nonEmpty(String? value) =>
+      (value == null || value.isEmpty) ? null : value;
+
+  /// Handles a delivery acknowledgment: validates it against this device's
+  /// conversation state and upgrades the matching message to `delivered`.
+  Future<void> _handleInboundAck(
+    Map<String, dynamic> json,
+    String peerUuid,
+    String myUuid,
+  ) async {
+    final convId = MessageStore.conversationId(myUuid, peerUuid);
+    if (json['convId'] != convId) return; // conversation binding
+
+    final senderUuid = json['senderUuid'] as String? ?? peerUuid;
+    if (senderUuid != peerUuid) return; // spoof guard
+
+    final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
+    if (timestamp == null) return;
+    final age = DateTime.now().difference(timestamp);
+    if (age.abs() >
+        const Duration(seconds: AhoyConstants.inboundMaxClockSkewSeconds)) {
+      return; // freshness
+    }
+
+    final ackFor = json['ackFor'] as String? ?? '';
+    if (ackFor.isEmpty) return;
+
+    // The ack is only trusted when it is signed with the peer key pinned for
+    // this conversation — otherwise ignore it silently.
+    final pinnedKey = _findConversation(convId)?.peerPublicKeyPEM;
+    if (pinnedKey == null || pinnedKey.isEmpty) return;
+    final signature = json['signature'] as String? ?? '';
+    if (!_crypto.verifyPayloadSignature(
+      _ackMaterial(json),
+      signature,
+      pinnedKey,
+    )) {
+      ahoyLog('[ChatService] dropping ack with invalid signature');
+      return;
+    }
+
+    await _msgStore.updateMessageStatus(convId, ackFor, MessageStatus.delivered);
+  }
+
+  /// Sends a sealed, signed acknowledgment for a stored inbound message.
+  /// Best-effort: failures are logged and never affect message delivery.
+  Future<void> _sendAck({
+    required String convId,
+    required String ackFor,
+    required String? senderKey,
+    required String myUuid,
+    required String peerUuid,
+  }) async {
+    if (senderKey == null || senderKey.isEmpty || !_crypto.isReady) return;
+    try {
+      final inner = <String, dynamic>{
+        'msgType': 'ack',
+        'ackFor': ackFor,
+        'convId': convId,
+        'senderUuid': myUuid,
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+      inner['signature'] = _crypto.signPayload(_ackMaterial(inner));
+      final payload = {
+        'v': 3,
+        'ct': _crypto.encryptForPeer(jsonEncode(inner), senderKey),
+      };
+      final sent = await _transport.send(peerUuid, myUuid, '', '', payload);
+      if (!sent) ahoyLog('[ChatService] ack send failed');
+    } catch (e) {
+      ahoyLog('[ChatService] ack failed', e);
+    }
   }
 
   String _canonicalPublicKey(String key) {
     return key.replaceAll(_pemWhitespace, '');
   }
+}
+
+/// A text message queued for retry after a failed transport send (audit M-3).
+class _PendingSend {
+  final String msgId;
+  final String convId;
+  final String peerUuid;
+  final String peerDisplayName;
+  final String peerShortId;
+  final MessageType type;
+  final String content;
+  final String? replyToId;
+  final String? replyToPreview;
+
+  // Sender identity captured at enqueue time — retries rebuild the payload
+  // with these plus a fresh timestamp.
+  final String myUuid;
+  final String myShortId;
+  final String myDisplayName;
+  final String? myPublicKeyPEM;
+  final String? peerPublicKeyPEM;
+
+  int attempts = 0;
+
+  _PendingSend({
+    required this.msgId,
+    required this.convId,
+    required this.peerUuid,
+    required this.peerDisplayName,
+    required this.peerShortId,
+    required this.type,
+    required this.content,
+    required this.replyToId,
+    required this.replyToPreview,
+    required this.myUuid,
+    required this.myShortId,
+    required this.myDisplayName,
+    required this.myPublicKeyPEM,
+    required this.peerPublicKeyPEM,
+  });
 }

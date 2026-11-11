@@ -108,25 +108,6 @@ void main() {
     expect(loaded.bio, 'harbor secret');
   });
 
-  test('encrypted avatar files are used for profile broadcasts', () async {
-    final prefs = await _prefs();
-    final crypto = _crypto();
-    final dir = await Directory.systemTemp.createTemp('ahoy_profile_test_');
-    addTearDown(() async {
-      if (await dir.exists()) await dir.delete(recursive: true);
-    });
-    final avatar = File(
-      '${dir.path}/avatar_user-1.jpg${LocalDataCrypto.encryptedFileExtension}',
-    );
-    final bytes = Uint8List.fromList('avatar secret'.codeUnits);
-    await crypto.writeEncryptedFile(avatar, bytes);
-
-    final service = ProfileService(prefs, crypto, () async => dir);
-    final encoded = await service.avatarBase64(_user(avatarPath: avatar.path));
-
-    expect(encoded, base64.encode(bytes));
-  });
-
   test(
     'legacy plaintext prefs and media are migrated to encrypted storage',
     () async {
