@@ -147,6 +147,21 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void maybeRetryFor(String peerUuid) {
+    if (!_chatService.hasPendingFor(peerUuid)) return;
+    unawaited(_retryPending(peerUuid));
+  }
+
+  Future<void> _retryPending(String peerUuid) async {
+    final touched = await _chatService.retryPendingFor(peerUuid);
+    if (touched.isEmpty) return;
+    for (final convId in touched) {
+      _messages.remove(convId);
+    }
+    _conversations = _convStore.loadAll();
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _inboundSub?.cancel();

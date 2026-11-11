@@ -896,6 +896,9 @@ ChatProvider._inboundSub.listen(packet)
             → ConversationStore.upsert() [async mutex]
                  → unreadCount++
                  → update lastMessageAt, lastMessagePreview, peerPublicKeyPEM
+       └─ _sendAck()   [audit M-3]
+            → sealed signed ack { v:3, ct } back to the sender's pinned key
+            → best-effort; sender upgrades the message to `delivered`
 
   → if message != null:
        _messages.remove(convId)         [invalidate cache]
@@ -1424,7 +1427,7 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 | `content` | String | Text content, or local file path for media |
 | `replyToId` | String? | ID of replied-to message |
 | `replyToPreview` | String? | First 80 chars of replied-to content |
-| `status` | MessageStatus | sending → sent / failed |
+| `status` | MessageStatus | sending → sent → delivered / failed |
 | `transport` | TransportMode | Transport used to send/receive |
 | `timestamp` | DateTime | Message creation time |
 | `isEncrypted` | bool | Whether content was encrypted in transit |
@@ -1466,8 +1469,9 @@ Serializable peer identity for over-the-air transmission. Superset of what fits 
 | Value | Icon | Meaning |
 |-------|------|---------|
 | `sending` | spinner / clock | awaiting transport ACK |
-| `sent` | ✓ | delivered to peer |
-| `failed` | ✗ | transport returned false |
+| `sent` | ✓ | transport accepted the payload |
+| `delivered` | ✓✓ | peer returned a signed delivery ack |
+| `failed` | ✗ | transport returned false (text messages auto-retry when the peer returns) |
 
 **`Gender`** — profile and avatar display:
 | Value | Avatar color |

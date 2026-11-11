@@ -43,6 +43,10 @@ class AhoyConstants {
   static const int inboundMaxClockSkewSeconds = 15 * 60;
   static const int maxMsgIdLength = 64;
 
+  // Delivery retries (audit M-3)
+  static const int maxSendRetries = 3;
+  static const int maxOutboxPerPeer = 50;
+
   // Misc
   static const int shortIdLength = 6;
   static const int maxStatusLength = 80;

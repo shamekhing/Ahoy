@@ -27,6 +27,10 @@ class ChatService {
   final CryptoService _crypto;
   final LocalDataCrypto? _localDataCrypto;
 
+  /// Text messages that failed to send, queued per peer for automatic retry
+  /// when the peer is next seen in discovery (audit M-3).
+  final _outbox = <String, List<_PendingSend>>{};
+
   ChatService(
     this._transport,
     this._convStore,
@@ -131,7 +135,95 @@ class ChatService {
     final finalStatus = sent ? MessageStatus.sent : MessageStatus.failed;
     await _msgStore.updateMessageStatus(convId, msgId, finalStatus);
 
+    if (!sent &&
+        type == MessageType.text &&
+        (_outbox[peerUuid]?.length ?? 0) < AhoyConstants.maxOutboxPerPeer &&
+        !_outboxHas(peerUuid, msgId)) {
+      _outbox.putIfAbsent(peerUuid, () => []).add(
+        _PendingSend(
+          msgId: msgId,
+          convId: convId,
+          peerUuid: peerUuid,
+          peerDisplayName: peerDisplayName,
+          peerShortId: peerShortId,
+          type: type,
+          content: content,
+          replyToId: replyToId,
+          replyToPreview: replyToPreview,
+          myUuid: myUuid,
+          myShortId: myShortId,
+          myDisplayName: myDisplayName,
+          myPublicKeyPEM: myPublicKeyPEM,
+          peerPublicKeyPEM: trustedPeerPublicKeyPEM,
+        ),
+      );
+      ahoyLog('[ChatService] queued message for retry when peer returns');
+    }
+
     return message.copyWith(status: finalStatus);
+  }
+
+  /// True when [peerUuid] has messages waiting for a send retry.
+  bool hasPendingFor(String peerUuid) =>
+      _outbox[peerUuid]?.isNotEmpty ?? false;
+
+  bool _outboxHas(String peerUuid, String msgId) =>
+      _outbox[peerUuid]?.any((p) => p.msgId == msgId) ?? false;
+
+  /// Re-attempts all pending sends to [peerUuid]. Called when discovery
+  /// suggests the peer is reachable again. Returns the conversation ids whose
+  /// message statuses changed.
+  Future<List<String>> retryPendingFor(String peerUuid) async {
+    final queue = _outbox.remove(peerUuid);
+    if (queue == null || queue.isEmpty) return const [];
+
+    final touched = <String>{};
+    final requeue = <_PendingSend>[];
+    for (final item in queue) {
+      item.attempts += 1;
+      try {
+        // Resolve the peer key fresh — the pinned key may have been set since.
+        final peerKey =
+            _findConversation(item.convId)?.peerPublicKeyPEM ??
+            item.peerPublicKeyPEM;
+        final payload = _buildPayload(
+          item.myUuid,
+          item.msgId,
+          item.convId,
+          item.myShortId,
+          item.myDisplayName,
+          item.type,
+          item.content,
+          item.replyToId,
+          item.replyToPreview,
+          DateTime.now(), // fresh signature timestamp for the retry
+          item.myPublicKeyPEM,
+          peerKey,
+        );
+        final sent = await _transport.send(
+          item.peerUuid,
+          item.myUuid,
+          item.myShortId,
+          item.myDisplayName,
+          payload,
+        );
+        if (sent) {
+          await _msgStore.updateMessageStatus(
+            item.convId,
+            item.msgId,
+            MessageStatus.sent,
+          );
+          touched.add(item.convId);
+        } else if (item.attempts < AhoyConstants.maxSendRetries) {
+          requeue.add(item);
+        }
+      } catch (e) {
+        ahoyLog('[ChatService] retry failed', e);
+        if (item.attempts < AhoyConstants.maxSendRetries) requeue.add(item);
+      }
+    }
+    if (requeue.isNotEmpty) _outbox[peerUuid] = requeue;
+    return touched.toList();
   }
 
   Map<String, dynamic> _buildPayload(
@@ -288,6 +380,10 @@ class ChatService {
         json = outer;
       }
 
+      if (json['msgType'] == 'ack') {
+        await _handleInboundAck(json, peerUuid, myUuid);
+        return null;
+      }
       if (json['msgType'] != 'chat') return null;
 
       final convId = MessageStore.conversationId(myUuid, peerUuid);
@@ -393,6 +489,13 @@ class ChatService {
         trustedPeerPublicKeyPEM,
         message,
         transport,
+      );
+      await _sendAck(
+        convId: convId,
+        ackFor: msgId,
+        senderKey: trustedPeerPublicKeyPEM,
+        myUuid: myUuid,
+        peerUuid: peerUuid,
       );
       return message;
     } catch (e) {
@@ -599,6 +702,17 @@ class ChatService {
     });
   }
 
+  /// Signature material for delivery acknowledgments. Frozen field set.
+  String _ackMaterial(Map<String, dynamic> payload) {
+    return jsonEncode({
+      'msgType': payload['msgType'],
+      'ackFor': payload['ackFor'],
+      'convId': payload['convId'],
+      'senderUuid': payload['senderUuid'],
+      'timestamp': payload['timestamp'],
+    });
+  }
+
   bool _samePublicKey(String a, String b) {
     return _canonicalPublicKey(a) == _canonicalPublicKey(b);
   }
@@ -606,7 +720,118 @@ class ChatService {
   String? _nonEmpty(String? value) =>
       (value == null || value.isEmpty) ? null : value;
 
+  /// Handles a delivery acknowledgment: validates it against this device's
+  /// conversation state and upgrades the matching message to `delivered`.
+  Future<void> _handleInboundAck(
+    Map<String, dynamic> json,
+    String peerUuid,
+    String myUuid,
+  ) async {
+    final convId = MessageStore.conversationId(myUuid, peerUuid);
+    if (json['convId'] != convId) return; // conversation binding
+
+    final senderUuid = json['senderUuid'] as String? ?? peerUuid;
+    if (senderUuid != peerUuid) return; // spoof guard
+
+    final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
+    if (timestamp == null) return;
+    final age = DateTime.now().difference(timestamp);
+    if (age.abs() >
+        const Duration(seconds: AhoyConstants.inboundMaxClockSkewSeconds)) {
+      return; // freshness
+    }
+
+    final ackFor = json['ackFor'] as String? ?? '';
+    if (ackFor.isEmpty) return;
+
+    // The ack is only trusted when it is signed with the peer key pinned for
+    // this conversation — otherwise ignore it silently.
+    final pinnedKey = _findConversation(convId)?.peerPublicKeyPEM;
+    if (pinnedKey == null || pinnedKey.isEmpty) return;
+    final signature = json['signature'] as String? ?? '';
+    if (!_crypto.verifyPayloadSignature(
+      _ackMaterial(json),
+      signature,
+      pinnedKey,
+    )) {
+      ahoyLog('[ChatService] dropping ack with invalid signature');
+      return;
+    }
+
+    await _msgStore.updateMessageStatus(convId, ackFor, MessageStatus.delivered);
+  }
+
+  /// Sends a sealed, signed acknowledgment for a stored inbound message.
+  /// Best-effort: failures are logged and never affect message delivery.
+  Future<void> _sendAck({
+    required String convId,
+    required String ackFor,
+    required String? senderKey,
+    required String myUuid,
+    required String peerUuid,
+  }) async {
+    if (senderKey == null || senderKey.isEmpty || !_crypto.isReady) return;
+    try {
+      final inner = <String, dynamic>{
+        'msgType': 'ack',
+        'ackFor': ackFor,
+        'convId': convId,
+        'senderUuid': myUuid,
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+      inner['signature'] = _crypto.signPayload(_ackMaterial(inner));
+      final payload = {
+        'v': 3,
+        'ct': _crypto.encryptForPeer(jsonEncode(inner), senderKey),
+      };
+      final sent = await _transport.send(peerUuid, myUuid, '', '', payload);
+      if (!sent) ahoyLog('[ChatService] ack send failed');
+    } catch (e) {
+      ahoyLog('[ChatService] ack failed', e);
+    }
+  }
+
   String _canonicalPublicKey(String key) {
     return key.replaceAll(_pemWhitespace, '');
   }
+}
+
+/// A text message queued for retry after a failed transport send (audit M-3).
+class _PendingSend {
+  final String msgId;
+  final String convId;
+  final String peerUuid;
+  final String peerDisplayName;
+  final String peerShortId;
+  final MessageType type;
+  final String content;
+  final String? replyToId;
+  final String? replyToPreview;
+
+  // Sender identity captured at enqueue time — retries rebuild the payload
+  // with these plus a fresh timestamp.
+  final String myUuid;
+  final String myShortId;
+  final String myDisplayName;
+  final String? myPublicKeyPEM;
+  final String? peerPublicKeyPEM;
+
+  int attempts = 0;
+
+  _PendingSend({
+    required this.msgId,
+    required this.convId,
+    required this.peerUuid,
+    required this.peerDisplayName,
+    required this.peerShortId,
+    required this.type,
+    required this.content,
+    required this.replyToId,
+    required this.replyToPreview,
+    required this.myUuid,
+    required this.myShortId,
+    required this.myDisplayName,
+    required this.myPublicKeyPEM,
+    required this.peerPublicKeyPEM,
+  });
 }

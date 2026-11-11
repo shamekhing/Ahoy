@@ -121,7 +121,11 @@ class _RootScreenState extends State<RootScreen> {
       if (!mounted) return;
 
       _announcementSub = transport.announcementStream.listen((a) {
-        if (mounted) context.read<DiscoveryProvider>().onAnnouncement(a);
+        if (mounted) {
+          context.read<DiscoveryProvider>().onAnnouncement(a);
+          // A returning peer may have undelivered messages queued (audit M-3).
+          context.read<ChatProvider>().maybeRetryFor(a.uuid);
+        }
       });
 
       if (!mounted) return;

@@ -175,6 +175,7 @@ class MessageBubble extends StatelessWidget {
   IconData get _statusIcon => switch (message.status) {
     MessageStatus.sending => Icons.schedule,
     MessageStatus.sent => Icons.done,
+    MessageStatus.delivered => Icons.done_all,
     MessageStatus.failed => Icons.error_outline,
   };
 }
