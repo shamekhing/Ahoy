@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/nearby_peer.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/chat_provider.dart';
 import '../../providers/discovery_provider.dart';
 import '../../services/crypto/crypto_service.dart';
 import '../../widgets/common/peer_avatar.dart';
@@ -15,6 +17,23 @@ class PeerProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final discovery = context.watch<DiscoveryProvider>();
+    final me = context.watch<AuthProvider>().user;
+    final conversation = context
+        .watch<ChatProvider>()
+        .conversations
+        .where((c) => c.peerUuid == peer.uuid)
+        .firstOrNull;
+    // The pinned conversation key is what actually protects the messages —
+    // prefer it over the (signature-verified) announced key.
+    final pinnedKey = conversation?.peerPublicKeyPEM;
+    final peerKey = (pinnedKey != null && pinnedKey.isNotEmpty)
+        ? pinnedKey
+        : peer.publicKeyPEM;
+    final safetyNumber = (peerKey != null && peerKey.isNotEmpty)
+        ? (me != null
+              ? CryptoService.safetyNumberFor(me.publicKeyPEM, peerKey)
+              : CryptoService.fingerprintFromPublicKey(peerKey))
+        : null;
     final isBlocked = discovery.blockedUuids.contains(peer.uuid);
 
     return Scaffold(
@@ -56,7 +75,7 @@ class PeerProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Center(child: TransportBadges(transports: peer.transports)),
-          if (peer.publicKeyPEM != null && peer.publicKeyPEM!.isNotEmpty) ...[
+          if (safetyNumber != null) ...[
             const SizedBox(height: 24),
             const Align(
               alignment: Alignment.centerLeft,
@@ -67,7 +86,7 @@ class PeerProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             SelectableText(
-              CryptoService.fingerprintFromPublicKey(peer.publicKeyPEM!),
+              safetyNumber,
               style: const TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 12,
@@ -76,8 +95,8 @@ class PeerProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Compare with the safety number on your peer\'s device to '
-              'confirm there is no impersonation.',
+              'Read this number aloud with your peer — it is identical on '
+              'both devices for this conversation.',
               style: TextStyle(color: Colors.grey, fontSize: 11),
             ),
           ],

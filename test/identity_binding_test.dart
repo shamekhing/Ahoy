@@ -191,4 +191,39 @@ void main() {
       expect(int.parse(group), lessThan(100000));
     }
   });
+
+  test('safety number is symmetric — both devices compute the same digits', () {
+    final a = '-----BEGIN RSA PUBLIC KEY-----\nKEY_A\n-----END RSA PUBLIC KEY-----';
+    final b = '-----BEGIN RSA PUBLIC KEY-----\nKEY_B\n-----END RSA PUBLIC KEY-----';
+
+    final ab = CryptoService.safetyNumberFor(a, b);
+    expect(ab, CryptoService.safetyNumberFor(b, a));
+
+    final groups = ab.split(' ');
+    expect(groups, hasLength(12));
+    for (final group in groups) {
+      expect(group.length, 5);
+      expect(int.parse(group), lessThan(100000));
+    }
+  });
+
+  test('safety number ignores whitespace and distinguishes conversations', () {
+    final a = '-----BEGIN RSA PUBLIC KEY-----\nKEY_A\n-----END RSA PUBLIC KEY-----';
+    final aEvil = '-----BEGIN  RSA  PUBLIC  KEY-----\nKEY_A\n-----END RSA PUBLIC KEY-----';
+    final b = '-----BEGIN RSA PUBLIC KEY-----\nKEY_B\n-----END RSA PUBLIC KEY-----';
+    final c = '-----BEGIN RSA PUBLIC KEY-----\nKEY_C\n-----END RSA PUBLIC KEY-----';
+
+    expect(
+      CryptoService.safetyNumberFor(a, b),
+      CryptoService.safetyNumberFor(aEvil, b),
+    );
+    expect(
+      CryptoService.safetyNumberFor(a, b),
+      isNot(CryptoService.safetyNumberFor(a, c)),
+    );
+    expect(
+      CryptoService.safetyNumberFor(a, b),
+      isNot(CryptoService.fingerprintFromPublicKey(a)),
+    );
+  });
 }

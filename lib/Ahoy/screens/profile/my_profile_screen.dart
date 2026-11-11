@@ -100,8 +100,9 @@ class MyProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Your peers see the same number for you. If it matches on both '
-            'devices, your conversation has no impersonation.',
+            'This is your key fingerprint — peers see the same number on '
+            'your profile card. Open a peer\'s profile to compare your '
+            'per-conversation safety number.',
             style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
           if (user.statusMessage != null && user.statusMessage!.isNotEmpty) ...[

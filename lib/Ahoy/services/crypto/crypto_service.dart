@@ -251,13 +251,34 @@ class CryptoService {
     );
   }
 
-  /// 60-digit safety number (12 groups of 5 digits, Signal-style) derived
-  /// from the canonical form of a public key. Identical on both devices for
-  /// the same key pair — users compare it out-of-band to detect impersonation.
+  /// 60-digit key fingerprint (12 groups of 5 digits, Signal-style) derived
+  /// from the canonical form of a single public key. Used as an identity
+  /// card: your own profile shows yours, and peers see the same number when
+  /// they open your profile.
   static String fingerprintFromPublicKey(String publicKeyPEM) {
     final canonical = publicKeyPEM.replaceAll(RegExp(r'\s+'), '');
     final hash = sha256.convert(utf8.encode(canonical)).toString();
-    final bits = BigInt.parse(hash.substring(0, 51), radix: 16); // 204 bits
+    return _digits60(hash);
+  }
+
+  /// Combined per-conversation safety number: derived from BOTH public keys
+  /// (order-independent), so both devices compute the exact same 60 digits
+  /// for the same conversation — read it aloud to detect impersonation.
+  static String safetyNumberFor(
+    String myPublicKeyPEM,
+    String peerPublicKeyPEM,
+  ) {
+    final a = myPublicKeyPEM.replaceAll(RegExp(r'\s+'), '');
+    final b = peerPublicKeyPEM.replaceAll(RegExp(r'\s+'), '');
+    final sorted = [a, b]..sort();
+    final hash = sha256
+        .convert(utf8.encode('ahoy-safety-v1:${sorted[0]}|${sorted[1]}'))
+        .toString();
+    return _digits60(hash);
+  }
+
+  static String _digits60(String sha256Hex) {
+    final bits = BigInt.parse(sha256Hex.substring(0, 51), radix: 16); // 204 bits
     final groups = List.generate(12, (i) {
       final shift = 187 - 17 * i; // 12 chunks of 17 bits
       final value = ((bits >> shift) & BigInt.from(0x1FFFF)).toInt();

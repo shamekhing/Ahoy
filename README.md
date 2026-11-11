@@ -1277,8 +1277,14 @@ DiscoveryProvider._acceptAnnouncement:
 fingerprintFromPublicKey(publicKeyPEM)  →  "Safety number"
   sha256(PEM with whitespace stripped)[0:51 hex] → 204 bits
   → 12 chunks of 17 bits → value % 100000 → 5-digit groups joined by spaces
-  → Shown in My Profile (own key) and Peer Profile (announced key);
-    identical on both devices for the same key pair
+  → Shown in My Profile (own key) as an identity card
+
+safetyNumberFor(myKey, peerKey)  →  per-conversation safety number (audit M-6)
+  canonical PEMs sorted → sha256("ahoy-safety-v1:{a}|{b}")[0:51 hex]
+  → same 12×5-digit grouping — order-independent, so both devices compute
+    the identical 60 digits for the same conversation
+  → Shown in Peer Profile; prefers the pinned conversation key over the
+    announced key; read aloud out-of-band to detect impersonation
 ```
 
 ---
