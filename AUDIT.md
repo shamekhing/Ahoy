@@ -17,8 +17,8 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 | # | Finding | Evidence |
 |---|---------|----------|
-| M-1 | Wire metadata plaintext: `from`/`fromShortId`/`fromName` added outside the signature; `convId`/`timestamp`/`type` observable. Passive LAN sniffing reveals social graph + timing. | `transport_manager.dart:281-298` |
-| M-2 | No replay protection: sender-supplied `msgId` is the only dedup; `timestamp` attacker-controlled; captured signed payloads can be re-inserted after conversation deletion. | `message_store.dart:59-66` |
+| M-1 | **FIXED (v=3 sealed format):** wire carries only `{v:3, from, ct}` — identity, convId, timestamp, names and content are inside the encrypted+signed blob. Legacy flat format remains only as the no-peer-key fallback (still identity-bound and signed). | `chat_service.dart _buildPayload`, `transport_manager.dart send` |
+| M-2 | **FIXED:** signed `senderUuid` cross-checked against wire identity; `convId` bound to the computed conversation (kills cross-conversation replay); ±15 min freshness window on signed timestamps; msgId length/charset validation. | `chat_service.dart onInboundPacket` |
 | M-3 | "Sent" = transport accepted bytes. No ACK, no retry queue, no `delivered`/`read` statuses. | `lan_transport.dart:327-330`, `ble_transport.dart:335-348` |
 | M-4 | LAN TCP server binds all interfaces (`anyIPv4`); Kotlin WD `ServerSocket(P2P_PORT)` likewise — injectable chat from unrelated joined networks. | `lan_transport.dart:113-116`, `MainActivity.kt:287` |
 | M-5 | Announced TCP port trusted (range-checked only) → victim connects to arbitrary host:port with attacker-chosen payload on send. | `lan_transport.dart:194-198` |
@@ -59,4 +59,4 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 ## Recommended fix order (remaining)
 
-1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. M-1/M-2 (move `from*`/`convId`/`timestamp` inside encrypted payload; replay cache) → 4. M-3 (ACK + outbox) → 5. M-4/M-5 (interface-scoped binds, fixed port) → 6. hygiene leftovers (L-3/L-6/L-7).
+1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. ~~M-1/M-2~~ (done: v=3 sealed wire format; sender/conv binding + freshness window) → 4. M-3 (ACK + outbox) → 5. M-4/M-5 (interface-scoped binds, fixed port) → 6. hygiene leftovers (L-3/L-6/L-7).

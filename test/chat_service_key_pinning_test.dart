@@ -191,11 +191,14 @@ Map<String, dynamic> _inboundPayload({String? senderPublicKeyPEM}) {
     'msgType': 'chat',
     'msgId': 'message-1',
     'convId': MessageStore.conversationId(_myUuid, _peerUuid),
+    'senderUuid': _peerUuid,
+    'senderShortId': 'PEER12',
+    'senderName': 'Peer',
     'type': MessageType.text.name,
     'content': 'hello',
     'isEncrypted': false,
     if (senderPublicKeyPEM != null) 'senderPublicKeyPEM': senderPublicKeyPEM,
-    'timestamp': DateTime.utc(2026, 1, 1).toIso8601String(),
+    'timestamp': DateTime.now().toIso8601String(),
   };
 }
 
@@ -204,6 +207,9 @@ String _signatureMaterial(Map<String, dynamic> payload) {
     'msgType': payload['msgType'],
     'msgId': payload['msgId'],
     'convId': payload['convId'],
+    'senderUuid': payload['senderUuid'],
+    'senderShortId': payload['senderShortId'],
+    'senderName': payload['senderName'],
     'type': payload['type'],
     'content': payload['content'],
     'isEncrypted': payload['isEncrypted'],

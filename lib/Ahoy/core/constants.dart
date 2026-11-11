@@ -39,6 +39,10 @@ class AhoyConstants {
   static const String prefLanEnabled = 'ahoy_lan_enabled';
   static const String prefWifiDirectEnabled = 'ahoy_wifi_direct_enabled';
 
+  // Inbound hardening (audit M-2)
+  static const int inboundMaxClockSkewSeconds = 15 * 60;
+  static const int maxMsgIdLength = 64;
+
   // Misc
   static const int shortIdLength = 6;
   static const int maxStatusLength = 80;

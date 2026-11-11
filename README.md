@@ -170,7 +170,7 @@ lib/
             ├── peer_card.dart         Peer list tile with transport badges
             └── discovery_controls.dart  Transport toggle bottom sheet (referenced from Settings)
 
-android/app/src/main/kotlin/com/example/ahoy/
+android/app/src/main/kotlin/com/ahoy/app/
 └── MainActivity.kt   WiFi P2P manager, TCP ServerSocket, BLE GATT server, both MethodChannels
 ```
 
@@ -752,12 +752,16 @@ ChatService.sendMessage()
   ├─ _buildPayload():
   │    ├─ For text:  wireContent = content
   │    ├─ For media: wireContent = base64(File(content).readAsBytesSync())
-  │    └─ If peerPublicKeyPEM != null && crypto.isReady:
-  │         wireContent = CryptoService.encryptForPeer(wireContent, peerPublicKeyPEM)
-  │         encrypted = true
-  │         [falls back to plaintext on exception, logs error]
-  │    → Returns Map: { msgType, msgId, convId, type, content, isEncrypted,
-  │                     senderPublicKeyPEM, replyToId, replyToPreview, timestamp }
+  │    ├─ If peerPublicKeyPEM != null && crypto.isReady  (v3 — sealed, audit M-1):
+  │         inner = { msgType, msgId, convId, senderUuid, senderShortId,
+  │                   senderName, type, content, replyTo*, timestamp,
+  │                   senderPublicKeyPEM }      ← all metadata inside the blob
+  │         inner.signature = RSA-SHA256(_signatureMaterialV3(inner))
+  │         → Returns { v: 3, ct: encryptForPeer(jsonEncode(inner), peerKey) }
+  │    └─ Else (legacy flat fallback, e.g. BLE-only first contact):
+  │         → Returns flat Map: { msgType, msgId, convId, senderUuid,
+  │           senderShortId, senderName, type, content, isEncrypted: false,
+  │           senderPublicKeyPEM, replyTo*, timestamp, signature? }
   │
   ├─ Message(status: sending) created
   │
@@ -770,7 +774,7 @@ ChatService.sendMessage()
   │
   ├─ TransportManager.send(peerUuid, myUuid, myShortId, myDisplayName, payload)
   │    ├─ canonical = _peerAliases[peerUuid] ?? peerUuid
-  │    ├─ jsonPayload = jsonEncode({...payload, from, fromShortId, fromName})
+  │    ├─ jsonPayload = jsonEncode({...payload, from})   [routing UUID only]
   │    ├─ mode = currentModeFor(canonical)
   │    └─ Switch mode:
   │         ├─ wifiDirect → WiFiDirectTransport.send(canonical, jsonPayload)
@@ -860,19 +864,29 @@ TransportManager._onPacket(packet)
 
 ChatProvider._inboundSub.listen(packet)
   → ChatService.onInboundPacket(rawPayload, peerUuid, myUuid, transport, receiveOff, blockedUuids)
-       ├─ json = jsonDecode(rawPayload)
-       ├─ if json['msgType'] != 'chat': return null
+       ├─ outer = jsonDecode(rawPayload)
        ├─ if peerUuid in blockedUuids: return null
+       ├─ if outer['v'] == 3 (sealed — audit M-1):
+       │    plain = CryptoService.decryptFromPeer(outer['ct'])
+       │    json = jsonDecode(plain)     ← metadata was inside the blob
+       │    [undecryptable → return null]
+       │  else: json = outer (legacy flat fallback)
+       ├─ if json['msgType'] != 'chat': return null
        ├─ convId = conversationId(myUuid, peerUuid)
        ├─ if new conversation AND receiveOff: return null
+       ├─ if json['senderUuid'] != peerUuid: return null      [spoofed identity]
+       ├─ if json['convId'] != convId: return null            [cross-conv replay]
+       ├─ if |now - json['timestamp']| > 15 min: return null  [stale replay]
+       ├─ if msgId empty / > 64 chars / non-hex: return null
+       ├─ trusted key = pinned conversation key OR payload senderPublicKeyPEM
+       │    verify signature (v3 material for v3, legacy material otherwise)
+       │    [unkeyed or unsigned → return null (audit H-1)]
        ├─ type = MessageType.values.byName(json['type'])
-       ├─ if json['isEncrypted'] && crypto.isReady:
+       ├─ if legacy && json['isEncrypted'] && crypto.isReady:
        │    content = CryptoService.decryptFromPeer(json['content'])
        │      → decode base64 envelope → parse {v, ek, iv, ct}
        │      → RSA-OAEP decrypt ek → aesKey
        │      → AES-256-GCM decrypt ct with aesKey + iv
-       │      → return plaintext
-       │    [on failure: log + return null — message dropped]
        ├─ if type == image/voice:
        │    content = _saveMediaToFile(content, msgId, type)
        │      → base64.decode → write to app docs/ahoy_media_{msgId}.{ext}
@@ -899,7 +913,7 @@ UI:
 ## 17. WiFi Direct Transport
 
 **File:** `lib/Ahoy/services/transport/wifi_direct_transport.dart`  
-**Native:** `android/app/src/main/kotlin/com/example/ahoy/MainActivity.kt`  
+**Native:** `android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt`  
 **MethodChannel:** `"wifi_direct"`
 
 ### Connection Lifecycle
@@ -1304,7 +1318,7 @@ Per-conversation async mutex (`_withLock`) serialises all read-modify-write oper
 
 ## 23. Android Native Bridge
 
-**File:** `android/app/src/main/kotlin/com/example/ahoy/MainActivity.kt`
+**File:** `android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt`
 
 ### MethodChannel: `"wifi_direct"`
 

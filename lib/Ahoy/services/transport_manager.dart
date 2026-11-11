@@ -311,11 +311,13 @@ class TransportManager {
     Map<String, dynamic> data,
   ) async {
     final canonical = _peerAliases[peerUuid] ?? peerUuid;
+    // Only the routing UUID rides outside the encrypted payload (audit M-1):
+    // display identity and all metadata now live inside the signed/encrypted
+    // body. fromShortId/fromName remain in the signature for interface
+    // stability but are no longer serialized.
     final payload = jsonEncode({
       ...data,
       'from': fromUuid,
-      'fromShortId': fromShortId,
-      'fromName': fromName,
     });
     final mode = currentModeFor(canonical);
     switch (mode) {

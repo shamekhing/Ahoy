@@ -17,6 +17,9 @@ import 'message_store.dart';
 class ChatService {
   static final RegExp _pemWhitespace = RegExp(r'\s+');
 
+  /// msgId ends up in media file paths — keep it a bounded UUID-like token.
+  static final RegExp _msgIdPattern = RegExp(r'^[0-9a-fA-F-]{1,64}$');
+
   final TransportManager _transport;
   final ConversationStore _convStore;
   final MessageStore _msgStore;
@@ -71,6 +74,7 @@ class ChatService {
 
     // Build payload first so we know whether encryption actually succeeded.
     final payload = _buildPayload(
+      myUuid,
       msgId,
       convId,
       myShortId,
@@ -83,7 +87,8 @@ class ChatService {
       myPublicKeyPEM,
       trustedPeerPublicKeyPEM,
     );
-    final actuallyEncrypted = payload['isEncrypted'] as bool? ?? false;
+    // v3 messages are sealed end-to-end: the whole payload is encrypted.
+    final actuallyEncrypted = payload['v'] == 3;
     final storedContent = await _storedContentForLocalMessage(
       type: type,
       content: content,
@@ -129,6 +134,7 @@ class ChatService {
   }
 
   Map<String, dynamic> _buildPayload(
+    String myUuid,
     String msgId,
     String convId,
     String myShortId,
@@ -141,34 +147,59 @@ class ChatService {
     String? myPublicKeyPEM,
     String? peerPublicKeyPEM,
   ) {
-    String wireContent;
-    bool encrypted = false;
+    final wireContent = type == MessageType.text
+        ? content
+        : _encodeMediaContent(content);
 
-    if (type == MessageType.text) {
-      wireContent = content;
-    } else {
-      wireContent = _encodeMediaContent(content);
+    final canSeal = peerPublicKeyPEM != null && _crypto.isReady;
+    final canSign = myPublicKeyPEM != null && _crypto.isReady;
+
+    // v3: the whole message — identity, metadata and content — is encrypted
+    // as one blob; only the routing UUID rides outside (audit M-1). The
+    // signature over the plaintext inner material travels inside the blob.
+    if (canSeal) {
+      final inner = <String, dynamic>{
+        'msgType': 'chat',
+        'msgId': msgId,
+        'convId': convId,
+        'senderUuid': myUuid,
+        'senderShortId': myShortId,
+        'senderName': myDisplayName,
+        'type': type.name,
+        'content': wireContent,
+        'replyToId': replyToId,
+        'replyToPreview': replyToPreview,
+        'timestamp': timestamp.toIso8601String(),
+        'senderPublicKeyPEM': myPublicKeyPEM,
+      };
+      if (canSign) {
+        inner['signature'] = _crypto.signPayload(_signatureMaterialV3(inner));
+      }
+      return {
+        'v': 3,
+        'ct': _crypto.encryptForPeer(jsonEncode(inner), peerPublicKeyPEM),
+      };
     }
 
-    if (peerPublicKeyPEM != null && _crypto.isReady) {
-      wireContent = _crypto.encryptForPeer(wireContent, peerPublicKeyPEM);
-      encrypted = true;
-    }
-
-    final payload = {
+    // Legacy flat fallback (no peer key available — e.g. a BLE-only first
+    // contact): plaintext metadata, but identity-bound and signed.
+    final payload = <String, dynamic>{
       'msgType': 'chat',
       'msgId': msgId,
       'convId': convId,
+      'senderUuid': myUuid,
+      'senderShortId': myShortId,
+      'senderName': myDisplayName,
       'type': type.name,
       'content': wireContent,
-      'isEncrypted': encrypted,
+      'isEncrypted': false,
       'senderPublicKeyPEM': myPublicKeyPEM,
       'replyToId': replyToId,
       'replyToPreview': replyToPreview,
       'timestamp': timestamp.toIso8601String(),
     };
 
-    if (myPublicKeyPEM != null && _crypto.isReady) {
+    if (canSign) {
       payload['signatureVersion'] = 1;
       payload['signature'] = _crypto.signPayload(_signatureMaterial(payload));
     }
@@ -230,9 +261,33 @@ class ChatService {
     required Set<String> blockedUuids,
   }) async {
     try {
-      final json = jsonDecode(rawPayload) as Map<String, dynamic>;
-      if (json['msgType'] != 'chat') return null;
+      final outer = jsonDecode(rawPayload) as Map<String, dynamic>;
+      final isV3 = outer['v'] == 3;
+
       if (blockedUuids.contains(peerUuid)) return null;
+
+      // v3: everything except the routing UUID lives inside the encrypted
+      // blob — decrypt first, then validate (audit M-1).
+      Map<String, dynamic> json;
+      if (isV3) {
+        if (!_crypto.isReady) {
+          ahoyLog('[ChatService] dropping sealed message; crypto not ready');
+          return null;
+        }
+        final ct = outer['ct'] as String?;
+        if (ct == null || ct.isEmpty) return null;
+        try {
+          final plain = _crypto.decryptFromPeer(ct);
+          json = jsonDecode(plain) as Map<String, dynamic>;
+        } catch (e) {
+          ahoyLog('[ChatService] dropping undecryptable sealed message', e);
+          return null;
+        }
+      } else {
+        json = outer;
+      }
+
+      if (json['msgType'] != 'chat') return null;
 
       final convId = MessageStore.conversationId(myUuid, peerUuid);
       final isNewConversation = !_convStore.loadAll().any(
@@ -240,21 +295,61 @@ class ChatService {
       );
       if (isNewConversation && receiveOff) return null;
 
+      // The claimed sender must match the transport-level identity — for v3
+      // the claim is inside the signature, so a spoofed `from` cannot pass.
+      final senderUuid = json['senderUuid'] as String? ?? peerUuid;
+      if (senderUuid != peerUuid) {
+        ahoyLog('[ChatService] dropping message with spoofed sender identity');
+        return null;
+      }
+
+      // Bind the message to this conversation — captured payloads replayed
+      // into another conversation fail here (audit M-2).
+      final innerConvId = json['convId'] as String? ?? '';
+      if (innerConvId != convId) {
+        ahoyLog('[ChatService] dropping message for a different conversation');
+        return null;
+      }
+
+      // Freshness window — the timestamp is covered by the signature, so
+      // captured payloads older than the skew bound cannot be replayed.
+      final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
+      if (timestamp == null) return null;
+      final age = DateTime.now().difference(timestamp);
+      if (age.abs() >
+          const Duration(seconds: AhoyConstants.inboundMaxClockSkewSeconds)) {
+        ahoyLog('[ChatService] dropping message outside freshness window');
+        return null;
+      }
+
+      // msgId ends up in media file names — bound length and charset.
+      final msgId = json['msgId'] as String? ?? '';
+      if (msgId.isEmpty ||
+          msgId.length > AhoyConstants.maxMsgIdLength ||
+          !_msgIdPattern.hasMatch(msgId)) {
+        ahoyLog('[ChatService] dropping message with invalid msgId');
+        return null;
+      }
+
       final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
       final existingConversation = _findConversation(convId);
       final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
         pinnedKey: existingConversation?.peerPublicKeyPEM,
         candidateKey: senderPublicKeyPEM,
       );
-      if (!_verifyInboundSignature(json, trustedPeerPublicKeyPEM)) {
+      if (!_verifyInboundSignature(
+        json,
+        trustedPeerPublicKeyPEM,
+        v3: isV3,
+      )) {
         return null;
       }
 
       final type = MessageType.values.byName(json['type'] as String? ?? 'text');
-      final isEncrypted = json['isEncrypted'] as bool? ?? false;
+      final isEncrypted = isV3 || (json['isEncrypted'] as bool? ?? false);
       String content = json['content'] as String? ?? '';
 
-      if (isEncrypted && _crypto.isReady) {
+      if (!isV3 && isEncrypted && _crypto.isReady) {
         try {
           content = _crypto.decryptFromPeer(content);
         } catch (e) {
@@ -263,16 +358,19 @@ class ChatService {
         }
       }
 
+      // Signed identity fields win over transport-level hints (which are
+      // empty for sealed messages).
+      final senderShortId =
+          _nonEmpty(json['senderShortId'] as String?) ?? peerShortId;
+      final senderName =
+          _nonEmpty(json['senderName'] as String?) ?? peerDisplayName;
+
       if (type == MessageType.image || type == MessageType.voice) {
-        content = await _saveMediaToFile(
-          content,
-          json['msgId'] as String,
-          type,
-        );
+        content = await _saveMediaToFile(content, msgId, type);
       }
 
       final message = Message(
-        id: json['msgId'] as String,
+        id: msgId,
         conversationId: convId,
         senderId: peerUuid,
         type: type,
@@ -281,7 +379,7 @@ class ChatService {
         replyToPreview: json['replyToPreview'] as String?,
         status: MessageStatus.sent,
         transport: transport,
-        timestamp: DateTime.parse(json['timestamp'] as String),
+        timestamp: timestamp,
         isEncrypted: isEncrypted,
       );
 
@@ -289,8 +387,8 @@ class ChatService {
       await _updateConversationOnReceive(
         convId,
         peerUuid,
-        peerShortId,
-        peerDisplayName,
+        senderShortId,
+        senderName,
         trustedPeerPublicKeyPEM,
         message,
         transport,
@@ -435,8 +533,9 @@ class ChatService {
 
   bool _verifyInboundSignature(
     Map<String, dynamic> payload,
-    String? trustedPeerPublicKeyPEM,
-  ) {
+    String? trustedPeerPublicKeyPEM, {
+    bool v3 = false,
+  }) {
     if (trustedPeerPublicKeyPEM == null || trustedPeerPublicKeyPEM.isEmpty) {
       // No pinned key and none presented — there is nothing to verify against.
       // Unauthenticated messages must never be displayed or stored (audit H-1).
@@ -451,7 +550,7 @@ class ChatService {
     }
 
     final ok = _crypto.verifyPayloadSignature(
-      _signatureMaterial(payload),
+      v3 ? _signatureMaterialV3(payload) : _signatureMaterial(payload),
       signature,
       trustedPeerPublicKeyPEM,
     );
@@ -461,11 +560,15 @@ class ChatService {
     return ok;
   }
 
+  /// Signature material for legacy flat (pre-v3) payloads.
   String _signatureMaterial(Map<String, dynamic> payload) {
     return jsonEncode({
       'msgType': payload['msgType'],
       'msgId': payload['msgId'],
       'convId': payload['convId'],
+      'senderUuid': payload['senderUuid'],
+      'senderShortId': payload['senderShortId'],
+      'senderName': payload['senderName'],
       'type': payload['type'],
       'content': payload['content'],
       'isEncrypted': payload['isEncrypted'],
@@ -476,9 +579,31 @@ class ChatService {
     });
   }
 
+  /// Signature material for sealed (v3) inner payloads. Frozen field set —
+  /// changing it breaks verification of previously sent messages.
+  String _signatureMaterialV3(Map<String, dynamic> payload) {
+    return jsonEncode({
+      'msgType': payload['msgType'],
+      'msgId': payload['msgId'],
+      'convId': payload['convId'],
+      'senderUuid': payload['senderUuid'],
+      'senderShortId': payload['senderShortId'],
+      'senderName': payload['senderName'],
+      'type': payload['type'],
+      'content': payload['content'],
+      'replyToId': payload['replyToId'],
+      'replyToPreview': payload['replyToPreview'],
+      'timestamp': payload['timestamp'],
+      'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
+    });
+  }
+
   bool _samePublicKey(String a, String b) {
     return _canonicalPublicKey(a) == _canonicalPublicKey(b);
   }
+
+  String? _nonEmpty(String? value) =>
+      (value == null || value.isEmpty) ? null : value;
 
   String _canonicalPublicKey(String key) {
     return key.replaceAll(_pemWhitespace, '');
