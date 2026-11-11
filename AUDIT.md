@@ -27,12 +27,12 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 ### Low
 
 1. macOS release entitlements lacked `network.server`/`network.client` — sandboxed release builds could not run the LAN transport. **FIXED in this audit** (both `DebugProfile.entitlements` and `Release.entitlements`).
-2. Thread-per-connection in Kotlin WD server; `connectedClients` only cleared on full disconnect (connection-flood DoS surface). `MainActivity.kt:294-295`
-3. Dead code removed: `NearbyPeer.rssi` (never populated) **FIXED**; remaining: `PeerProfile` model, `bleProfileCharUuid`, `ProfileService.avatarBase64` — the BLE profile characteristic is never read/written by any transport.
-4. README drift: documented non-existent `PeerStatus` enum and functional `rssi`. **FIXED in this audit.**
+2. **FIXED:** incoming WD connections are handled on a bounded 4-thread pool instead of thread-per-connection, and `connectedClients` is a TTL-pruned (10 min) `ConcurrentHashMap<String, Long>` instead of an ever-growing set. `MainActivity.kt`
+3. **FIXED:** removed all dead profile-broadcast code — `PeerProfile` model, `bleProfileCharUuid`, `ProfileService.avatarBase64` (and its test) — the BLE profile characteristic remains unwired by design; `NearbyPeer.rssi` was removed in the first pass.
+4. README drift: documented non-existent `PeerStatus` enum and functional `rssi`. **FIXED in this audit.** (The stale `com.example` paths in README were also fixed during the M-4/M-5 pass.)
 5. `test/widget_test.dart` was a placeholder. **FIXED** — real tests for `TransportBadge(s)` ordering/rendering and `PasswordField` validation/visibility toggle.
-6. `ChatProvider.sendMessage` with a cold cache inserts only the new message (`chat_provider.dart:108`), hiding history until cache invalidation (UI race; inbound path already does `remove()`).
-7. `decryptFromPeer` throws `CryptoNotInitialized` for wrong envelope version (`crypto_service.dart:149`) — misleading error type, benign behavior.
+6. **FIXED:** `ChatProvider.sendMessage` now invalidates the message cache — mirroring the inbound path — instead of seeding a cold cache with only the new message.
+7. **FIXED:** wrong envelope versions now throw the new `CryptoFormatError` instead of the misleading `CryptoNotInitialized` (which stays reserved for unloaded key material), with a regression test.
 8. Dependencies: `encrypt` 5.0.3 is effectively unmaintained (routes through pointycastle 3.9.1 — fine today, watch supply chain); `flutter_secure_storage` 9.2.4 uses `EncryptedSharedPreferences`, deprecated by Google in `androidx.security` — watch the plugin's migration. Other pins current; no known CVEs.
 
 ## Verified solid
@@ -59,4 +59,6 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 ## Recommended fix order (remaining)
 
-1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. ~~M-1/M-2~~ (done: v=3 sealed wire format; sender/conv binding + freshness window) → 4. ~~M-3~~ (done: signed sealed acks, `delivered` status, retry outbox) → 5. ~~M-4/M-5~~ (done: subnet-scoped LAN + WD, fixed messaging port) → 6. hygiene leftovers (L-3/L-6/L-7).
+1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. ~~M-1/M-2~~ (done: v=3 sealed wire format; sender/conv binding + freshness window) → 4. ~~M-3~~ (done: signed sealed acks, `delivered` status, retry outbox) → 5. ~~M-4/M-5~~ (done: subnet-scoped LAN + WD, fixed messaging port) → 6. ~~hygiene leftovers~~ (done: bounded WD pool + TTL client map, dead profile code removed, cache race fixed, CryptoFormatError).
+
+**All High, Medium and Low findings from this audit are resolved.** Remaining recommendations are process-level: real-device transport testing and an external review of the hand-rolled DER encoder before a wider release.

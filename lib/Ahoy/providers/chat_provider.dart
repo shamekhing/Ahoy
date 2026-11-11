@@ -105,7 +105,7 @@ class ChatProvider extends ChangeNotifier {
         replyToId: replyToId,
         replyToPreview: replyToPreview,
       );
-      _messages.putIfAbsent(sentMsg.conversationId, () => []).add(sentMsg);
+      _messages.remove(sentMsg.conversationId);
       _conversations = _convStore.loadAll();
       notifyListeners();
       return sentMsg;

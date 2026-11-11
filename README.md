@@ -103,8 +103,7 @@ lib/
     │   └── errors.dart               TransportError (thrown for BLE media attempts)
     ├── models/
     │   ├── local_user.dart           Signed-in user profile (stored locally)
-    │   ├── peer_profile.dart         Peer's public profile (sent over-the-air)
-    │   ├── nearby_peer.dart          In-memory discovered peer (multi-transport)
+    │   ├── nearby_peer.dart           In-memory discovered peer (multi-transport)
     │   ├── message.dart              Single chat message
     │   └── conversation.dart         Chat thread metadata (last message, unread count)
     ├── providers/
@@ -1439,20 +1438,6 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 | `transport` | TransportMode | Transport used to send/receive |
 | `timestamp` | DateTime | Message creation time |
 | `isEncrypted` | bool | Whether content was encrypted in transit |
-
-### PeerProfile (`lib/Ahoy/models/peer_profile.dart`)
-Serializable peer identity for over-the-air transmission. Superset of what fits in BLE scan response.
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | String | Ahoy UUID |
-| `shortId` | String | 6-char code |
-| `displayName` | String | Display name |
-| `bio` | String? | Biography |
-| `gender` | Gender | Gender preference |
-| `avatarBase64` | String? | Base64-encoded JPEG (max 40 KB) |
-| `interests` | List\<String\> | Interest tags |
-| `publicKeyPEM` | String | RSA public key |
-| `statusMessage` | String? | Status |
 
 ---
 

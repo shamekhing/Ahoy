@@ -122,20 +122,6 @@ class ProfileService {
     return updated;
   }
 
-  /// Encode a small version of avatar to base64 for over-the-air broadcast.
-  Future<String?> avatarBase64(LocalUser user) async {
-    if (user.avatarPath == null) return null;
-    final file = File(user.avatarPath!);
-    if (!await file.exists()) return null;
-    final crypto = _localDataCrypto;
-    final bytes = crypto != null && crypto.isEncryptedFilePath(user.avatarPath!)
-        ? await crypto.readEncryptedFile(file)
-        : await file.readAsBytes();
-    // Keep broadcast payload small — 40KB max
-    if (bytes.length > 40960) return null;
-    return base64.encode(bytes);
-  }
-
   Future<String?> _migrateAvatarPath(LocalUser user) async {
     final avatarPath = user.avatarPath;
     final crypto = _localDataCrypto;

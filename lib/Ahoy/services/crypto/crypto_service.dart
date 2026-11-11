@@ -146,7 +146,7 @@ class CryptoService {
     _assertReady();
     final envelope =
         jsonDecode(utf8.decode(base64.decode(encryptedBase64))) as Map;
-    if (envelope['v'] != 2) throw const CryptoNotInitialized();
+    if (envelope['v'] != 2) throw const CryptoFormatError('Unsupported envelope version');
     final encryptedKey = base64.decode(envelope['ek'] as String);
     final aesKey = _rsaOaepDecrypt(encryptedKey);
     final iv = enc.IV(base64.decode(envelope['iv'] as String));

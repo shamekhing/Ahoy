@@ -42,6 +42,7 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "Ahoy"
         private const val P2P_PORT = 8765
         private const val MAX_PAYLOAD = 10 * 1024 * 1024 // 10 MB guard
+        private const val CLIENT_TTL_MS = 10 * 60 * 1000L // prune idle clients
     }
 
     private val isDebugBuild: Boolean
@@ -80,8 +81,13 @@ class MainActivity : FlutterActivity() {
     private var p2pSubnetPrefix: String? = null
 
     // IPs of clients that have connected to our server socket (group-owner side).
-    // Accessed from both UI thread and wd-client background threads → use thread-safe set.
-    private val connectedClients = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    // ip → last-seen timestamp, TTL-pruned; accessed from both UI thread and
+    // wd-client background threads → ConcurrentHashMap (audit L-2).
+    private val connectedClients = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    // Bounded pool for incoming-connection handlers — a flood of connections
+    // can no longer spawn unbounded threads (audit L-2).
+    private val clientExecutor = java.util.concurrent.Executors.newFixedThreadPool(4)
 
     private val p2pIntentFilter = IntentFilter().apply {
         addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
@@ -296,7 +302,7 @@ class MainActivity : FlutterActivity() {
                     if (server == null || server.isClosed) break
                     try {
                         val client = server.accept()
-                        thread(name = "wd-client") { handleIncomingConnection(client) }
+                        clientExecutor.execute { handleIncomingConnection(client) }
                     } catch (e: IOException) {
                         if (server.isClosed.not()) logError("WiFi Direct accept error", e)
                     }
@@ -359,7 +365,7 @@ class MainActivity : FlutterActivity() {
         //   • client always sends to group owner
         val targets: List<String> = when {
             !recipientIP.isNullOrEmpty()    -> listOf(recipientIP)
-            isGroupOwner                    -> connectedClients.toList()
+            isGroupOwner                    -> connectedClients.keys.toList()
             !groupOwnerAddress.isNullOrEmpty() -> listOf(groupOwnerAddress!!)
             else                            -> emptyList()
         }
@@ -440,7 +446,13 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        if (senderIP.isNotEmpty()) connectedClients.add(senderIP)
+        if (senderIP.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            // Prune clients not seen recently so the broadcast set cannot
+            // grow without bound (audit L-2).
+            connectedClients.entries.removeIf { now - it.value > CLIENT_TTL_MS }
+            connectedClients[senderIP] = now
+        }
         try {
             socket.soTimeout = 10_000 // 10 s — prevent threads from blocking forever
             val input = DataInputStream(socket.getInputStream())
