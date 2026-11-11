@@ -39,6 +39,7 @@ class LanTransport implements TransportInterface {
   String? _myDisplayName;
   String? _myStatusMessage;
   String? _myPublicKeyPEM;
+  String? _myAnnouncementSignature;
 
   // peerUuid → InternetAddress + port for TCP
   final Map<String, _PeerConn> _peerConns = {};
@@ -67,12 +68,14 @@ class LanTransport implements TransportInterface {
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    String? announcementSignature,
   }) async {
     _myUuid = uuid;
     _myShortId = shortId;
     _myDisplayName = displayName;
     _myStatusMessage = statusMessage;
     _myPublicKeyPEM = publicKeyPEM;
+    _myAnnouncementSignature = announcementSignature;
     _advertising = true;
     _startBroadcastTimer();
   }
@@ -149,6 +152,7 @@ class LanTransport implements TransportInterface {
         'displayName': _myDisplayName,
         'statusMessage': _myStatusMessage,
         'publicKeyPEM': _myPublicKeyPEM,
+        'signature': _myAnnouncementSignature,
         'port': _tcpServer?.port ?? _messagingPort,
       }),
     );
@@ -204,6 +208,7 @@ class LanTransport implements TransportInterface {
           displayName: json['displayName'] as String? ?? 'Unknown',
           statusMessage: json['statusMessage'] as String?,
           publicKeyPEM: json['publicKeyPEM'] as String?,
+          signature: json['signature'] as String?,
           transport: TransportMode.lan,
         ),
       );

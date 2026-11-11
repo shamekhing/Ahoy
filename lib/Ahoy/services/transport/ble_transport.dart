@@ -74,7 +74,11 @@ class BleTransport implements TransportInterface {
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    String? announcementSignature,
   }) async {
+    // announcementSignature is ignored here: the BLE scan response has a
+    // 13-byte budget and cannot carry an RSA signature. BLE identity is
+    // bound at the first signed chat message (audit H-2).
     _myShortId = shortId;
     // Register here so GATT writes arriving right after the server opens are handled.
     _advertiserChannel.setMethodCallHandler(_onBleMethodCall);

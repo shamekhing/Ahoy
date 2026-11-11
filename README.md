@@ -371,7 +371,7 @@ Shows a red `Badge` widget with count. Displays nothing when count is zero.
 Every 5 seconds:
   _broadcast()
     → UDP packet to 255.255.255.255:45678 AND each interface's X.Y.Z.255:45678
-    → JSON: { type, uuid, shortId, displayName, statusMessage, publicKeyPEM, port }
+    → JSON: { type, uuid, shortId, displayName, statusMessage, publicKeyPEM, signature, port }
 
 On receive (_onUdpDatagram):
   → Parse JSON, ignore self (uuid == _myUuid)
@@ -936,7 +936,9 @@ wdIdentity packet format:
   "uuid": "real-ahoy-uuid",
   "shortId": "ABCDEF",
   "displayName": "Alice",
-  "statusMessage": "optional"
+  "statusMessage": "optional",
+  "publicKeyPEM": "-----BEGIN RSA PUBLIC KEY-----...",
+  "signature": "base64(RSA-SHA256 over identity fields)"
 }
 
 Sequence:
@@ -988,6 +990,7 @@ Announcement JSON:
   "displayName": "Alice",
   "statusMessage": "optional",
   "publicKeyPEM": "-----BEGIN RSA PUBLIC KEY-----...",
+  "signature": "base64(RSA-SHA256 over identity fields)",
   "port": 45679
 }
 
@@ -1095,6 +1098,14 @@ The key challenge: BLE and WiFi Direct initially identify peers by MAC address, 
 
 ### Announcement Processing
 ```
+Announcement verification (before onAnnouncement — DiscoveryProvider._acceptAnnouncement):
+  1. shortId must equal shortIdFromUuid(uuid) for real Ahoy UUIDs
+     (forged/spoofed announcements are dropped)
+  2. announcements carrying publicKeyPEM must carry a valid RSA-SHA256 signature
+     over (uuid, shortId, displayName, statusMessage, publicKeyPEM) made with that key
+  3. BLE scan-response announcements (uuid = BT MAC, no key) are display-only;
+     identity is bound at the first signed chat message
+
 onAnnouncement(announcement, blockedUuids) → PeerAlias?
 
 Step 1: shortId lookup
@@ -1224,6 +1235,26 @@ conversationId(myUuid, peerUuid):
 shortIdFromUuid(uuid):
   return sha256(uuid)[0:12_hex_chars] → BigInt → .toRadixString(36) → pad → [0:6] → uppercase
   → Deterministic 6-char alphanumeric code shown as @ABCDEF
+```
+
+### Announcement Signing & Identity Binding (audit H-2)
+```
+announcementMaterial = jsonEncode({ uuid, shortId, displayName, statusMessage, publicKeyPEM })
+                       (frozen field set — both sides must derive identical bytes)
+
+signAnnouncement(...):    RSA-SHA256(announcementMaterial) with own private key
+verifyAnnouncement(...):  verify with the announced public key
+
+DiscoveryProvider._acceptAnnouncement:
+  - drop if shortId != shortIdFromUuid(uuid)      (shortId is deterministic → forgery-proof)
+  - drop keyed announcements without a valid signature
+  - BLE (MAC uuid, no key) passes for display only
+
+fingerprintFromPublicKey(publicKeyPEM)  →  "Safety number"
+  sha256(PEM with whitespace stripped)[0:51 hex] → 204 bits
+  → 12 chunks of 17 bits → value % 100000 → 5-digit groups joined by spaces
+  → Shown in My Profile (own key) and Peer Profile (announced key);
+    identical on both devices for the same key pair
 ```
 
 ---

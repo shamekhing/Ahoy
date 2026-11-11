@@ -24,6 +24,11 @@ class PeerAnnouncement {
   final String displayName;
   final String? statusMessage;
   final String? publicKeyPEM;
+
+  /// RSA-SHA256 signature over the announcement material, made with
+  /// [publicKeyPEM]'s private key. Null for BLE scan-response announcements
+  /// (13-byte budget) — identity is bound at the first signed chat message.
+  final String? signature;
   final TransportMode transport;
 
   const PeerAnnouncement({
@@ -32,6 +37,7 @@ class PeerAnnouncement {
     required this.displayName,
     this.statusMessage,
     this.publicKeyPEM,
+    this.signature,
     required this.transport,
   });
 }
@@ -48,6 +54,7 @@ abstract class TransportInterface {
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    String? announcementSignature,
   });
 
   Future<void> stopAdvertising();

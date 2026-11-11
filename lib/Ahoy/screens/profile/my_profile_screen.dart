@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../core/enums.dart';
 import '../../core/constants.dart';
+import '../../services/crypto/crypto_service.dart';
 import '../../services/crypto/local_data_crypto.dart';
 import '../../services/transport_manager.dart';
 import '../../widgets/common/peer_avatar.dart';
@@ -79,6 +80,29 @@ class MyProfileScreen extends StatelessWidget {
               '@${user.shortId}',
               style: const TextStyle(color: Colors.grey),
             ),
+          ),
+          const SizedBox(height: 16),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Safety number',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            CryptoService.fingerprintFromPublicKey(user.publicKeyPEM),
+            style: const TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Your peers see the same number for you. If it matches on both '
+            'devices, your conversation has no impersonation.',
+            style: TextStyle(color: Colors.grey, fontSize: 11),
           ),
           if (user.statusMessage != null && user.statusMessage!.isNotEmpty) ...[
             const SizedBox(height: 8),

@@ -187,6 +187,85 @@ class CryptoService {
     }
   }
 
+  // --- Identity binding (audit H-2) ---
+
+  /// Canonical JSON string binding an announced identity to a public key.
+  /// Both sides must derive identical material — keep the field set frozen.
+  static String announcementMaterial({
+    required String uuid,
+    required String shortId,
+    required String displayName,
+    String? statusMessage,
+    String? publicKeyPEM,
+  }) {
+    return jsonEncode({
+      'uuid': uuid,
+      'shortId': shortId,
+      'displayName': displayName,
+      'statusMessage': statusMessage,
+      'publicKeyPEM': publicKeyPEM,
+    });
+  }
+
+  /// Signs an identity announcement with the loaded private key, binding
+  /// (uuid, shortId, displayName) to [publicKeyPEM].
+  String signAnnouncement({
+    required String uuid,
+    required String shortId,
+    required String displayName,
+    String? statusMessage,
+    String? publicKeyPEM,
+  }) {
+    return signPayload(
+      announcementMaterial(
+        uuid: uuid,
+        shortId: shortId,
+        displayName: displayName,
+        statusMessage: statusMessage,
+        publicKeyPEM: publicKeyPEM,
+      ),
+    );
+  }
+
+  /// Verifies that an announcement legitimately binds (uuid, shortId,
+  /// displayName) to [publicKeyPEM] — i.e. the announcer controls the private
+  /// key for the identity they claim.
+  bool verifyAnnouncement({
+    required String uuid,
+    required String shortId,
+    required String displayName,
+    String? statusMessage,
+    required String publicKeyPEM,
+    required String signature,
+  }) {
+    return verifyPayloadSignature(
+      announcementMaterial(
+        uuid: uuid,
+        shortId: shortId,
+        displayName: displayName,
+        statusMessage: statusMessage,
+        publicKeyPEM: publicKeyPEM,
+      ),
+      signature,
+      publicKeyPEM,
+    );
+  }
+
+  /// 60-digit safety number (12 groups of 5 digits, Signal-style) derived
+  /// from the canonical form of a public key. Identical on both devices for
+  /// the same key pair — users compare it out-of-band to detect impersonation.
+  static String fingerprintFromPublicKey(String publicKeyPEM) {
+    final canonical = publicKeyPEM.replaceAll(RegExp(r'\s+'), '');
+    final hash = sha256.convert(utf8.encode(canonical)).toString();
+    final bits = BigInt.parse(hash.substring(0, 51), radix: 16); // 204 bits
+    final groups = List.generate(12, (i) {
+      final shift = 187 - 17 * i; // 12 chunks of 17 bits
+      final value = ((bits >> shift) & BigInt.from(0x1FFFF)).toInt();
+      return (value % 100000).toString().padLeft(5, '0');
+    });
+    return groups.join(' ');
+  }
+
   // --- Utilities ---
 
   static String shortIdFromUuid(String uuid) {

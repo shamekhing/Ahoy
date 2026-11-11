@@ -11,7 +11,7 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 ### High
 
 - **H-1 — First-contact messages accepted with zero authentication.** `_verifyInboundSignature` returned `true` when no trusted key existed (`chat_service.dart`). Any device on a transport (LAN TCP `0.0.0.0:45679`, WiFi Direct port 8765, BLE GATT write) could inject plaintext messages spoofing `from`/`fromName`. **FIXED in this audit** — unkeyed inbound payloads are now dropped before any store writes; regression test added (`test/chat_service_key_pinning_test.dart`).
-- **H-2 — No UUID↔key binding (TOFU without pin-at-discovery).** First signed message pins the key presented in the payload; announcements carry unauthenticated `publicKeyPEM` (`lan_transport.dart`). A first-contact MITM silently pins their key; an attacker announcing a victim's `shortId` poisons `_shortIdToUuid` (`discovery_service.dart`) and hijacks the alias via `TransportManager.registerAlias`. Fix direction: sign announcements, bind identity to `SHA-256(publicKey)`, show a key fingerprint (safety number) in the UI. Protocol change — needs a version flag.
+- **H-2 — No UUID↔key binding (TOFU without pin-at-discovery).** First signed message pins the key presented in the payload; announcements carry unauthenticated `publicKeyPEM` (`lan_transport.dart`). A first-contact MITM silently pins their key; an attacker announcing a victim's `shortId` poisons `_shortIdToUuid` (`discovery_service.dart`) and hijacks the alias via `TransportManager.registerAlias`. **Implemented in this audit:** LAN/WD announcements now carry an RSA-SHA256 signature over the frozen identity field set (`CryptoService.announcementMaterial`); `DiscoveryProvider._acceptAnnouncement` drops announcements whose `shortId` ≠ `shortIdFromUuid(uuid)` (deterministic → forgery-proof) and drops keyed announcements without a valid signature; BLE scan-response announcements stay display-only (13-byte budget) with identity bound at the first signed chat message. A 60-digit Signal-style safety number (`CryptoService.fingerprintFromPublicKey`) is shown in My Profile and Peer Profile so first-contact MITM is detectable out-of-band.
 
 ### Medium
 
@@ -59,4 +59,4 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 ## Recommended fix order (remaining)
 
-1. ~~H-1~~ (done) → 2. **H-2** identity binding + announcement signatures + fingerprint UI → 3. M-1/M-2 (move `from*`/`convId`/`timestamp` inside encrypted payload; replay cache) → 4. M-3 (ACK + outbox) → 5. M-4/M-5 (interface-scoped binds, fixed port) → 6. hygiene leftovers (L-3/L-6/L-7).
+1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. M-1/M-2 (move `from*`/`convId`/`timestamp` inside encrypted payload; replay cache) → 4. M-3 (ACK + outbox) → 5. M-4/M-5 (interface-scoped binds, fixed port) → 6. hygiene leftovers (L-3/L-6/L-7).
