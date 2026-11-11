@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:local_auth/local_auth.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/constants.dart';
 import '../../core/errors.dart';
@@ -7,6 +8,7 @@ import '../../models/local_user.dart';
 import '../../core/enums.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/key_store.dart';
+import '../crypto/local_data_crypto.dart';
 import '../profile/profile_service.dart';
 import '../storage/prefs_store.dart';
 import '../storage/secure_store.dart';
@@ -17,6 +19,7 @@ class AuthService {
   final ProfileService _profileService;
   final CryptoService _cryptoService;
   final KeyStore _keyStore;
+  final LocalDataCrypto _localDataCrypto;
   final LocalAuthentication _localAuth = LocalAuthentication();
 
   AuthService(
@@ -25,6 +28,7 @@ class AuthService {
     this._profileService,
     this._cryptoService,
     this._keyStore,
+    this._localDataCrypto,
   );
 
   Future<bool> get isSignedIn =>
@@ -133,6 +137,28 @@ class AuthService {
     await _keyStore.clear();
     await _prefsStore.clearAll();
     await _secureStore.clearAll();
+    // Install a fresh at-rest key for the next account and remove the
+    // previous account's media. Without the reset, a same-process
+    // re-registration would encrypt with the in-memory key whose SecureStore
+    // entry was just deleted — and the next launch would brick on decrypt.
+    await _localDataCrypto.reset();
+    await _deleteLocalMedia();
+  }
+
+  /// Removes media files and avatars owned by the signed-out account.
+  Future<void> _deleteLocalMedia() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        if (name.startsWith('ahoy_media_') || name.startsWith('avatar_')) {
+          try {
+            await entity.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   Future<bool> get isBiometricEnabled async {

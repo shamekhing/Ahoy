@@ -1,6 +1,8 @@
 import 'dart:async';
 import '../../models/nearby_peer.dart';
 import '../../core/enums.dart';
+import '../../core/logging.dart';
+import '../crypto/crypto_service.dart';
 import '../transport/transport_interface.dart';
 
 /// Result returned when onAnnouncement discovers that a temporary peer ID
@@ -47,10 +49,26 @@ class DiscoveryService {
         // We already know the canonical UUID for this shortId.
         // Map temporary IDs (MAC addresses) to the canonical one.
         if (knownUuid != announcement.uuid) {
+          // shortId collisions are grindable (6 base-36 chars) — only merge
+          // when the keys agree or the incoming announcement carries no key;
+          // a different key claiming a known shortId is an impersonation
+          // attempt (audit #6).
+          final knownKey = _peers[knownUuid]?.publicKeyPEM;
+          final incomingKey = announcement.publicKeyPEM;
+          final compatible =
+              incomingKey == null ||
+              knownKey == null ||
+              _sameKey(knownKey, incomingKey);
+          if (!compatible) {
+            ahoyLog(
+              '[Discovery] ignoring shortId collision with a different key',
+            );
+            return null;
+          }
           alias = PeerAlias(tempId: announcement.uuid, canonicalId: knownUuid);
           canonicalUuid = knownUuid;
         }
-      } else if (_isRealUuid(announcement.uuid)) {
+      } else if (CryptoService.isRealAhoyUuid(announcement.uuid)) {
         // This announcement carries the real Ahoy UUID — record the mapping.
         _shortIdToUuid[announcement.shortId] = announcement.uuid;
 
@@ -73,6 +91,15 @@ class DiscoveryService {
           // We'll write the merged transports below under the canonical UUID.
           final existingBest = e.value.transport;
           final best = _bestTransport(existingBest, announcement.transport);
+          // Never let a different key silently overwrite an existing
+          // verified key (audit #6).
+          final mergedKey = announcement.publicKeyPEM ?? e.value.publicKeyPEM;
+          final effectiveKey =
+              (e.value.publicKeyPEM != null &&
+                  announcement.publicKeyPEM != null &&
+                  !_sameKey(e.value.publicKeyPEM!, announcement.publicKeyPEM!))
+              ? e.value.publicKeyPEM
+              : mergedKey;
           _peers[canonicalUuid] = NearbyPeer(
             uuid: canonicalUuid,
             shortId: announcement.shortId,
@@ -84,7 +111,7 @@ class DiscoveryService {
             lastSeen: DateTime.now(),
             isBlocked: blockedUuids.contains(canonicalUuid),
             statusMessage: announcement.statusMessage ?? e.value.statusMessage,
-            publicKeyPEM: announcement.publicKeyPEM ?? e.value.publicKeyPEM,
+            publicKeyPEM: effectiveKey,
           );
           _emit();
           return alias;
@@ -106,6 +133,18 @@ class DiscoveryService {
       allTransports.remove(TransportMode.none);
     }
 
+    var verifiedKey = announcement.publicKeyPEM ?? existing?.publicKeyPEM;
+    if (existing?.publicKeyPEM != null &&
+        announcement.publicKeyPEM != null &&
+        !_sameKey(existing!.publicKeyPEM!, announcement.publicKeyPEM!)) {
+      // Never let a different key silently overwrite an existing verified
+      // key (audit #6) — key changes must be re-verified by the user.
+      ahoyLog(
+        '[Discovery] key change detected for $canonicalUuid; keeping known key',
+      );
+      verifiedKey = existing.publicKeyPEM;
+    }
+
     _peers[canonicalUuid] = NearbyPeer(
       uuid: canonicalUuid,
       shortId: announcement.shortId.isNotEmpty
@@ -119,7 +158,7 @@ class DiscoveryService {
       lastSeen: DateTime.now(),
       isBlocked: blockedUuids.contains(canonicalUuid),
       statusMessage: announcement.statusMessage ?? existing?.statusMessage,
-      publicKeyPEM: announcement.publicKeyPEM ?? existing?.publicKeyPEM,
+      publicKeyPEM: verifiedKey,
     );
     _emit();
     return alias;
@@ -140,10 +179,11 @@ class DiscoveryService {
     return incomingRank < existingRank ? incoming : existing ?? incoming;
   }
 
-  /// Returns true if [uuid] looks like a real Ahoy UUID v4 (not a BT/WFD MAC).
-  bool _isRealUuid(String uuid) => RegExp(
-    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-  ).hasMatch(uuid);
+  /// Canonical public-key comparison — whitespace-insensitive.
+  static bool _sameKey(String a, String b) {
+    final ws = RegExp(r'\s+');
+    return a.replaceAll(ws, '') == b.replaceAll(ws, '');
+  }
 
   void startCleanupTimer({
     void Function(List<String> removedUuids)? onRemoved,

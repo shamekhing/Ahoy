@@ -1287,6 +1287,30 @@ safetyNumberFor(myKey, peerKey)  →  per-conversation safety number (audit M-6)
     announced key; read aloud out-of-band to detect impersonation
 ```
 
+### Signed Identity Exchange (keyless first contact — second audit #1)
+```
+BLE scan responses carry no key, so a first contact over BLE cannot seal.
+Instead of plaintext content, the sender transmits a signed identity:
+  { msgType: 'identity', senderUuid, senderShortId, senderName,
+    senderPublicKeyPEM, timestamp, signature }
+  signature = RSA-SHA256 over the identity material (frozen field set)
+Receiver: verifies signature + spoof guard + freshness, registers the key,
+  replies with its own signed identity once, and retries any queued sends —
+  which are now sealed. Content never travels without a verified key.
+```
+
+### Routing Discipline (second audit #5/#6)
+```
+- LAN announces without a valid signature are dropped before any routing
+  state (_peerConns) is written; keyless announces are LAN-illegal.
+- WiFi Direct learns routes only from verified wdIdentity packets.
+- TransportManager records transports only for verified announcements.
+- shortId collisions (grindable) never merge when keys differ; key changes
+  never silently overwrite an existing verified key.
+- First contacts pin to the discovery-verified key when one is known;
+  impersonators are dropped before pinning.
+```
+
 ---
 
 ## 22. Storage Layer

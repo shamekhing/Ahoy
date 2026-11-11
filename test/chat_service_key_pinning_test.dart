@@ -23,6 +23,8 @@ void main() {
 
   test('pins the first peer public key used for a new conversation', () async {
     final harness = await _createHarness();
+    final peerCrypto = CryptoService();
+    final peerKeys = await peerCrypto.generateKeyPair();
 
     await harness.service.sendMessage(
       myUuid: _myUuid,
@@ -33,18 +35,26 @@ void main() {
       peerShortId: 'PEER12',
       type: MessageType.text,
       content: 'hello',
-      peerPublicKeyPEM: _keyA,
+      myPublicKeyPEM: harness.myPublicKeyPEM,
+      peerPublicKeyPEM: peerKeys['publicKey'],
     );
 
     final conversation = harness.convStore.loadAll().single;
-    expect(conversation.peerPublicKeyPEM, _keyA);
+    expect(conversation.peerPublicKeyPEM, peerKeys['publicKey']);
   });
 
   test(
     'keeps pinned public key when discovery reports a different key on send',
     () async {
       final harness = await _createHarness();
-      await _seedPinnedConversation(harness.convStore, _keyA);
+      final peerCrypto = CryptoService();
+      final pinnedKeys = await peerCrypto.generateKeyPair();
+      final otherCrypto = CryptoService();
+      final otherKeys = await otherCrypto.generateKeyPair();
+      await _seedPinnedConversation(
+        harness.convStore,
+        pinnedKeys['publicKey']!,
+      );
 
       await harness.service.sendMessage(
         myUuid: _myUuid,
@@ -55,11 +65,12 @@ void main() {
         peerShortId: 'PEER12',
         type: MessageType.text,
         content: 'hello',
-        peerPublicKeyPEM: _keyB,
+        myPublicKeyPEM: harness.myPublicKeyPEM,
+        peerPublicKeyPEM: otherKeys['publicKey'],
       );
 
       final conversation = harness.convStore.loadAll().single;
-      expect(conversation.peerPublicKeyPEM, _keyA);
+      expect(conversation.peerPublicKeyPEM, pinnedKeys['publicKey']);
     },
   );
 
@@ -159,13 +170,21 @@ Future<_Harness> _createHarness() async {
   await prefs.init();
   final convStore = ConversationStore(prefs);
   final msgStore = MessageStore(prefs);
+  final crypto = CryptoService();
+  final keys = await crypto.generateKeyPair();
+  crypto.activate(keys['privateKey']!, keys['publicKey']!);
   final service = ChatService(
     _FakeTransportManager(),
     convStore,
     msgStore,
-    CryptoService(),
+    crypto,
   );
-  return _Harness(convStore: convStore, msgStore: msgStore, service: service);
+  return _Harness(
+    convStore: convStore,
+    msgStore: msgStore,
+    service: service,
+    myPublicKeyPEM: keys['publicKey']!,
+  );
 }
 
 Future<void> _seedPinnedConversation(ConversationStore convStore, String key) {
@@ -224,11 +243,13 @@ class _Harness {
   final ConversationStore convStore;
   final MessageStore msgStore;
   final ChatService service;
+  final String myPublicKeyPEM;
 
   const _Harness({
     required this.convStore,
     required this.msgStore,
     required this.service,
+    required this.myPublicKeyPEM,
   });
 }
 

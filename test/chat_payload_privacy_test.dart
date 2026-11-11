@@ -304,7 +304,7 @@ void main() {
     expect(bobSide.convStore.loadAll(), isEmpty);
   });
 
-  test('accepts a fresh signed legacy message (fallback path)', () async {
+  test('accepts a fresh signed legacy message (receiver-side compat)', () async {
     final (alice, aliceKeys) = await _identity();
     final bobSide = await _createHarness(CryptoService());
 
@@ -329,5 +329,125 @@ void main() {
     final conversation = bobSide.convStore.loadAll().single;
     expect(conversation.peerShortId, 'ALICE1');
     expect(conversation.peerDisplayName, 'Alice');
+  });
+
+  test('keyless first contact exchanges signed identities then seals (audit #1)', () async {
+    final (alice, aliceKeys) = await _identity();
+    final (bob, bobKeys) = await _identity();
+    final aliceSide = await _createHarness(alice);
+    final bobSide = await _createHarness(bob);
+
+    // Alice discovered Bob over BLE — no key for him yet.
+    final queued = await aliceSide.service.sendMessage(
+      myUuid: _aliceUuid,
+      myShortId: 'ALICE1',
+      myDisplayName: 'Alice',
+      peerUuid: _bobUuid,
+      peerDisplayName: 'Bob',
+      peerShortId: 'BOBBB1',
+      type: MessageType.text,
+      content: 'hello bob',
+      myPublicKeyPEM: aliceKeys['publicKey'],
+    );
+    expect(queued.status, MessageStatus.sending);
+    final identity = aliceSide.transport.lastData!;
+    expect(identity['msgType'], 'identity');
+    expect(identity.containsKey('content'), isFalse);
+    expect(identity['senderPublicKeyPEM'], aliceKeys['publicKey']);
+
+    // Bob verifies the identity and replies with his own signed one.
+    await bobSide.service.onInboundPacket(
+      rawPayload: _wire(identity, _aliceUuid),
+      peerUuid: _aliceUuid,
+      peerShortId: '',
+      peerDisplayName: 'Unknown',
+      myUuid: _bobUuid,
+      myShortId: 'BOBBB1',
+      myDisplayName: 'Bob',
+      myPublicKeyPEM: bobKeys['publicKey'],
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    final reply = bobSide.transport.lastData!;
+    expect(reply['msgType'], 'identity');
+    expect(reply['senderPublicKeyPEM'], bobKeys['publicKey']);
+
+    // Alice processes Bob's identity — the queued message is retried sealed.
+    await aliceSide.service.onInboundPacket(
+      rawPayload: _wire(reply, _bobUuid),
+      peerUuid: _bobUuid,
+      peerShortId: 'BOBBB1',
+      peerDisplayName: 'Bob',
+      myUuid: _aliceUuid,
+      myShortId: 'ALICE1',
+      myDisplayName: 'Alice',
+      myPublicKeyPEM: aliceKeys['publicKey'],
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    final sealed = aliceSide.transport.lastData!;
+    expect(sealed['v'], 3);
+
+    final delivered = await bobSide.service.onInboundPacket(
+      rawPayload: _wire(sealed, _aliceUuid),
+      peerUuid: _aliceUuid,
+      peerShortId: 'ALICE1',
+      peerDisplayName: 'Alice',
+      myUuid: _bobUuid,
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    expect(delivered!.content, 'hello bob');
+    expect(delivered.isEncrypted, isTrue);
+  });
+
+  test('first contacts must pin the discovery-verified key (audit #7)', () async {
+    final (alice, aliceKeys) = await _identity();
+    final (mallory, malloryKeys) = await _identity();
+    final bobSide = await _createHarness(CryptoService());
+
+    // Bob learned Alice's key from her signed announcement.
+    bobSide.service.registerVerifiedPeerKey(_aliceUuid, aliceKeys['publicKey']!);
+
+    // Mallory messages first claiming to be Alice — self-consistent key, but
+    // it does not match the discovery-verified one.
+    final payload = _legacyPayload(
+      signer: mallory,
+      publicKeyPEM: malloryKeys['publicKey']!,
+    );
+    final rejected = await bobSide.service.onInboundPacket(
+      rawPayload: _wire(payload, _aliceUuid),
+      peerUuid: _aliceUuid,
+      peerShortId: 'ALICE1',
+      peerDisplayName: 'Alice',
+      myUuid: _bobUuid,
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    expect(rejected, isNull);
+    expect(bobSide.convStore.loadAll(), isEmpty);
+
+    // The real Alice — matching key — is accepted.
+    final genuine = _legacyPayload(
+      signer: alice,
+      publicKeyPEM: aliceKeys['publicKey']!,
+    );
+    final accepted = await bobSide.service.onInboundPacket(
+      rawPayload: _wire(genuine, _aliceUuid),
+      peerUuid: _aliceUuid,
+      peerShortId: 'ALICE1',
+      peerDisplayName: 'Alice',
+      myUuid: _bobUuid,
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+    expect(accepted, isNotNull);
+    expect(bobSide.convStore.loadAll().single.peerPublicKeyPEM,
+        aliceKeys['publicKey']);
   });
 }

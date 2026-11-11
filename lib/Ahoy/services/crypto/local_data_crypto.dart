@@ -37,6 +37,19 @@ class LocalDataCrypto {
     _key = enc.Key(keyBytes);
   }
 
+  /// Generates a fresh at-rest key, persists it, and swaps it into memory.
+  /// Called on sign-out so a follow-up sign-up cannot encrypt data with the
+  /// in-memory key whose SecureStore entry was just deleted — that mismatch
+  /// would brick decryption on the next launch.
+  Future<void> reset() async {
+    final keyBytes = _randomBytes(32);
+    await _secureStore.write(
+      AhoyConstants.keyLocalDataKey,
+      base64.encode(keyBytes),
+    );
+    _key = enc.Key(keyBytes);
+  }
+
   bool isEncryptedValue(String value) => value.startsWith(encryptedValuePrefix);
 
   bool isEncryptedFilePath(String path) =>

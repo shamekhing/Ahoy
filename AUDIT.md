@@ -23,7 +23,6 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 | M-4 | **FIXED:** LAN announces/connections are filtered to the host's own interface subnets, and TCP connections are only accepted from /24 subnets that actually announced themselves (loopback exempt for local tooling). Kotlin WD server rejects connections outside the group subnet derived from `WifiP2pInfo.groupOwnerAddress` (fail-closed), and `cmdSendData` only sends into that subnet. | `lan_transport.dart`, `MainActivity.kt` |
 | M-5 | **FIXED:** the announce no longer carries a TCP port and inbound announces never trusted it — the messaging port is fixed (45679) on both ends, eliminating the arbitrary host:port connect vector. | `lan_transport.dart _broadcast/_onUdpDatagram` |
 | M-6 | **FIXED:** My Profile shows the own-key fingerprint (identity card) and Peer Profile shows a **combined per-conversation safety number** (`CryptoService.safetyNumberFor` — order-independent over both pinned/announced keys, so both devices compute the identical 60 digits). Peer Profile prefers the pinned conversation key. Read aloud out-of-band to detect impersonation; chat-screen integration remains a UX nicety. | `crypto_service.dart`, `peer_profile_screen.dart`, `my_profile_screen.dart` |
-
 ### Low
 
 1. macOS release entitlements lacked `network.server`/`network.client` — sandboxed release builds could not run the LAN transport. **FIXED in this audit** (both `DebugProfile.entitlements` and `Release.entitlements`).
@@ -62,3 +61,21 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 1. ~~H-1~~ (done) → 2. ~~H-2~~ (done: signed announcements, shortId↔uuid consistency, safety numbers) → 3. ~~M-1/M-2~~ (done: v=3 sealed wire format; sender/conv binding + freshness window) → 4. ~~M-3~~ (done: signed sealed acks, `delivered` status, retry outbox) → 5. ~~M-4/M-5~~ (done: subnet-scoped LAN + WD, fixed messaging port) → 6. ~~hygiene leftovers~~ (done: bounded WD pool + TTL client map, dead profile code removed, cache race fixed, CryptoFormatError).
 
 **All High, Medium and Low findings from this audit are resolved.** Remaining recommendations are process-level: real-device transport testing and an external review of the hand-rolled DER encoder before a wider release.
+
+---
+
+# Second External Review (follow-up audit)
+
+A second review confirmed the primitives and prior fixes, and raised 7 High findings — all verified against the code and fixed:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | Plaintext fallback contradicted E2EE (BLE first contact sent raw content) | **Signed identity handshake:** keyless sends now transmit a signed identity (never content), queue the message, and flush sealed once the peer's signed identity arrives. `_buildPayload` throws instead of degrading to plaintext. |
+| 2 | Erase-then-register bricked the app (stale in-memory at-rest key) | `LocalDataCrypto.reset()` installs a fresh persisted key on sign-out; sign-out also deletes the account's media files. |
+| 3 | Sign-out wasn't a real reset | RootScreen tears down the session (transports flag, subscriptions, ChatProvider/DiscoveryProvider/Profile state); ChatService/ChatProvider/DiscoveryProvider gained `reset()`; re-sign-in re-initialises with the new identity. |
+| 4 | Profile edits signed the stale identity while broadcasting the new one | `TransportManager.startAdvertising` refreshes the cached identity before signing; regression test proves the signature matches the advertised name. |
+| 5 | Routing state written before verification | LAN announces require key + valid signature before `_peerConns`; WD learns routes only from verified `wdIdentity` and drops unknown-uuid packets; `TransportManager` records transports only for verified announcements; keyless announces are BLE-only. |
+| 6 | Grindable shortId collisions could hijack peers | `DiscoveryService` rejects shortId merges when keys differ and never lets a different key overwrite an existing verified key. |
+| 7 | First-contact pinning trusted the sender | Discovery-verified keys are registered (`registerVerifiedPeerKey`); first contacts pinning a different key are dropped before any state is written. |
+
+Medium/Low/hygiene findings from this second review are queued for the next pass. Validated: `flutter analyze` clean, `flutter test` 65/65 passing.

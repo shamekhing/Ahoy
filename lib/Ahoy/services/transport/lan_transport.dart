@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
 import '../../core/logging.dart';
+import '../crypto/crypto_service.dart';
 import 'transport_interface.dart';
 
 class LanTransport implements TransportInterface {
@@ -16,6 +17,7 @@ class LanTransport implements TransportInterface {
   final int _maxPayloadBytes;
   final int _maxMessagesPerConnection;
   final Duration _tcpIdleTimeout;
+  final CryptoService? _crypto;
 
   final _packetController = StreamController<InboundPacket>.broadcast();
   final _announcementController =
@@ -59,11 +61,13 @@ class LanTransport implements TransportInterface {
     Duration tcpIdleTimeout = const Duration(
       seconds: AhoyConstants.lanTcpIdleTimeoutSeconds,
     ),
+    CryptoService? crypto,
   }) : _discoveryPort = discoveryPort,
        _messagingPort = messagingPort,
        _maxPayloadBytes = maxPayloadBytes,
        _maxMessagesPerConnection = maxMessagesPerConnection,
-       _tcpIdleTimeout = tcpIdleTimeout;
+       _tcpIdleTimeout = tcpIdleTimeout,
+       _crypto = crypto;
 
   @visibleForTesting
   int? get debugMessagingPort => _tcpServer?.port;
@@ -213,6 +217,36 @@ class LanTransport implements TransportInterface {
         ahoyLog('[LAN] dropping announcement from foreign subnet');
         return;
       }
+
+      // Verify the signed identity BEFORE any routing state is written —
+      // LAN announces must carry a key and a valid signature over it
+      // (audit #5). Fail closed when verification is unavailable.
+      final crypto = _crypto;
+      if (crypto == null) return;
+      final pem = json['publicKeyPEM'] as String?;
+      final signature = json['signature'] as String?;
+      final displayName = json['displayName'] as String? ?? '';
+      final shortId = json['shortId'] as String? ?? '';
+      final statusMessage = json['statusMessage'] as String?;
+      if (pem == null ||
+          pem.isEmpty ||
+          signature == null ||
+          signature.isEmpty ||
+          !CryptoService.isRealAhoyUuid(uuid) ||
+          (shortId.isNotEmpty &&
+              shortId.toUpperCase() != CryptoService.shortIdFromUuid(uuid)) ||
+          !crypto.verifyAnnouncement(
+            uuid: uuid,
+            shortId: shortId,
+            displayName: displayName,
+            statusMessage: statusMessage,
+            publicKeyPEM: pem,
+            signature: signature,
+          )) {
+        ahoyLog('[LAN] dropping announcement that fails verification');
+        return;
+      }
+
       final prefix = _subnetPrefix(dg.address.address);
       if (prefix != null) _announceSubnets.add(prefix);
 
@@ -396,6 +430,12 @@ class LanTransport implements TransportInterface {
     final prefix = _subnetPrefix(address.address);
     return prefix != null && _announceSubnets.contains(prefix);
   }
+
+  @visibleForTesting
+  int? get debugDiscoveryPort => _udpSocket?.port;
+
+  @visibleForTesting
+  int get debugPeerConnCount => _peerConns.length;
 
   @visibleForTesting
   void debugAllowSubnet(String prefix) => _announceSubnets.add(prefix);

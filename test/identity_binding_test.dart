@@ -226,4 +226,76 @@ void main() {
       isNot(CryptoService.fingerprintFromPublicKey(a)),
     );
   });
+
+  test('shortId collisions with a different key never hijack a peer (audit #6)', () async {
+    final discovery = DiscoveryService();
+    addTearDown(discovery.dispose);
+    const victimUuid = '11111111-1111-4111-8111-111111111111';
+    final victimShortId = CryptoService.shortIdFromUuid(victimUuid);
+
+    discovery.onAnnouncement(
+      PeerAnnouncement(
+        uuid: victimUuid,
+        shortId: victimShortId,
+        displayName: 'Victim',
+        publicKeyPEM: 'KEY_VICTIM',
+        transport: TransportMode.lan,
+      ),
+      const {},
+    );
+
+    // An attacker ground a uuid whose shortId collides with the victim's and
+    // announces with their own key — the merge must be rejected outright.
+    const collisionUuid = 'aaaaaaaa-1111-4111-8111-111111111111';
+    final alias = discovery.onAnnouncement(
+      PeerAnnouncement(
+        uuid: collisionUuid,
+        shortId: victimShortId,
+        displayName: 'Evil',
+        publicKeyPEM: 'KEY_EVIL',
+        transport: TransportMode.lan,
+      ),
+      const {},
+    );
+
+    expect(alias, isNull);
+    final peers = discovery.currentPeers;
+    expect(
+      peers.any(
+        (p) => p.uuid == victimUuid && p.publicKeyPEM == 'KEY_VICTIM',
+      ),
+      isTrue,
+    );
+    expect(peers.any((p) => p.uuid == collisionUuid), isFalse);
+  });
+
+  test('key changes never overwrite an existing verified key', () async {
+    final discovery = DiscoveryService();
+    addTearDown(discovery.dispose);
+    const uuid = '11111111-1111-4111-8111-111111111111';
+    final shortId = CryptoService.shortIdFromUuid(uuid);
+
+    discovery.onAnnouncement(
+      PeerAnnouncement(
+        uuid: uuid,
+        shortId: shortId,
+        displayName: 'Peer',
+        publicKeyPEM: 'KEY_A',
+        transport: TransportMode.lan,
+      ),
+      const {},
+    );
+    discovery.onAnnouncement(
+      PeerAnnouncement(
+        uuid: uuid,
+        shortId: shortId,
+        displayName: 'Peer',
+        publicKeyPEM: 'KEY_B',
+        transport: TransportMode.lan,
+      ),
+      const {},
+    );
+
+    expect(discovery.currentPeers.single.publicKeyPEM, 'KEY_A');
+  });
 }

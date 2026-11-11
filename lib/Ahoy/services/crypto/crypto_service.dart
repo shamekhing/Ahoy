@@ -303,6 +303,14 @@ class CryptoService {
         .substring(0, 32);
   }
 
+  static final RegExp _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
+  /// True for canonical Ahoy UUID v4 identifiers (as opposed to temporary
+  /// transport ids like Bluetooth MAC addresses).
+  static bool isRealAhoyUuid(String uuid) => _uuidPattern.hasMatch(uuid);
+
   Uint8List _randomBytes(int length) {
     final rng = Random.secure();
     return Uint8List.fromList(List.generate(length, (_) => rng.nextInt(256)));

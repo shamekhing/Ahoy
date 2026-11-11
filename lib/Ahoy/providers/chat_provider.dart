@@ -36,9 +36,13 @@ class ChatProvider extends ChangeNotifier {
 
   void init({
     required String myUuid,
+    String? myShortId,
+    String? myDisplayName,
+    String? myPublicKeyPEM,
     required bool Function() receiveOff,
     required Set<String> blockedUuids,
   }) {
+    _inboundSub?.cancel();
     _conversations = _convStore.loadAll();
     notifyListeners();
 
@@ -50,6 +54,9 @@ class ChatProvider extends ChangeNotifier {
           peerShortId: packet.peerShortId,
           peerDisplayName: packet.peerDisplayName,
           myUuid: myUuid,
+          myShortId: myShortId,
+          myDisplayName: myDisplayName,
+          myPublicKeyPEM: myPublicKeyPEM,
           transport: packet.transport,
           receiveOff: receiveOff(),
           blockedUuids: blockedUuids,
@@ -143,6 +150,21 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+
+  /// Pins first-contact conversations to discovery-verified keys (audit #7).
+  void registerVerifiedPeerKey(String uuid, String pem) =>
+      _chatService.registerVerifiedPeerKey(uuid, pem);
+
+  /// Clears all per-session chat state (called on sign-out, audit #3).
+  void reset() {
+    _inboundSub?.cancel();
+    _inboundSub = null;
+    _messages.clear();
+    _conversations = [];
+    _chatService.reset();
     _error = null;
     notifyListeners();
   }

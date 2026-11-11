@@ -31,6 +31,31 @@ class ChatService {
   /// when the peer is next seen in discovery (audit M-3).
   final _outbox = <String, List<_PendingSend>>{};
 
+  /// Public keys verified via signed announcements or identity exchanges,
+  /// per peer uuid — first contacts must pin to these when available
+  /// (audit #7).
+  final _verifiedKeys = <String, String>{};
+
+  /// Last identity send per peer — throttles identity broadcasts (audit #1).
+  final _identitySentAt = <String, DateTime>{};
+
+  /// Peers we already answered with our own identity (reply-once guard).
+  final _identityRepliedTo = <String>{};
+
+  /// Records a discovery-verified public key for [uuid] (audit #7).
+  void registerVerifiedPeerKey(String uuid, String pem) {
+    if (uuid.isEmpty || pem.isEmpty) return;
+    _verifiedKeys[uuid] = pem;
+  }
+
+  /// Clears all per-session state (called on sign-out, audit #3).
+  void reset() {
+    _outbox.clear();
+    _verifiedKeys.clear();
+    _identitySentAt.clear();
+    _identityRepliedTo.clear();
+  }
+
   ChatService(
     this._transport,
     this._convStore,
@@ -70,30 +95,17 @@ class ChatService {
 
     final convId = MessageStore.conversationId(myUuid, peerUuid);
     final existingConversation = _findConversation(convId);
+    // Discovery-verified keys participate in first-contact resolution too
+    // (audit #7): a key learned from a signed announcement or identity
+    // exchange is as good as one passed in by the UI.
+    final candidateKey = peerPublicKeyPEM ?? _verifiedKeys[peerUuid];
     final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
       pinnedKey: existingConversation?.peerPublicKeyPEM,
-      candidateKey: peerPublicKeyPEM,
+      candidateKey: candidateKey,
     );
     final msgId = const Uuid().v4();
     final timestamp = DateTime.now();
 
-    // Build payload first so we know whether encryption actually succeeded.
-    final payload = _buildPayload(
-      myUuid,
-      msgId,
-      convId,
-      myShortId,
-      myDisplayName,
-      type,
-      content,
-      replyToId,
-      replyToPreview,
-      timestamp,
-      myPublicKeyPEM,
-      trustedPeerPublicKeyPEM,
-    );
-    // v3 messages are sealed end-to-end: the whole payload is encrypted.
-    final actuallyEncrypted = payload['v'] == 3;
     final storedContent = await _storedContentForLocalMessage(
       type: type,
       content: content,
@@ -111,7 +123,7 @@ class ChatService {
       status: MessageStatus.sending,
       transport: mode,
       timestamp: timestamp,
-      isEncrypted: actuallyEncrypted,
+      isEncrypted: trustedPeerPublicKeyPEM != null,
     );
 
     await _msgStore.addMessage(message);
@@ -122,6 +134,60 @@ class ChatService {
       peerShortId,
       trustedPeerPublicKeyPEM,
       message,
+    );
+
+    if (trustedPeerPublicKeyPEM == null) {
+      // No verified key yet (e.g. BLE-only first contact — scan responses
+      // carry no key). Sending plaintext content would contradict the E2EE
+      // claim, so announce our signed identity instead, queue the real
+      // message, and wait for the peer's signed identity in return
+      // (audit #1).
+      await _sendIdentity(
+        peerUuid: peerUuid,
+        myUuid: myUuid,
+        myShortId: myShortId,
+        myDisplayName: myDisplayName,
+        myPublicKeyPEM: myPublicKeyPEM,
+      );
+      if (!_outboxHas(peerUuid, msgId) &&
+          (_outbox[peerUuid]?.length ?? 0) < AhoyConstants.maxOutboxPerPeer) {
+        _outbox.putIfAbsent(peerUuid, () => []).add(
+          _PendingSend(
+            msgId: msgId,
+            convId: convId,
+            peerUuid: peerUuid,
+            peerDisplayName: peerDisplayName,
+            peerShortId: peerShortId,
+            type: type,
+            content: content,
+            replyToId: replyToId,
+            replyToPreview: replyToPreview,
+            myUuid: myUuid,
+            myShortId: myShortId,
+            myDisplayName: myDisplayName,
+            myPublicKeyPEM: myPublicKeyPEM,
+            peerPublicKeyPEM: null,
+          ),
+        );
+      }
+      ahoyLog('[ChatService] message queued until the peer identity is known');
+      return message.copyWith(status: MessageStatus.sending);
+    }
+
+    // Build payload now that we know the message will be sealed.
+    final payload = _buildPayload(
+      myUuid,
+      msgId,
+      convId,
+      myShortId,
+      myDisplayName,
+      type,
+      content,
+      replyToId,
+      replyToPreview,
+      timestamp,
+      myPublicKeyPEM,
+      trustedPeerPublicKeyPEM,
     );
 
     final sent = await _transport.send(
@@ -182,9 +248,9 @@ class ChatService {
     for (final item in queue) {
       item.attempts += 1;
       try {
-        // Resolve the peer key fresh — the pinned key may have been set since.
         final peerKey =
             _findConversation(item.convId)?.peerPublicKeyPEM ??
+            _verifiedKeys[item.peerUuid] ??
             item.peerPublicKeyPEM;
         final payload = _buildPayload(
           item.myUuid,
@@ -247,36 +313,16 @@ class ChatService {
     final canSeal = peerPublicKeyPEM != null && _crypto.isReady;
     final canSign = myPublicKeyPEM != null && _crypto.isReady;
 
+    if (!canSeal) {
+      // Reaching here means no verified recipient key was available —
+      // sending plaintext content would break the E2EE guarantee (audit #1).
+      throw const TransportError('No verified recipient key for this peer');
+    }
+
     // v3: the whole message — identity, metadata and content — is encrypted
     // as one blob; only the routing UUID rides outside (audit M-1). The
     // signature over the plaintext inner material travels inside the blob.
-    if (canSeal) {
-      final inner = <String, dynamic>{
-        'msgType': 'chat',
-        'msgId': msgId,
-        'convId': convId,
-        'senderUuid': myUuid,
-        'senderShortId': myShortId,
-        'senderName': myDisplayName,
-        'type': type.name,
-        'content': wireContent,
-        'replyToId': replyToId,
-        'replyToPreview': replyToPreview,
-        'timestamp': timestamp.toIso8601String(),
-        'senderPublicKeyPEM': myPublicKeyPEM,
-      };
-      if (canSign) {
-        inner['signature'] = _crypto.signPayload(_signatureMaterialV3(inner));
-      }
-      return {
-        'v': 3,
-        'ct': _crypto.encryptForPeer(jsonEncode(inner), peerPublicKeyPEM),
-      };
-    }
-
-    // Legacy flat fallback (no peer key available — e.g. a BLE-only first
-    // contact): plaintext metadata, but identity-bound and signed.
-    final payload = <String, dynamic>{
+    final inner = <String, dynamic>{
       'msgType': 'chat',
       'msgId': msgId,
       'convId': convId,
@@ -285,19 +331,18 @@ class ChatService {
       'senderName': myDisplayName,
       'type': type.name,
       'content': wireContent,
-      'isEncrypted': false,
-      'senderPublicKeyPEM': myPublicKeyPEM,
       'replyToId': replyToId,
       'replyToPreview': replyToPreview,
       'timestamp': timestamp.toIso8601String(),
+      'senderPublicKeyPEM': myPublicKeyPEM,
     };
-
     if (canSign) {
-      payload['signatureVersion'] = 1;
-      payload['signature'] = _crypto.signPayload(_signatureMaterial(payload));
+      inner['signature'] = _crypto.signPayload(_signatureMaterialV3(inner));
     }
-
-    return payload;
+    return {
+      'v': 3,
+      'ct': _crypto.encryptForPeer(jsonEncode(inner), peerPublicKeyPEM),
+    };
   }
 
   String _encodeMediaContent(String filePath) {
@@ -349,6 +394,9 @@ class ChatService {
     required String peerShortId,
     required String peerDisplayName,
     required String myUuid,
+    String? myShortId,
+    String? myDisplayName,
+    String? myPublicKeyPEM,
     required TransportMode transport,
     required bool receiveOff,
     required Set<String> blockedUuids,
@@ -358,6 +406,18 @@ class ChatService {
       final isV3 = outer['v'] == 3;
 
       if (blockedUuids.contains(peerUuid)) return null;
+
+      if (outer['msgType'] == 'identity') {
+        await _handleInboundIdentity(
+          outer,
+          peerUuid,
+          myUuid,
+          myShortId: myShortId,
+          myDisplayName: myDisplayName,
+          myPublicKeyPEM: myPublicKeyPEM,
+        );
+        return null;
+      }
 
       // v3: everything except the routing UUID lives inside the encrypted
       // blob — decrypt first, then validate (audit M-1).
@@ -430,8 +490,21 @@ class ChatService {
 
       final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
       final existingConversation = _findConversation(convId);
+      // A discovery-verified key must match on first contact — otherwise an
+      // impersonator messaging first pins their own key and the real peer is
+      // silently locked out (audit #7).
+      final verifiedKey = _verifiedKeys[peerUuid];
+      final pinnedKey = existingConversation?.peerPublicKeyPEM;
+      final hasPinnedKey = pinnedKey != null && pinnedKey.isNotEmpty;
+      if (!hasPinnedKey &&
+          verifiedKey != null &&
+          (senderPublicKeyPEM == null ||
+              !_samePublicKey(senderPublicKeyPEM, verifiedKey))) {
+        ahoyLog('[ChatService] dropping first contact with unverified key');
+        return null;
+      }
       final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
-        pinnedKey: existingConversation?.peerPublicKeyPEM,
+        pinnedKey: pinnedKey,
         candidateKey: senderPublicKeyPEM,
       );
       if (!_verifyInboundSignature(
@@ -713,6 +786,18 @@ class ChatService {
     });
   }
 
+  /// Signature material for signed identity exchanges (audit #1).
+  String _identityMaterial(Map<String, dynamic> payload) {
+    return jsonEncode({
+      'msgType': payload['msgType'],
+      'senderUuid': payload['senderUuid'],
+      'senderShortId': payload['senderShortId'],
+      'senderName': payload['senderName'],
+      'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
+      'timestamp': payload['timestamp'],
+    });
+  }
+
   bool _samePublicKey(String a, String b) {
     return _canonicalPublicKey(a) == _canonicalPublicKey(b);
   }
@@ -789,6 +874,100 @@ class ChatService {
     } catch (e) {
       ahoyLog('[ChatService] ack failed', e);
     }
+  }
+
+  /// Handles a signed identity exchange (audit #1): registers the peer's
+  /// verified key, replies with our own identity once, and unblocks any
+  /// queued sends that were waiting for this key.
+  Future<void> _handleInboundIdentity(
+    Map<String, dynamic> json,
+    String peerUuid,
+    String myUuid, {
+    String? myShortId,
+    String? myDisplayName,
+    String? myPublicKeyPEM,
+  }) async {
+    final senderUuid = json['senderUuid'] as String? ?? '';
+    if (senderUuid != peerUuid) return; // spoof guard
+
+    final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
+    if (timestamp == null) return;
+    final age = DateTime.now().difference(timestamp);
+    if (age.abs() >
+        const Duration(seconds: AhoyConstants.inboundMaxClockSkewSeconds)) {
+      return; // freshness
+    }
+
+    final pem = json['senderPublicKeyPEM'] as String?;
+    if (pem == null || pem.isEmpty) return;
+    final signature = json['signature'] as String? ?? '';
+    if (!_crypto.verifyPayloadSignature(_identityMaterial(json), signature, pem)) {
+      ahoyLog('[ChatService] dropping identity with invalid signature');
+      return;
+    }
+
+    registerVerifiedPeerKey(senderUuid, pem);
+
+    // Reply once so the peer can pin us too — the reply is itself a signed
+    // identity, so this cannot loop.
+    if (!_identityRepliedTo.contains(peerUuid) && myPublicKeyPEM != null) {
+      _identityRepliedTo.add(peerUuid);
+      await _sendIdentity(
+        peerUuid: peerUuid,
+        myUuid: myUuid,
+        myShortId: myShortId,
+        myDisplayName: myDisplayName,
+        myPublicKeyPEM: myPublicKeyPEM,
+      );
+    }
+
+    // The newly learned key may unblock queued messages.
+    if (hasPendingFor(peerUuid)) {
+      await retryPendingFor(peerUuid);
+    }
+  }
+
+  /// Broadcasts our signed identity to a peer (throttled per peer).
+  Future<void> _sendIdentity({
+    required String peerUuid,
+    required String myUuid,
+    String? myShortId,
+    String? myDisplayName,
+    String? myPublicKeyPEM,
+  }) async {
+    final now = DateTime.now();
+    final last = _identitySentAt[peerUuid];
+    if (last != null && now.difference(last) < const Duration(seconds: 10)) {
+      return;
+    }
+    _identitySentAt[peerUuid] = now;
+
+    if (myPublicKeyPEM == null || !_crypto.isReady) return;
+    final payload = _buildIdentityPayload(
+      myUuid: myUuid,
+      myShortId: myShortId ?? '',
+      myDisplayName: myDisplayName ?? '',
+      myPublicKeyPEM: myPublicKeyPEM,
+    );
+    await _transport.send(peerUuid, myUuid, '', '', payload);
+  }
+
+  Map<String, dynamic> _buildIdentityPayload({
+    required String myUuid,
+    required String myShortId,
+    required String myDisplayName,
+    required String myPublicKeyPEM,
+  }) {
+    final payload = <String, dynamic>{
+      'msgType': 'identity',
+      'senderUuid': myUuid,
+      'senderShortId': myShortId,
+      'senderName': myDisplayName,
+      'senderPublicKeyPEM': myPublicKeyPEM,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+    payload['signature'] = _crypto.signPayload(_identityMaterial(payload));
+    return payload;
   }
 
   String _canonicalPublicKey(String key) {

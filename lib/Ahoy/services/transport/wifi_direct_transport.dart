@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
 import '../../core/logging.dart';
+import '../crypto/crypto_service.dart';
 import 'transport_interface.dart';
 
 /// WiFi Direct transport via Android P2P MethodChannel.
@@ -17,10 +18,13 @@ import 'transport_interface.dart';
 class WiFiDirectTransport implements TransportInterface {
   static const _channel = MethodChannel('wifi_direct');
   final int _maxPayloadBytes;
+  final CryptoService? _crypto;
 
   WiFiDirectTransport({
     int maxPayloadBytes = AhoyConstants.wifiDirectMaxPayloadBytes,
-  }) : _maxPayloadBytes = maxPayloadBytes;
+    CryptoService? crypto,
+  }) : _maxPayloadBytes = maxPayloadBytes,
+       _crypto = crypto;
 
   @override
   TransportMode get mode => TransportMode.wifiDirect;
@@ -255,6 +259,23 @@ class WiFiDirectTransport implements TransportInterface {
       if (json['type'] == 'wdIdentity') {
         final uuid = json['uuid'] as String? ?? '';
         if (uuid.isNotEmpty) {
+          // Verify the signed identity BEFORE learning routes or announcing
+          // the peer — wdIdentity packets are otherwise spoofable (audit #5).
+          // Fail closed when verification is unavailable.
+          final crypto = _crypto;
+          if (crypto == null) return;
+          final verified = crypto.verifyAnnouncement(
+            uuid: uuid,
+            shortId: json['shortId'] as String? ?? '',
+            displayName: json['displayName'] as String? ?? '',
+            statusMessage: json['statusMessage'] as String?,
+            publicKeyPEM: json['publicKeyPEM'] as String? ?? '',
+            signature: json['signature'] as String? ?? '',
+          );
+          if (!verified) {
+            ahoyLog('[WiFiDirect] dropping identity that fails verification');
+            return;
+          }
           // Group owner: use the actual TCP senderIP to route replies back to client.
           // Client: always route to the group owner's IP.
           final routeIP = _isGroupOwner
@@ -290,15 +311,11 @@ class WiFiDirectTransport implements TransportInterface {
       } else {
         final fromUuid = json['from'] as String? ?? '';
         if (fromUuid.isEmpty) return;
-        // Learn the routing IP from senderIP on first message.
+        // Routing is learned only from verified identity exchanges — a chat
+        // packet claiming an unknown uuid is dropped (audit #5).
         if (!_uuidToAddress.containsKey(fromUuid)) {
-          final routeIP = _isGroupOwner
-              ? (senderIP.isNotEmpty ? senderIP : null)
-              : _groupOwnerAddress;
-          if (routeIP != null && routeIP.isNotEmpty) {
-            _uuidToAddress[fromUuid] = routeIP;
-            _addressToUuid[routeIP] = fromUuid;
-          }
+          ahoyLog('[WiFiDirect] dropping packet from unknown peer identity');
+          return;
         }
         _packetController.add(
           InboundPacket(

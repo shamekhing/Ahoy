@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import '../core/enums.dart';
+import '../core/logging.dart';
 import '../models/nearby_peer.dart';
 import '../services/discovery/discovery_service.dart';
 import '../services/transport_manager.dart';
 import '../services/transport/transport_interface.dart';
 import '../services/storage/prefs_store.dart';
 import '../core/constants.dart';
-import '../core/logging.dart';
 import '../services/crypto/crypto_service.dart';
 
 class DiscoveryProvider extends ChangeNotifier {
@@ -33,6 +34,11 @@ class DiscoveryProvider extends ChangeNotifier {
   bool get wifiDirectEnabled => _wifiDirectEnabled;
 
   final Set<String> blockedUuids = {};
+
+  /// Invoked with (uuid, pem) for every accepted announcement that carried a
+  /// public key — wired to ChatService so first contacts pin to the
+  /// discovery-verified key (audit #7).
+  void Function(String uuid, String pem)? onVerifiedKey;
 
   DiscoveryProvider(this._discovery, this._transport, this._prefs, this._crypto) {
     _offGrid = _prefs.getBool(AhoyConstants.prefOffGrid);
@@ -86,6 +92,11 @@ class DiscoveryProvider extends ChangeNotifier {
 
   void onAnnouncement(PeerAnnouncement announcement) {
     if (!_acceptAnnouncement(announcement)) return;
+    if (announcement.publicKeyPEM != null &&
+        announcement.publicKeyPEM!.isNotEmpty) {
+      // Verified identity — available for first-contact pinning (audit #7).
+      onVerifiedKey?.call(announcement.uuid, announcement.publicKeyPEM!);
+    }
     final alias = _discovery.onAnnouncement(announcement, blockedUuids);
     if (alias != null) {
       // A temporary identifier (BT/WFD MAC) was resolved to a canonical Ahoy UUID.
@@ -105,9 +116,7 @@ class DiscoveryProvider extends ChangeNotifier {
   /// 3. BLE scan-response announcements (uuid = BT MAC, no key) are accepted
   ///    for display only; identity is bound at the first signed chat message.
   bool _acceptAnnouncement(PeerAnnouncement announcement) {
-    final isRealUuid = RegExp(
-      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-    ).hasMatch(announcement.uuid);
+    final isRealUuid = CryptoService.isRealAhoyUuid(announcement.uuid);
     if (isRealUuid &&
         announcement.shortId.isNotEmpty &&
         announcement.shortId.toUpperCase() !=
@@ -115,7 +124,11 @@ class DiscoveryProvider extends ChangeNotifier {
       ahoyLog('[Discovery] dropping announcement with mismatched shortId');
       return false;
     }
-    if (announcement.publicKeyPEM == null) return true;
+    if (announcement.publicKeyPEM == null) {
+      // Keyless announcements are only legitimate from BLE scan responses —
+      // LAN and WiFi Direct must carry a signed key (audit #5).
+      return announcement.transport == TransportMode.ble;
+    }
     final signature = announcement.signature;
     if (signature == null || signature.isEmpty) {
       ahoyLog('[Discovery] dropping keyed announcement without signature');
@@ -170,6 +183,15 @@ class DiscoveryProvider extends ChangeNotifier {
     _wifiDirectEnabled = value;
     await _prefs.setBool(AhoyConstants.prefWifiDirectEnabled, value: value);
     await _transport.setWifiDirectEnabled(value);
+    notifyListeners();
+  }
+
+  /// Clears all per-session discovery state (called on sign-out, audit #3).
+  void reset() {
+    blockedUuids.clear();
+    onVerifiedKey = null;
+    _discovery.clearAll();
+    _peers = [];
     notifyListeners();
   }
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../core/enums.dart';
 import 'crypto/crypto_service.dart';
 import 'transport/transport_interface.dart';
@@ -44,9 +45,10 @@ class TransportManager {
   /// the mapping here so sends and incoming packets are routed to the right peer.
   final Map<String, String> _peerAliases = {};
 
-  TransportManager([this._crypto])
-    : _wifiDirect = WiFiDirectTransport(),
-      _lan = LanTransport(),
+  TransportManager({CryptoService? crypto})
+    : _crypto = crypto,
+      _wifiDirect = WiFiDirectTransport(),
+      _lan = LanTransport(crypto: crypto),
       _ble = BleTransport();
 
   Future<void> start({
@@ -75,18 +77,21 @@ class TransportManager {
 
     _subs.add(
       _wifiDirect.announcementStream.listen((a) {
+        if (!_acceptAnnouncement(a)) return;
         _recordTransport(a.uuid, TransportMode.wifiDirect);
         _announcementController.add(a);
       }),
     );
     _subs.add(
       _lan.announcementStream.listen((a) {
+        if (!_acceptAnnouncement(a)) return;
         _recordTransport(a.uuid, TransportMode.lan);
         _announcementController.add(a);
       }),
     );
     _subs.add(
       _ble.announcementStream.listen((a) {
+        if (!_acceptAnnouncement(a)) return;
         _recordTransport(a.uuid, TransportMode.ble);
         _announcementController.add(a);
       }),
@@ -112,8 +117,14 @@ class TransportManager {
     String? statusMessage,
     String? publicKeyPEM,
   }) async {
-    // Compute (and cache) the announcement signature for the current identity
-    // so every transport advertises a signature-bound identity (audit H-2).
+    // Refresh the cached identity FIRST so the signature always matches the
+    // identity being advertised — profile edits used to sign the stale name
+    // while broadcasting the new one, and receivers dropped us (audit #4).
+    _myUuid = uuid;
+    _myShortId = shortId;
+    _myDisplayName = displayName;
+    _myStatusMessage = statusMessage;
+    _myPublicKeyPEM = publicKeyPEM;
     _myAnnouncementSignature = _computeAnnouncementSignature();
     if (_wifiDirectEnabled) {
       await _wifiDirect.startAdvertising(
@@ -165,6 +176,42 @@ class TransportManager {
       displayName: _myDisplayName ?? '',
       statusMessage: _myStatusMessage,
       publicKeyPEM: _myPublicKeyPEM,
+    );
+  }
+
+  /// The announcement signature for the currently cached identity (tests).
+  @visibleForTesting
+  String? get debugAnnouncementSignature => _myAnnouncementSignature;
+
+  /// Identity-binding gate for announcements (audit #5): routing state and
+  /// discovery updates happen only for announcements that pass verification.
+  /// Keyless announcements are legitimate only from BLE scan responses.
+  bool _acceptAnnouncement(PeerAnnouncement announcement) {
+    final crypto = _crypto;
+    if (crypto == null) return false; // fail closed without verification
+
+    if (!CryptoService.isRealAhoyUuid(announcement.uuid)) {
+      // Temporary transport ids (BT MACs) carry no verifiable identity —
+      // they are only meaningful on BLE.
+      return announcement.transport == TransportMode.ble;
+    }
+    if (announcement.shortId.isNotEmpty &&
+        announcement.shortId.toUpperCase() !=
+            CryptoService.shortIdFromUuid(announcement.uuid)) {
+      return false;
+    }
+    if (announcement.publicKeyPEM == null) {
+      return announcement.transport == TransportMode.ble;
+    }
+    final signature = announcement.signature;
+    if (signature == null || signature.isEmpty) return false;
+    return crypto.verifyAnnouncement(
+      uuid: announcement.uuid,
+      shortId: announcement.shortId,
+      displayName: announcement.displayName,
+      statusMessage: announcement.statusMessage,
+      publicKeyPEM: announcement.publicKeyPEM!,
+      signature: signature,
     );
   }
 

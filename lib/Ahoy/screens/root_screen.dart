@@ -38,27 +38,41 @@ class _RootScreenState extends State<RootScreen> {
       _authInitialized = true;
       // Listener fires on every auth state change — the guard inside
       // _maybeStartTransports() ensures it only runs once per session.
-      _auth.addListener(_maybeStartTransports);
+      _auth.addListener(_handleAuthChanged);
       _bootstrap();
     });
   }
 
   @override
   void dispose() {
-    if (_authInitialized) _auth.removeListener(_maybeStartTransports);
+    if (_authInitialized) _auth.removeListener(_handleAuthChanged);
     _announcementSub?.cancel();
     super.dispose();
   }
 
-  // Called whenever AuthProvider notifies — safe to call multiple times.
-  void _maybeStartTransports() {
+  // Called whenever AuthProvider notifies — starts or tears down the session.
+  void _handleAuthChanged() {
     if (!mounted) return;
     if (_auth.isSignedIn && _auth.user != null && !_transportsStarted) {
       // Load profile so ProfileProvider is populated for the main shell.
       context.read<ProfileProvider>().setUser(_auth.user!);
       _transportsStarted = true;
       _startTransports(_auth.user!.id);
+    } else if (!_auth.isSignedIn && _transportsStarted) {
+      // Signing out (or switching accounts) must reset everything the old
+      // session accumulated — otherwise the next account inherits its
+      // conversations, discovery state, and inbound routing (audit #3).
+      _teardownSession();
     }
+  }
+
+  void _teardownSession() {
+    _announcementSub?.cancel();
+    _announcementSub = null;
+    _transportsStarted = false;
+    context.read<ChatProvider>().reset();
+    context.read<DiscoveryProvider>().reset();
+    context.read<ProfileProvider>().clear();
   }
 
   // Cold-start: check for an existing session stored from a previous run.
@@ -130,8 +144,15 @@ class _RootScreenState extends State<RootScreen> {
 
       if (!mounted) return;
 
-      context.read<ChatProvider>().init(
+      final chatProvider = context.read<ChatProvider>();
+      // Verified announcement keys pin first-contact conversations (audit #7).
+      discovery.onVerifiedKey = chatProvider.registerVerifiedPeerKey;
+
+      chatProvider.init(
         myUuid: user.id,
+        myShortId: user.shortId,
+        myDisplayName: user.username,
+        myPublicKeyPEM: user.publicKeyPEM,
         receiveOff: () => context.read<DiscoveryProvider>().receiveOff,
         blockedUuids: discovery.blockedUuids,
       );
