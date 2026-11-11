@@ -99,7 +99,7 @@ lib/
     ├── ahoy_app.dart                 App root: service init, MultiProvider wiring
     ├── core/
     │   ├── constants.dart            UUIDs, ports, key names, size limits
-    │   ├── enums.dart                TransportMode, MessageType, MessageStatus, Gender, PeerStatus
+    │   ├── enums.dart                TransportMode, MessageType, MessageStatus, Gender
     │   └── errors.dart               TransportError (thrown for BLE media attempts)
     ├── models/
     │   ├── local_user.dart           Signed-in user profile (stored locally)
@@ -1345,7 +1345,6 @@ In-memory representation of a discovered peer. Never persisted directly.
 | `displayName` | String | Peer's display name |
 | `transport` | TransportMode | Best (highest-priority) current transport |
 | `transports` | Set\<TransportMode\> | All transports currently active for this peer |
-| `rssi` | int? | BLE signal strength (unused in UI currently) |
 | `lastSeen` | DateTime | Time of last announcement; used for stale detection |
 | `isBlocked` | bool | Whether this peer is blocked |
 | `statusMessage` | String? | Peer's status message |
@@ -1431,13 +1430,6 @@ Serializable peer identity for over-the-air transmission. Superset of what fits 
 | `male` | blue |
 | `female` | pink |
 | `unspecified` | purple |
-
-**`PeerStatus`** — declared but not yet fully wired in UI:
-| Value | Meaning |
-|-------|---------|
-| `available` | Normal |
-| `busy` | Do Not Disturb |
-| `offGrid` | Not broadcasting |
 
 ---
 

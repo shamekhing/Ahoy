@@ -438,7 +438,10 @@ class ChatService {
     String? trustedPeerPublicKeyPEM,
   ) {
     if (trustedPeerPublicKeyPEM == null || trustedPeerPublicKeyPEM.isEmpty) {
-      return true;
+      // No pinned key and none presented — there is nothing to verify against.
+      // Unauthenticated messages must never be displayed or stored (audit H-1).
+      ahoyLog('[ChatService] dropping unkeyed inbound message');
+      return false;
     }
 
     final signature = payload['signature'] as String?;

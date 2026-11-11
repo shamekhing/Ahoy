@@ -11,7 +11,6 @@ class NearbyPeer {
 
   /// All transports via which this peer has been seen — used to render multi-badges.
   final Set<TransportMode> transports;
-  final int? rssi;
   final DateTime lastSeen;
   final bool isBlocked;
   final String? statusMessage;
@@ -23,7 +22,6 @@ class NearbyPeer {
     required this.displayName,
     required this.transport,
     Set<TransportMode>? transports,
-    this.rssi,
     required this.lastSeen,
     this.isBlocked = false,
     this.statusMessage,
@@ -35,7 +33,6 @@ class NearbyPeer {
   NearbyPeer copyWith({
     TransportMode? transport,
     Set<TransportMode>? transports,
-    int? rssi,
     DateTime? lastSeen,
     bool? isBlocked,
     String? statusMessage,
@@ -47,7 +44,6 @@ class NearbyPeer {
       displayName: displayName,
       transport: transport ?? this.transport,
       transports: transports ?? this.transports,
-      rssi: rssi ?? this.rssi,
       lastSeen: lastSeen ?? this.lastSeen,
       isBlocked: isBlocked ?? this.isBlocked,
       statusMessage: statusMessage ?? this.statusMessage,

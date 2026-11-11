@@ -91,6 +91,36 @@ void main() {
   );
 
   test(
+    'drops unkeyed unsigned inbound payload for a new conversation',
+    () async {
+      final harness = await _createHarness();
+
+      final message = await harness.service.onInboundPacket(
+        rawPayload: jsonEncode(_inboundPayload()),
+        peerUuid: _peerUuid,
+        peerShortId: 'PEER12',
+        peerDisplayName: 'Peer',
+        myUuid: _myUuid,
+        transport: TransportMode.lan,
+        receiveOff: false,
+        blockedUuids: const {},
+      );
+
+      expect(message, isNull);
+      expect(
+        harness.convStore.loadAll(),
+        isEmpty,
+        reason: 'unauthenticated messages must not create conversations',
+      );
+      expect(
+        harness.msgStore
+            .loadMessages(MessageStore.conversationId(_myUuid, _peerUuid)),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
     'accepts signed inbound payload and pins the sender public key',
     () async {
       final harness = await _createHarness();
@@ -152,11 +182,11 @@ Future<void> _seedPinnedConversation(ConversationStore convStore, String key) {
   );
 }
 
-String _inboundPacket({required String senderPublicKeyPEM}) {
+String _inboundPacket({String? senderPublicKeyPEM}) {
   return jsonEncode(_inboundPayload(senderPublicKeyPEM: senderPublicKeyPEM));
 }
 
-Map<String, dynamic> _inboundPayload({required String senderPublicKeyPEM}) {
+Map<String, dynamic> _inboundPayload({String? senderPublicKeyPEM}) {
   return {
     'msgType': 'chat',
     'msgId': 'message-1',
@@ -164,7 +194,7 @@ Map<String, dynamic> _inboundPayload({required String senderPublicKeyPEM}) {
     'type': MessageType.text.name,
     'content': 'hello',
     'isEncrypted': false,
-    'senderPublicKeyPEM': senderPublicKeyPEM,
+    if (senderPublicKeyPEM != null) 'senderPublicKeyPEM': senderPublicKeyPEM,
     'timestamp': DateTime.utc(2026, 1, 1).toIso8601String(),
   };
 }
