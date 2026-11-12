@@ -344,3 +344,53 @@ accepted as recorded limitations.
 
 `flutter analyze` clean; all affected and new tests green (see the run log
 for the count).
+
+---
+
+# Ninth Review (full-scope re-audit)
+
+Input: a fresh read-only review of the post-round-8 tree (`4b6090e`),
+scoped to `lib/`, the Kotlin platform layer, platform configs and the test
+suite, checked line-by-line against PROTOCOL.md as the normative spec. Six
+findings were confirmed and fixed; the crypto core itself came through
+clean. One commit per fix, spec §13 updated in the same commits.
+
+## Fixed
+
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| 1 | High | Pure BLE first contact could never complete. `TransportManager` rewrites the peer id to the canonical UUID before dispatching, but `BleTransport` caches devices by Bluetooth MAC and never learned aliases — the responder's identity reply and every later send failed device lookup, and the initiator's retry outbox (keyed by the MAC) could never find the key learned under the real UUID; replies that did arrive created a duplicate conversation | Inbound packets now carry the transport-level id; the manager binds it to the canonical UUID the signed payload proves, `BleTransport` learns canonical-UUID → device-address from assembled payloads and resolves it on send, and the conversation, its messages and the outbox are re-keyed to the canonical UUID so replies, acks and retries agree with the wire `convId` (spec §6.3, §8). A simulated pure-BLE first contact completes a full round trip. Tests: `ble_route_resolution_test.dart` |
+| 2 | Med | `LanTransport._peerConns` and `_uuidKeys` and `WiFiDirectTransport._uuidKeys` grew without bound on every valid signed announcement, and UDP announcements had no rate limit: a flood of unique self-generated keypairs bought unbounded memory and RSA verification work | Route and key maps capped at 512 entries (expired routes drop first, then the oldest), a per-address 20-per-10 s announcement window checked before parsing and verification (loopback exempt, matching TCP), and the BLE scan cache capped at 256 devices (spec §3.1 rule 9, §8). Tests: `transport_state_bounds_test.dart` |
+| 3 | Med-Low | The global identity budget was charged before the per-peer throttle: one UUID flooding identity packets consumed the whole 20-per-10 s budget and starved every other peer's handshake | The budget is charged only by identities that pass the per-peer throttle; UUID rotation still cannot exceed it (spec §6.1). Test: `identity_budget_test.dart`, confirmed red before the fix |
+| 4 | Med | The round-8 decision that made `ProfileService`'s at-rest crypto required left the same latent plaintext write paths in `ChatService` (outbox persist, media write), `MessageStore`, `ConversationStore` and `MediaService`: a wiring change would have silently stored plaintext | The constructor parameters are required and every `crypto == null` write branch is gone; legacy plaintext rows remain readable only through the documented migration path (spec §10). Seventeen test files updated; the outbox row is asserted encrypted in `at_rest_encryption_test.dart` |
+| 5 | Med-Low | The Kotlin WiFi Direct server queued unbounded inbound sockets (fixed pool of four, unbounded executor queue), each allocating up to 10 MiB for one frame — the LAN side capped both connections and buffers in round 7 | A 16-permit gate closes sockets beyond the cap instead of queueing them (spec §8.2, Appendix A). Source-text test in `android_permission_policy_test.dart`; no Kotlin harness, inspection-validated like earlier platform rounds |
+| 6 | Low | The confirmed erase-and-replace sign-up cleared prefs but left the old account's encrypted media files on disk and did not rotate the at-rest key — a partial clean slate | The replacement path now resets the at-rest key and runs the same owned-media sweep sign-out performs. Test: `media_cleanup_test.dart` |
+
+## Verified clean
+
+The crypto core matched the spec everywhere it was checked this round: the
+RSA-OAEP/AES-GCM hybrid envelope and its PEM cap, the four domain-separated
+signature materials and their frozen field sets, freshness windows on
+announcements, chat, acks and identities, first-key-wins pinning and
+conflict handling, the sealed-v3-only inbound gate, replay guards and the
+rebinding flow now recorded in §6.3. No finding above low severity
+originates in the cryptographic layer.
+
+## Accepted, recorded
+
+The accepted-risk set is unchanged from the earlier rounds (PKCS#1 v1.5
+signatures pending a coordinated PSS upgrade, no GCM AAD, double
+announcement verification, per-message re-encryption of conversation
+history, the GATT characteristic writable by nearby devices, no BLE
+advertising or GATT server on iOS, the 8-character password policy, WiFi
+Direct's background lifecycle, and the ±15 minute clock dependence). The
+known limitation that same-window announcement replays can refresh
+*discovery presence* from the pinned address remains recorded at §3.1:
+route takeover, the security-relevant path, stays pinned.
+
+## Validation
+
+`flutter analyze` clean; the full suite is green at 189 tests (177 before
+this round, 12 added across the fixes) on Flutter 3.47.9 / Dart 3.13.7.
+Kotlin changes are inspection-validated (no Kotlin test harness),
+consistent with every earlier platform round.
