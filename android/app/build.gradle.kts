@@ -43,8 +43,10 @@ android {
 
     defaultConfig {
         applicationId = "com.ahoy.app"
-        // flutter_secure_storage (encryptedSharedPreferences) requires API 23+.
-        minSdk = flutter.minSdkVersion
+        // Pinned explicitly: flutter_secure_storage (encryptedSharedPreferences)
+        // requires API 23+, and relying on the Flutter toolchain default would
+        // silently lower it again on a toolchain bump (round 7).
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

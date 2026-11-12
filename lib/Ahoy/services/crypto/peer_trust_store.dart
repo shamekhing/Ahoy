@@ -142,14 +142,26 @@ class PeerTrustStore {
 
   void _evictIfOverCap() {
     while (_peers.length > maxEntries) {
-      String? unverifiedKey;
+      // Eviction prefers unverified, then pinned records; a
+      // verifiedBySafetyNumber record is dropped only as a last resort so
+      // an out-of-band verification is never silently lost to an
+      // announcement flood (round 7, external review M-6).
+      String? victim;
       for (final entry in _peers.entries) {
         if (entry.value.state == PeerTrustState.unverified) {
-          unverifiedKey = entry.key;
+          victim = entry.key;
           break;
         }
       }
-      final victim = unverifiedKey ?? _peers.keys.first;
+      if (victim == null) {
+        for (final entry in _peers.entries) {
+          if (entry.value.state == PeerTrustState.pinned) {
+            victim = entry.key;
+            break;
+          }
+        }
+      }
+      victim ??= _peers.keys.first;
       _peers.remove(victim);
     }
   }

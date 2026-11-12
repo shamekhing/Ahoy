@@ -73,8 +73,14 @@ class MessageStore {
   }
 
   List<Message> loadMessages(String conversationId) {
+    // Order by the receiver clock when present (round 7): the sender
+    // controls `timestamp` and may skew it within the freshness window.
     return _loadJsonList(conversationId).map(Message.fromJson).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      ..sort(
+        (a, b) => (a.receivedAt ?? a.timestamp).compareTo(
+          b.receivedAt ?? b.timestamp,
+        ),
+      );
   }
 
   Future<void> addMessage(Message message) async {

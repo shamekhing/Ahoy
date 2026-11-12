@@ -136,6 +136,16 @@ class AuthService {
   }
 
   Future<LocalUser?> signInWithBiometric() async {
+    // A legacy (pre-PBKDF2) stored hash is only upgraded by a real password
+    // sign-in, so quiet unlock must not bypass the upgrade (round 7,
+    // external review A#7): otherwise an account that never types its
+    // password again keeps its weak hash forever.
+    final storedHash = await _secureStore.read(AhoyConstants.keyPasswordHash);
+    if (storedHash != null &&
+        _cryptoService.passwordHashNeedsUpgrade(storedHash)) {
+      return null;
+    }
+
     final biometricEnabled = await _secureStore.read(
       AhoyConstants.keyBiometricEnabled,
     );

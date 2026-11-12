@@ -28,6 +28,17 @@ class AhoyConstants {
   // longer be replayed forever. Matches the chat freshness tolerance because
   // phones on a LAN may lack a shared clock source.
   static const int announcementFreshnessSeconds = 15 * 60;
+  // Round-7 hardening: an absolute cap on one inbound LAN TCP connection's
+  // lifetime regardless of activity, so a slow trickle cannot hold its
+  // receive buffers open forever (the idle timeout alone is attacker
+  // defeatable: every byte resets it).
+  static const int lanTcpMaxLifetimeSeconds = 60;
+
+  // Round-7 hardening: aggregate cap on bytes held in incomplete inbound LAN
+  // TCP messages across all connections. Without it, lanMaxConnections ×
+  // lanMaxPayloadBytes of unterminated buffers is allocatable at once.
+  static const int lanMaxTotalBufferedBytes = 64 * 1024 * 1024;
+
 
   // WiFi Direct
   static const int wifiDirectMaxPayloadBytes = 10 * 1024 * 1024;

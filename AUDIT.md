@@ -245,3 +245,63 @@ key binding surviving teardown, Keep current key dismissal flow.
 
 flutter analyze clean; flutter test 139/139 passing on Flutter 3.47.9 /
 Dart 3.13.7.
+
+---
+
+# Seventh Review (external reconciliation + hardening round)
+
+Input: two independent external review drafts (worked from the round-6
+summary, not the source) were reconciled line-by-line against the code,
+then the confirmed findings were fixed. All spot-checked round-6 claims
+were re-verified as present; no High-severity regressions were found.
+
+## Fixed
+
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| 1 | Med-High | A same-key announcement replayed from a neighbouring address within the 15-minute freshness window repointed the LAN TCP route (`_peerConns[uuid]` was overwritten on every valid announcement); the first-key rule bound the key, not the route | Route pinning: a verified announcement only repoints the route when there is no route, when it comes from the pinned address, or when the pinned address is older than the peer expiry window. Plus a bounded (uuid, signature) replay cache checked before RSA verification, so replay floods never reach the crypto layer. Tests: `lan_route_pinning_test.dart` |
+| 2 | Med | The LAN TCP idle timeout is attacker defeatable (every byte resets it) and 32 connections × 16 MB unterminated buffers = ~512 MB transient allocation; the byte-by-byte read loop made it worse | Absolute per-connection lifetime cap (60 s, injectable), an aggregate buffer budget across all connections (64 MB, injectable), bulk newline splitting with per-message accounting preserved, and the connection-slot leak on clean peer disconnect fixed. Tests: `lan_tcp_hardening_test.dart` |
+| 3 | Med-Low | Accounts created before the PBKDF2 migration kept their unsalted SHA-256 (or 100k-iteration PBKDF2) hash indefinitely unless they happened to sign in again; biometric unlock would have bypassed the upgrade forever | `signInWithBiometric` refuses while the stored hash needs an upgrade, forcing one password sign-in that rewrites it to `pbkdf2:v2:`. Tests: `legacy_hash_gate_test.dart` |
+| 4 | Low | Thread ordering trusted the sender-controlled timestamp (skewable within ±15 min) | `Message.receivedAt` receiver-clock field (optional, back-compat with older rows) drives `MessageStore` ordering. Tests: `message_ordering_test.dart` |
+| 5 | Low | Inbound messages for a soft-deleted conversation were stored invisibly behind the tombstone (and a post-restart replay within the freshness window could add them) | Inbound for soft-deleted conversations is dropped via `ConversationStore.isSoftDeleted`. Test: `chat_inbound_hardening_test.dart` |
+| 6 | Low | Inbound media decoded up to a 16 MB base64 string before the byte cap check | Pre-decode size cap (`maxMediaBytes × 4/3`), so oversized media never pays the isolate spawn. Test: `chat_inbound_hardening_test.dart` |
+| 7 | Low | Malformed stored password hashes (odd-length/non-hex salt, wrong digest length) threw out of `verifyPassword` instead of failing closed | Hex/length validation plus try/catch around the isolate: a corrupt hash reads as a wrong password. Tests: `crypto_password_robustness_test.dart` |
+| 8 | Low | `PeerTrustStore` eviction could drop a safety-number-verified record when the cap filled with verified entries | Eviction prefers unverified, then pinned; verifiedBySafetyNumber records are evicted only as a last resort. Tests: `peer_trust_eviction_test.dart` |
+| 9 | Low | Sync AES-GCM decrypt plus file read inside `MessageBubble.build` janks long threads | `_EncryptedImage` stateful widget decodes once via the async reader; quarantined files render the unavailable placeholder. Tests: `message_bubble_image_test.dart` |
+| 10 | Low | `minSdk` followed the Flutter toolchain default although secure storage needs API 23+ | Pinned to 24 with the reason recorded |
+
+## Refuted with evidence
+
+- The identity reply set (`_identityRepliedTo`) is already capped at
+  `_maxIdentityPeers` in `chat_service.dart`; the external drafts' claim of
+  unbounded growth was incorrect.
+- The TOFU first-contact acceptance of a self-signed identity for an unknown
+  UUID is the documented design; the mitigation stack (discovery-verified
+  keys, first-key-wins, conflict banner, safety numbers) was re-verified.
+- `logError` never logs in release builds (`MainActivity.kt` gates on
+  `isDebugBuild` before any `Log.e` call).
+- A replayed sealed message cannot resurrect a deleted conversation's UI
+  record (`copyWith` preserves `isDeleted`); fix #5 closes the residual
+  invisible-storage path.
+
+## Documentation drift, fixed
+
+README §16 no longer documents the removed legacy flat-payload path or the
+`isEncrypted` content decryption; §24 documents `receivedAt` and marks
+`isEncrypted` as a legacy display flag; §26 no longer lists the media
+permissions the manifest deliberately omits (audit M-7).
+
+## Known gaps, recorded
+
+- The `FLAG_SECURE` check is asserted by a source-text test rather than a
+  behavior test (pre-existing, unchanged).
+- LAN subnet learning is now exercised end-to-end through the announcement
+  pipeline in `lan_route_pinning_test.dart` (the previous test used the
+  `debugAllowSubnet` shortcut).
+- Announcement freshness still admits same-window replays to *discovery*
+  presence from the pinned-address host itself; route takeover is the
+  security-relevant path and is now pinned.
+
+## Validation
+
+`flutter analyze` clean; every one of the 42 test files passes — the prior 139 tests plus the 26 new tests added with the fixes above (165 total) on Flutter 3.47.9 / Dart 3.13.7.

@@ -68,6 +68,17 @@ class ConversationStore {
   bool get hasStoredData =>
       _prefs.getString(AhoyConstants.prefConversations) != null;
 
+  /// True when [conversationId] exists as a soft-deleted tombstone. Inbound
+  /// messages for deleted threads are dropped instead of silently
+  /// accumulating behind the tombstone (round 7, external review A#3).
+  bool isSoftDeleted(String conversationId) {
+    for (final json in _loadAllJson()) {
+      final conversation = Conversation.fromJson(json);
+      if (conversation.id == conversationId) return conversation.isDeleted;
+    }
+    return false;
+  }
+
   bool get needsLegacyPlaintextMigration {
     final raw = _prefs.getString(AhoyConstants.prefConversations);
     final crypto = _localDataCrypto;

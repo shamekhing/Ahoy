@@ -861,32 +861,29 @@ ChatProvider._inboundSub.listen(packet)
   → ChatService.onInboundPacket(rawPayload, peerUuid, myUuid, transport, receiveOff, blockedUuids)
        ├─ outer = jsonDecode(rawPayload)
        ├─ if peerUuid in blockedUuids: return null
-       ├─ if outer['v'] == 3 (sealed audit M-1):
-       │    plain = CryptoService.decryptFromPeer(outer['ct'])
-       │    json = jsonDecode(plain)     ← metadata was inside the blob
+       ├─ if outer['msgType'] != 'identity' && outer['v'] != 3: return null
+       │    [sealed v3 only — the legacy flat fallback was removed (audit L-2)]
+       ├─ if outer['msgType'] == 'identity': handle the signed identity, return null
+       ├─ plain = CryptoService.decryptFromPeer(outer['ct'])
+       │    json = jsonDecode(plain)     ← metadata lives inside the blob
        │    [undecryptable → return null]
-       │  else: json = outer (legacy flat fallback)
-       ├─ if json['msgType'] != 'chat': return null
+       ├─ if json['msgType'] not in {chat, ack}: return null
        ├─ convId = conversationId(myUuid, peerUuid)
+       ├─ if conversation soft-deleted: return null  [no tombstone resurrection (round 7)]
        ├─ if new conversation AND receiveOff: return null
        ├─ if json['senderUuid'] != peerUuid: return null      [spoofed identity]
        ├─ if json['convId'] != convId: return null            [cross-conv replay]
        ├─ if |now - json['timestamp']| > 15 min: return null  [stale replay]
        ├─ if msgId empty / > 64 chars / non-hex: return null
        ├─ trusted key = pinned conversation key OR payload senderPublicKeyPEM
-       │    verify signature (v3 material for v3, legacy material otherwise)
+       │    verify signature (v3 material)
        │    [unkeyed or unsigned → return null (audit H-1)]
        ├─ type = MessageType.values.byName(json['type'])
-       ├─ if legacy && json['isEncrypted'] && crypto.isReady:
-       │    content = CryptoService.decryptFromPeer(json['content'])
-       │      → decode base64 envelope → parse {v, ek, iv, ct}
-       │      → RSA-OAEP decrypt ek → aesKey
-       │      → AES-256-GCM decrypt ct with aesKey + iv
        ├─ if type == image/voice:
        │    content = _saveMediaToFile(content, msgId, type)
-       │      → base64.decode → write to app docs/ahoy_media_{msgId}.{ext}
+       │      → size-capped base64.decode → write to app docs/ahoy_media_{msgId}.{ext}
        │      → return file path
-       ├─ MessageStore.addMessage(message)   [dedup by msgId]
+       ├─ MessageStore.addMessage(message)   [dedup by msgId; receivedAt = receiver clock (round 7)]
        └─ _updateConversationOnReceive()
             → ConversationStore.upsert() [async mutex]
                  → unreadCount++
@@ -1462,8 +1459,9 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 | `replyToPreview` | String? | First 80 chars of replied-to content |
 | `status` | MessageStatus | sending → sent → delivered / failed |
 | `transport` | TransportMode | Transport used to send/receive |
-| `timestamp` | DateTime | Message creation time |
-| `isEncrypted` | bool | Whether content was encrypted in transit |
+| `timestamp` | DateTime | Sender-claimed creation time (bounded by the freshness window) |
+| `receivedAt` | DateTime? | Receiver-clock time used for thread ordering (round 7); null on rows stored by older builds |
+| `isEncrypted` | bool | Legacy display flag; sealed v3 payloads are always encrypted and the field no longer travels on the wire |
 
 ---
 
@@ -1524,9 +1522,10 @@ Declared in `android/app/src/main/AndroidManifest.xml`:
 | `NEARBY_WIFI_DEVICES` | ≥ 33 | Android 13+ scoped WiFi access (`neverForLocation` avoids location prompt) |
 | `USE_BIOMETRIC` | all | Fingerprint / face authentication |
 | `USE_FINGERPRINT` | all | Legacy fingerprint support |
-| `READ_MEDIA_IMAGES` | ≥ 33 | Gallery image picker (Android 13+) |
-| `READ_MEDIA_AUDIO` | ≥ 33 | Audio file access (Android 13+) |
-| `READ_EXTERNAL_STORAGE` | ≤ 32 | Media access fallback (pre-Android 13) |
+
+No media permissions (`READ_MEDIA_*`, `READ_EXTERNAL_STORAGE`) are declared:
+image_picker uses the system photo picker and audio is recorded into
+app-private storage (audit M-7).
 
 Hardware features declared `android:required="false"` so app installs on devices without camera or BLE.
 

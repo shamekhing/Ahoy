@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
@@ -17,6 +18,11 @@ class LanTransport implements TransportInterface {
   final int _maxPayloadBytes;
   final int _maxMessagesPerConnection;
   final Duration _tcpIdleTimeout;
+
+  /// Absolute cap on one inbound TCP connection's lifetime regardless of
+  /// activity (round 7): the idle timeout alone is attacker defeatable
+  /// because every received byte resets it.
+  final Duration _tcpMaxLifetime;
   final CryptoService? _crypto;
 
   final _packetController = StreamController<InboundPacket>.broadcast();
@@ -59,6 +65,19 @@ class LanTransport implements TransportInterface {
   int _activeConnections = 0;
   final Map<String, _RateWindow> _rateWindows = {};
 
+  /// Aggregate bytes currently buffered in incomplete inbound TCP messages
+  /// across all connections (round 7). Bounded so lanMaxConnections ×
+  /// lanMaxPayloadBytes of unterminated garbage cannot be resident at once.
+  int _totalBufferedBytes = 0;
+  late final int _maxTotalBufferedBytes;
+
+  /// (uuid, signature) pairs of announcements already processed this session
+  /// (round 7). A signature covers a fresh timestamp, so the same pair
+  /// arriving again — from any address — is a replayed capture. Checked
+  /// before RSA verification so replay floods never reach the crypto layer.
+  final Set<String> _seenAnnouncements = {};
+  static const int _maxSeenAnnouncements = 1024;
+
   @visibleForTesting
   int get debugActiveConnections => _activeConnections;
 
@@ -76,12 +95,19 @@ class LanTransport implements TransportInterface {
     Duration tcpIdleTimeout = const Duration(
       seconds: AhoyConstants.lanTcpIdleTimeoutSeconds,
     ),
+    Duration tcpMaxLifetime = const Duration(
+      seconds: AhoyConstants.lanTcpMaxLifetimeSeconds,
+    ),
+    int? maxTotalBufferedBytes,
     CryptoService? crypto,
   }) : _discoveryPort = discoveryPort,
        _messagingPort = messagingPort,
        _maxPayloadBytes = maxPayloadBytes,
        _maxMessagesPerConnection = maxMessagesPerConnection,
        _tcpIdleTimeout = tcpIdleTimeout,
+       _tcpMaxLifetime = tcpMaxLifetime,
+       _maxTotalBufferedBytes =
+           maxTotalBufferedBytes ?? AhoyConstants.lanMaxTotalBufferedBytes,
        _crypto = crypto;
 
   @visibleForTesting
@@ -244,8 +270,20 @@ class LanTransport implements TransportInterface {
     final dg = _udpSocket?.receive();
     if (dg == null) return;
     if (dg.data.length > AhoyConstants.lanMaxAnnouncementBytes) return;
+    String raw;
     try {
-      final json = jsonDecode(utf8.decode(dg.data)) as Map<String, dynamic>;
+      raw = utf8.decode(dg.data);
+    } catch (_) {
+      return;
+    }
+    _onAnnouncementJson(raw, dg.address);
+  }
+
+  /// Validates and applies one announcement datagram. Split from
+  /// [_onUdpDatagram] so tests can feed announcements without sockets.
+  void _onAnnouncementJson(String raw, InternetAddress senderAddress) {
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
       if (json['type'] != 'ahoy_announce') return;
       final uuid = json['uuid'] as String?;
       if (uuid == null || uuid == _myUuid) return;
@@ -253,7 +291,7 @@ class LanTransport implements TransportInterface {
       // Only trust announcements that originate from our own interface
       // subnets (or loopback) cross-network spoofs are dropped and can
       // never poison the connect targets (audit M-4).
-      if (!_isLocalOrLoopback(dg.address)) {
+      if (!_isLocalOrLoopback(senderAddress)) {
         ahoyLog('[LAN] dropping announcement from foreign subnet');
         return;
       }
@@ -279,17 +317,18 @@ class LanTransport implements TransportInterface {
           // Freshness: a captured announcement replayed later must not
           // repoint routing or refresh a departed peer (sixth review,
           // findings 1 and 2).
-          !CryptoService.isFreshTimestamp(timestamp) ||
-          !crypto.verifyAnnouncement(
-            uuid: uuid,
-            shortId: shortId,
-            displayName: displayName,
-            statusMessage: statusMessage,
-            publicKeyPEM: pem,
-            signature: signature,
-            timestamp: timestamp!,
-          )) {
+          !CryptoService.isFreshTimestamp(timestamp)) {
         ahoyLog('[LAN] dropping announcement that fails verification');
+        return;
+      }
+
+      // Same-key replay guard (round 7): the signature covers a fresh
+      // timestamp, so an identical (uuid, signature) pair arriving again —
+      // even from a different address — is a replayed capture. Dropping it
+      // before RSA verification keeps replay floods off the crypto layer.
+      final announcementKey = '$uuid|$signature';
+      if (_seenAnnouncements.contains(announcementKey)) {
+        ahoyLog('[LAN] dropping replayed announcement');
         return;
       }
 
@@ -303,14 +342,50 @@ class LanTransport implements TransportInterface {
         ahoyLog('[LAN] dropping announcement with a conflicting key');
         return;
       }
+
+      if (!crypto.verifyAnnouncement(
+        uuid: uuid,
+        shortId: shortId,
+        displayName: displayName,
+        statusMessage: statusMessage,
+        publicKeyPEM: pem,
+        signature: signature,
+        timestamp: timestamp!,
+      )) {
+        ahoyLog('[LAN] dropping announcement with an invalid signature');
+        return;
+      }
+
+      _seenAnnouncements.add(announcementKey);
+      while (_seenAnnouncements.length > _maxSeenAnnouncements) {
+        _seenAnnouncements.remove(_seenAnnouncements.first);
+      }
       _uuidKeys[uuid] = pem;
 
-      final prefix = _subnetPrefix(dg.address.address);
+      final prefix = _subnetPrefix(senderAddress.address);
       if (prefix != null) _announceSubnets.add(prefix);
 
+      // Route pinning (round 7): a verified announcement only repoints the
+      // TCP route when there is no route yet, when it comes from the already
+      // pinned address, or when the pinned address has gone stale (peer
+      // expiry). A captured announcement replayed from a neighbouring
+      // address within the freshness window can therefore neither take over
+      // the route of a live peer nor refresh presence from the wrong host.
+      final now = DateTime.now();
+      final existing = _peerConns[uuid];
+      if (existing != null &&
+          existing.address.address != senderAddress.address &&
+          now.difference(existing.pinnedAt) <
+              const Duration(seconds: AhoyConstants.lanPeerExpirySeconds)) {
+        ahoyLog(
+          '[LAN] keeping pinned route for $uuid; '
+          'ignored announcement from ${senderAddress.address}',
+        );
+        return;
+      }
       // The announced port is never trusted (audit M-5): the messaging port
       // is fixed on both ends of the protocol.
-      _peerConns[uuid] = _PeerConn(dg.address, _messagingPort);
+      _peerConns[uuid] = _PeerConn(senderAddress, _messagingPort, now);
 
       _announcementController.add(
         PeerAnnouncement(
@@ -340,19 +415,35 @@ class LanTransport implements TransportInterface {
     }
     _activeConnections++;
     final remoteAddress = socket.remoteAddress.address;
-    final buffer = <int>[];
+    final buffer = BytesBuilder();
+    var bufferedBytes = 0;
     var messagesProcessed = 0;
     var closed = false;
     Timer? idleTimer;
+    Timer? lifetimeTimer;
 
     void close({bool discardBuffer = false}) {
       if (closed) return;
       closed = true;
       idleTimer?.cancel();
+      lifetimeTimer?.cancel();
+      // Release this connection's share of the aggregate buffer budget
+      // before clearing, so the global cap keeps tracking reality (round 7).
+      _totalBufferedBytes -= bufferedBytes;
+      if (_totalBufferedBytes < 0) _totalBufferedBytes = 0;
+      bufferedBytes = 0;
       if (discardBuffer) buffer.clear();
       _activeConnections =
           _activeConnections > 0 ? _activeConnections - 1 : 0;
       socket.destroy();
+    }
+
+    /// Releases [count] bytes from the buffer accounting once they are no
+    /// longer held as an incomplete message (round 7).
+    void releaseBuffered(int count) {
+      bufferedBytes -= count;
+      _totalBufferedBytes -= count;
+      if (_totalBufferedBytes < 0) _totalBufferedBytes = 0;
     }
 
     /// Fixed-window per-address rate limit: each processed message counts
@@ -387,18 +478,17 @@ class LanTransport implements TransportInterface {
       idleTimer = Timer(_tcpIdleTimeout, () => close(discardBuffer: true));
     }
 
-    bool processBufferedMessage() {
-      if (buffer.isEmpty) return true;
+    bool processMessage(List<int> raw) {
       if (messagesProcessed >= _maxMessagesPerConnection) {
         ahoyLog('[LAN] dropping TCP connection with too many messages');
         close(discardBuffer: true);
         return false;
       }
 
-      final messageBytes = buffer.last == 13
-          ? buffer.sublist(0, buffer.length - 1)
-          : List<int>.from(buffer);
-      buffer.clear();
+      var messageBytes = raw;
+      if (messageBytes.isNotEmpty && messageBytes.last == 13) {
+        messageBytes = messageBytes.sublist(0, messageBytes.length - 1);
+      }
       if (messageBytes.isEmpty) return true;
 
       messagesProcessed += 1;
@@ -412,29 +502,63 @@ class LanTransport implements TransportInterface {
     }
 
     resetIdleTimer();
+    // Absolute lifetime cap (round 7): activity keeps the idle timer alive,
+    // but no connection may hold its buffers beyond this bound.
+    lifetimeTimer = Timer(_tcpMaxLifetime, () => close(discardBuffer: true));
     socket.listen(
-      (bytes) {
+      (chunk) {
         resetIdleTimer();
-        for (final byte in bytes) {
-          if (byte == 10) {
-            if (!allowMessage()) return;
-            if (!processBufferedMessage()) return;
-            continue;
-          }
+        buffer.add(chunk);
+        bufferedBytes += chunk.length;
+        _totalBufferedBytes += chunk.length;
+        // Per-connection cap: one unterminated message may not exceed the
+        // payload bound (as before, audit M-5).
+        if (bufferedBytes > _maxPayloadBytes) {
+          ahoyLog('[LAN] dropping oversized TCP payload');
+          close(discardBuffer: true);
+          return;
+        }
+        // Aggregate cap across all connections (round 7): memory stays
+        // bounded no matter how many connections a flood opens.
+        if (_totalBufferedBytes > _maxTotalBufferedBytes) {
+          ahoyLog('[LAN] dropping connection over the aggregate buffer budget');
+          close(discardBuffer: true);
+          return;
+        }
 
-          if (buffer.length >= _maxPayloadBytes) {
-            ahoyLog('[LAN] dropping oversized TCP payload');
-            close(discardBuffer: true);
-            return;
-          }
-          buffer.add(byte);
+        // Split on newlines in bulk instead of walking the stream byte by
+        // byte (round 7). Multiple messages arriving in one chunk are all
+        // processed, with the original per-message accounting preserved.
+        final data = buffer.takeBytes();
+        var start = 0;
+        while (!closed) {
+          final newline = data.indexOf(10, start);
+          if (newline < 0) break;
+          final lineBytes = data.sublist(start, newline);
+          final consumed = lineBytes.length + 1;
+          start += consumed;
+          releaseBuffered(consumed);
+          if (!allowMessage()) return;
+          if (!processMessage(lineBytes)) return;
+        }
+        if (!closed && start < data.length) {
+          buffer.add(data.sublist(start));
         }
       },
       onDone: () {
         idleTimer?.cancel();
+        lifetimeTimer?.cancel();
         // Process any bounded message that arrived without a trailing newline.
-        if (!closed) processBufferedMessage();
-        socket.destroy();
+        if (!closed) {
+          final rest = buffer.takeBytes();
+          if (rest.isNotEmpty) {
+            releaseBuffered(rest.length);
+            processMessage(rest);
+          }
+        }
+        // Release the connection slot on clean peer disconnects too (round
+        // 7: the previous handler only decremented on error/timeout paths).
+        if (!closed) close();
       },
       onError: (_) => close(discardBuffer: true),
     );
@@ -544,6 +668,33 @@ class LanTransport implements TransportInterface {
   bool debugIsLocalOrLoopback(String ipv4) =>
       _isLocalOrLoopback(InternetAddress(ipv4));
 
+  @visibleForTesting
+  InternetAddress? debugRouteAddress(String uuid) => _peerConns[uuid]?.address;
+
+  @visibleForTesting
+  DateTime? debugRoutePinnedAt(String uuid) => _peerConns[uuid]?.pinnedAt;
+
+  /// Marks every pinned route stale so takeover tests do not have to wait
+  /// out the peer expiry window (round 7).
+  @visibleForTesting
+  void debugExpireRoutes() {
+    final stale = DateTime.now().subtract(
+      const Duration(seconds: AhoyConstants.lanPeerExpirySeconds + 1),
+    );
+    _peerConns.updateAll(
+      (_, conn) => _PeerConn(conn.address, conn.port, stale),
+    );
+  }
+
+  @visibleForTesting
+  int get debugSeenAnnouncementCount => _seenAnnouncements.length;
+
+  /// Feeds a raw announcement through the full validation pipeline without
+  /// touching a socket (round 7 tests).
+  @visibleForTesting
+  void debugHandleAnnouncement(String rawJson, InternetAddress from) =>
+      _onAnnouncementJson(rawJson, from);
+
   @override
   Future<bool> send(String peerUuid, String payload) async {
     final payloadBytes = utf8.encode(payload);
@@ -590,7 +741,15 @@ class LanTransport implements TransportInterface {
 class _PeerConn {
   final InternetAddress address;
   final int port;
-  _PeerConn(this.address, this.port);
+
+  /// Last time a verified announcement refreshed the route from [address]
+  /// (round 7). Route takeover from a different address requires this to be
+  /// older than the peer expiry window, so a replayed announcement cannot
+  /// repoint the route of a live peer.
+  final DateTime pinnedAt;
+
+  _PeerConn(this.address, this.port, [DateTime? pinnedAt])
+    : pinnedAt = pinnedAt ?? DateTime.now();
 }
 
 /// Whitespace-insensitive PEM comparison, matching the other layers.

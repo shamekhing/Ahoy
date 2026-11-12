@@ -50,7 +50,13 @@ class ChatService {
   /// #2). Only authenticated messages enter the cache, so garbage cannot
   /// flush it.
   final _seenMessageIds = <String>{};
-  static const int _maxSeenMessageIds = 512;
+
+  /// Replay-guard cap (spec §7, Appendix A). Instance field so tests can
+  /// exercise eviction without generating 512 sealed messages.
+  int _maxSeenMessageIds = 512;
+
+  @visibleForTesting
+  void debugSeenMessageIdCap(int cap) => _maxSeenMessageIds = cap;
 
   /// Media limits (audit L-11): per-file cap and a total quota for the
   /// owned ahoy_media_* collection. Injectable for tests.
@@ -220,6 +226,8 @@ class ChatService {
       status: MessageStatus.sending,
       transport: mode,
       timestamp: timestamp,
+      // Own messages sort by their send time (round 7).
+      receivedAt: timestamp,
       isEncrypted: trustedPeerPublicKeyPEM != null,
     );
 
@@ -719,6 +727,16 @@ class ChatService {
       if (json['msgType'] != 'chat') return null;
 
       final convId = MessageStore.conversationId(myUuid, peerUuid);
+      // A soft-deleted conversation stays deleted: inbound messages —
+      // including replays that survive the freshness window after a
+      // restart — must neither resurrect it nor accumulate behind the
+      // tombstone (round 7, external review A#3 residual).
+      if (_convStore.isSoftDeleted(convId)) {
+        ahoyLog(
+          '[ChatService] dropping inbound message for a deleted conversation',
+        );
+        return null;
+      }
       final isNewConversation = !_convStore.loadAll().any(
         (c) => c.id == convId,
       );
@@ -842,6 +860,9 @@ class ChatService {
         status: MessageStatus.sent,
         transport: transport,
         timestamp: timestamp,
+        // Receiver-clock stamp for display ordering (round 7): the sender
+        // controls `timestamp`, so thread order must not trust it.
+        receivedAt: DateTime.now(),
         isEncrypted: isEncrypted,
       );
 
@@ -878,6 +899,13 @@ class ChatService {
     MessageType type,
   ) async {
     try {
+      // Reject oversized media before paying the decode cost (round 7,
+      // external review B#8): a 5 MB media file is ~6.8 MB as base64, so
+      // anything longer cannot pass the byte cap below anyway.
+      if (base64Content.length > (_maxMediaBytes * 4) ~/ 3 + 1024) {
+        ahoyLog('[ChatService] dropping inbound media over the size cap');
+        return null;
+      }
       // Decoding up to a 16 MB LAN frame off the UI thread (audit M-5).
       final bytes = await Isolate.run(() => base64.decode(base64Content));
       if (bytes.isEmpty) return null;

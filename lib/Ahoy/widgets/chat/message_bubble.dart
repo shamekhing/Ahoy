@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../../core/enums.dart';
@@ -102,23 +104,13 @@ class MessageBubble extends StatelessWidget {
     final file = File(message.content);
     final crypto = localDataCrypto;
     if (crypto != null && crypto.isEncryptedFilePath(message.content)) {
-      try {
-        final bytes = crypto.readEncryptedFileSync(file);
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.memory(
-            bytes,
-            width: 200,
-            height: 200,
-            fit: BoxFit.cover,
-          ),
-        );
-      } catch (_) {
-        return Text(
-          '[Image unavailable]',
-          style: TextStyle(color: textColor.withValues(alpha: 0.6)),
-        );
-      }
+      // Decrypt asynchronously off the build path (round 7, external review
+      // B#10): sync GCM work inside build janks long threads on rebuilds.
+      return _EncryptedImage(
+        file: file,
+        crypto: crypto,
+        textColor: textColor,
+      );
     }
 
     return ClipRRect(
@@ -178,4 +170,67 @@ class MessageBubble extends StatelessWidget {
     MessageStatus.delivered => Icons.done_all,
     MessageStatus.failed => Icons.error_outline,
   };
+}
+
+/// Decrypts an at-rest-encrypted media file once, off the build path, and
+/// renders it when ready (round 7, external review B#10).
+class _EncryptedImage extends StatefulWidget {
+  final File file;
+  final LocalDataCrypto crypto;
+  final Color textColor;
+
+  const _EncryptedImage({
+    required this.file,
+    required this.crypto,
+    required this.textColor,
+  });
+
+  @override
+  State<_EncryptedImage> createState() => _EncryptedImageState();
+}
+
+class _EncryptedImageState extends State<_EncryptedImage> {
+  Uint8List? _bytes;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final bytes = await widget.crypto.readEncryptedFile(widget.file);
+      if (!mounted) return;
+      setState(() {
+        // An empty result means the file was quarantined: nothing to show.
+        _bytes = bytes.isEmpty ? null : bytes;
+        _failed = bytes.isEmpty;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unavailable = Text(
+      '[Image unavailable]',
+      style: TextStyle(color: widget.textColor.withValues(alpha: 0.6)),
+    );
+    if (_failed) return unavailable;
+    final bytes = _bytes;
+    if (bytes == null) {
+      return const SizedBox(
+        width: 200,
+        height: 200,
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.memory(bytes, width: 200, height: 200, fit: BoxFit.cover),
+    );
+  }
 }

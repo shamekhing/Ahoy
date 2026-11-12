@@ -74,9 +74,23 @@ class CryptoService {
       }
       final saltHex = parts[3];
       final expectedDkHex = parts[4];
-      final dkHex = await Isolate.run(
-        () => _pbkdf2Hex(saltHex, password, iterations),
-      );
+      // Fail closed on malformed stored hashes instead of throwing from the
+      // isolate (round 7): a corrupt hash must read as a wrong password.
+      if (!_isValidHex(saltHex) ||
+          saltHex.length.isOdd ||
+          saltHex.length < 16 ||
+          !_isValidHex(expectedDkHex) ||
+          expectedDkHex.length != 64) {
+        return false;
+      }
+      final String dkHex;
+      try {
+        dkHex = await Isolate.run(
+          () => _pbkdf2Hex(saltHex, password, iterations),
+        );
+      } catch (_) {
+        return false;
+      }
       return _constantTimeEquals(dkHex, expectedDkHex);
     }
 
@@ -85,16 +99,43 @@ class CryptoService {
       if (parts.length != 3) return false;
       final saltHex = parts[1];
       final expectedDkHex = parts[2];
-      final dkHex = await Isolate.run(
-        () => _pbkdf2Hex(saltHex, password, legacyPasswordHashIterations),
-      );
+      if (!_isValidHex(saltHex) ||
+          saltHex.length.isOdd ||
+          saltHex.length < 16 ||
+          !_isValidHex(expectedDkHex) ||
+          expectedDkHex.length != 64) {
+        return false;
+      }
+      final String dkHex;
+      try {
+        dkHex = await Isolate.run(
+          () => _pbkdf2Hex(saltHex, password, legacyPasswordHashIterations),
+        );
+      } catch (_) {
+        return false;
+      }
       return _constantTimeEquals(dkHex, expectedDkHex);
     }
     // Legacy SHA-256 format verify without blocking the UI (fast).
     final parts = storedHash.split(':');
     if (parts.length != 2) return false;
-    final hash = sha256.convert(utf8.encode(parts[0] + password));
-    return _constantTimeEquals(hash.toString(), parts[1]);
+    final salt = parts[0];
+    final expectedDigest = parts[1];
+    if (!_isValidHex(salt) ||
+        salt.length.isOdd ||
+        !_isValidHex(expectedDigest) ||
+        expectedDigest.length != 64) {
+      return false;
+    }
+    final hash = sha256.convert(utf8.encode(salt + password));
+    return _constantTimeEquals(hash.toString(), expectedDigest);
+  }
+
+  /// True when [value] is a non-empty lowercase/uppercase hex string
+  /// (round 7 hardening for stored-hash parsing).
+  static bool _isValidHex(String value) {
+    if (value.isEmpty) return false;
+    return RegExp(r'^[0-9a-fA-F]+$').hasMatch(value);
   }
 
   bool passwordHashNeedsUpgrade(String storedHash) {

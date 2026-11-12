@@ -11,6 +11,12 @@ class Message {
   final MessageStatus status;
   final TransportMode transport;
   final DateTime timestamp;
+
+  /// Receiver-clock time used for thread ordering (round 7). The sender
+  /// controls [timestamp] and may skew it within the freshness window, so
+  /// display order must not trust it. Null on messages stored by older
+  /// builds; they fall back to [timestamp].
+  final DateTime? receivedAt;
   final bool isEncrypted;
 
   const Message({
@@ -24,10 +30,15 @@ class Message {
     required this.status,
     required this.transport,
     required this.timestamp,
+    this.receivedAt,
     this.isEncrypted = true,
   });
 
-  Message copyWith({String? content, MessageStatus? status}) {
+  Message copyWith({
+    String? content,
+    MessageStatus? status,
+    DateTime? receivedAt,
+  }) {
     return Message(
       id: id,
       conversationId: conversationId,
@@ -39,6 +50,7 @@ class Message {
       status: status ?? this.status,
       transport: transport,
       timestamp: timestamp,
+      receivedAt: receivedAt ?? this.receivedAt,
       isEncrypted: isEncrypted,
     );
   }
@@ -54,6 +66,7 @@ class Message {
     'status': status.name,
     'transport': transport.name,
     'timestamp': timestamp.toIso8601String(),
+    if (receivedAt != null) 'receivedAt': receivedAt!.toIso8601String(),
     'isEncrypted': isEncrypted,
   };
 
@@ -96,6 +109,9 @@ class Message {
         TransportMode.none,
       ),
       timestamp: DateTime.parse(json['timestamp'] as String),
+      receivedAt: json['receivedAt'] == null
+          ? null
+          : DateTime.parse(json['receivedAt'] as String),
       isEncrypted: json['isEncrypted'] as bool? ?? false,
     );
   }
