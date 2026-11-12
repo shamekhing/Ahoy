@@ -79,6 +79,8 @@ class _AhoyAppState extends State<AhoyApp> {
         _convStore,
         _msgStore,
         _localDataCrypto,
+        null,
+        _prefsStore,
       ).migrate();
 
       _authService = AuthService(

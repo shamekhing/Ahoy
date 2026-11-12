@@ -69,6 +69,10 @@ class AhoyConstants {
   // were wiped while the Keychain survived (iOS reinstall, audit M-1).
   static const String prefAccountMarker = 'ahoy_account_marker';
 
+  // Set once the local data migrator has run; later launches skip it
+  // instead of decrypting everything again (audit L-10).
+  static const String prefLocalDataMigrated = 'ahoy_local_data_migrated';
+
   // Set when undecryptable local data was quarantined, consumed once by the
   // startup notice (audit M-1).
   static const String prefQuarantineNotice = 'ahoy_quarantine_notice';
