@@ -494,6 +494,18 @@ Form and list correctness:
 | 24 | Long peer names overflowed the chat and peer-profile app bars | `maxLines: 1, overflow: ellipsis` on both dynamic titles; a 120-character name pumps without any RenderFlex exception |
 | 26 | Conversation-list media previews showed the raw enum name (`[image]`, `[voice]`), and the `[Blocked]` description vanished whenever the thread had no messages (so a blocked thread with no messages showed nothing) | A shared `MessageLabels.forMessage` (now also backing `ReplyPreview.labelFor`) yields `[Photo]` / `[Voice message]`; the tile subtitle is always present: `[Blocked]`, the preview, or "No messages yet" |
 
+## Batch 8 fixed (same review, follow-up commit)
+
+Message actions and the accessibility surface:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 25 | Long-press only triggered reply: no way to copy text or delete a mistake, and the transcript had no day grouping | Long-press now opens an action sheet — **Reply**, **Copy text** (text messages, via the clipboard with a confirmation snackbar) and **Delete** (own messages only; the row is removed and the conversation preview recomputed so the list never advertises a deleted message). The reverse-anchored transcript also renders centered date chips (Today / Yesterday / d/M) at every day boundary |
+| 31 | Icon-only buttons lacked tooltips/labels | The remaining gaps are closed: the chat ⋮ menu (“Conversation options”) and the composer send button (“Send”); the gallery, camera, voice, cancel and stop-and-send buttons already carried tooltips from batch 4, asserted by test |
+| 34 (partial) | Forms stretched edge-to-edge on tablets/landscape | Sign-in and sign-up are centered with a 480dp max width; the chat bubbles were already width-capped, the discover grid wraps, and full adaptive layouts remain accepted below |
+
+Also resolved or explicitly accepted from the same review: **27** (navigation duplication) was settled by batch 5 — one destructive action remains, in Settings, and Profile offers only Lock; **32** (color-only cues) was audited and found already mitigated — status glyphs are shape-based (clock/check/double-check/cross), the unread badge carries a number, blocked state is a text chip, and trust states are tappable sheets; **26 remnants** (swipe-to-delete, list search) and **33** (localization) are feature-level work, accepted as backlog rather than polish; the rest of **34** (full tablet layouts) is likewise accepted. This closes the UI/UX review: every item is either fixed or explicitly accepted with its reason.
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
@@ -506,8 +518,11 @@ batch 6), safety-number UX (copy and rewording done in batch 5; QR still
 open), sign-up hardening copy (done in batch 7), dropping the gender field
 (done in batch 5), dark-mode contrast and text sizes (done in batch 3),
 avatar unification (done in batch 5), message and conversation-list actions
-(media preview labels and row descriptions done in batch 7; copy/delete,
-date separators, swipe and search still open), navigation consolidation,
+(preview labels, row descriptions, copy/delete and date chips done in batch
+8; swipe-to-reply, swipe-to-delete and list search accepted as features),
+navigation consolidation (resolved by the batch 5 lock/erase split),
 settings copy (done in batch 6), startup error recovery (done in batch 6),
-app bar title overflow (done in batch 7), tooltips and semantics, color
-independence, localization, and layout constraints.
+app bar title overflow (done in batch 7), tooltips and semantics (done in
+batch 8), color independence (audited, mitigations verified in batch 8),
+localization (accepted: single-language offline v1), and layout constraints
+(auth forms bounded in batch 8; full adaptive layouts accepted).
