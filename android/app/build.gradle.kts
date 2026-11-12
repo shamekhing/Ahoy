@@ -66,8 +66,15 @@ android {
             signingConfigs.findByName("release")?.let {
                 signingConfig = it
             }
-            // Minification disabled: pointycastle and encrypt use reflection and
-            // are not compatible with R8 without a custom keep-rules file.
+            // R8 stays disabled until a release keystore exists (see
+            // key.properties below): enabling minification without a build to
+            // verify against risks shipping an app that crashes on first
+            // launch. Fifth-review L-11 asked for R8 with keep rules; the
+            // original comment blamed reflection in pointycastle/encrypt,
+            // which is doubtful. The actual blocker is validation: enable R8
+            // with keep rules for pointycastle, encrypt and the plugins in
+            // the same change as a verified release build once key.properties
+            // is present on the build machine.
             isMinifyEnabled = false
             isShrinkResources = false
         }
