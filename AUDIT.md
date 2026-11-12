@@ -111,3 +111,91 @@ A transport-focused review of `wifi_direct_transport.dart` raised three findings
 | 3 | `dispose()` never tore down the native group/server socket | `dispose()` now awaits `stopAdvertising()` (which invokes the Kotlin `disconnect`) before stopping discovery. |
 
 New tests: TTL expiry frees wedged peers, concurrent in-flight attempts are tracked independently (regression for the cross-removal), failed connects free the address for immediate retry. Validated: `flutter analyze` clean, `flutter test` 71/71 passing.
+
+---
+
+# Fifth External Review (merged internal audit plus external static review)
+
+Two independent reviews were merged into one ladder. One commit per step on
+`audit/fifth-review`. All steps below are complete; hashes are in the
+commit log.
+
+## High findings, fixed
+
+| # | Finding | Fix |
+|---|---------|-----|
+| H-1 | Voice messages were transmitted empty: `_storedContentForLocalMessage` deleted the recorder temp file before `_buildPayload` re-read the path, and the keyless outbox captured the dead path | `_prepareOutgoingMedia` reads bytes once and returns both the stored path and the wire bytes; `_encodeMediaContent` throws on a missing source; the outbox carries bytes; inbound empty media is dropped |
+| H-2 | Identity was never bound to keys: self-signed announcements can claim any UUID, `registerVerifiedPeerKey` overwrote unconditionally and ran before the DiscoveryService veto, WiFi Direct routing was last-writer-wins | `PeerTrustStore` is the single authority (first key wins, conflicts recorded as pendingKey and never applied), discovery keys flow to chat only after the veto with the stored key, identity conflicts are refused without reply or retry, WiFi Direct routes bind to the first verified key, and the UI shows unverified/pinned/verifiedBySafetyNumber with an Identity changed banner |
+| H-3 | Off the Grid was not enforced: cold start, pull-to-refresh and profile edit all re-advertised | The flag moved into `TransportManager`; every advertise path is gated, the persisted preference seeds a cold start, and the profile editor uses a flag-aware `refreshAdvertising()` |
+
+## Medium findings, fixed
+
+M-1 iOS Keychain is now `first_unlock_this_device` with a one-time rewrite;
+quarantine replaces throwing for undecryptable profile, conversation,
+message and media records; a reinstall is detected by a prefs account
+marker and the stale Keychain identity is cleared; a one-time snackbar
+reports quarantined data. M-2 sign-up refuses when an account exists and
+the confirmed replacement wipes the old data. M-3 lock ownership hands off
+to the next waiter in both stores. M-4 Receive Off gates the identity
+handshake for strangers, and WiFi Direct auto-connect gives up on devices
+that never prove they speak Ahoy. M-5 picker copies are deleted after
+capture, sign-out sweeps the cache, media encode/decode runs in an isolate.
+M-6 the outbox is persisted and orphaned `sending` messages are failed at
+startup. M-7 media permissions are gone, BLUETOOTH_SCAN is
+neverForLocation and location is scoped to old Android. M-8 session maps
+are capped, identity packets are throttled per peer, LAN connections are
+capped at 32 with a 20 messages per 10 s per-address window.
+
+## Low findings, fixed or accepted
+
+Fixed: conversation media is swept on delete; the legacy plaintext inbound
+path is gone (only sealed v3 chat and ack payloads are accepted); BLE
+assemblies are keyed by peer plus UUID message ids; untrusted PEM and
+PBKDF2 iteration counts are capped; keyless announcements cannot rename
+key-verified peers; enabling biometrics requires a successful credential
+check; FLAG_SECURE blocks screenshots in release builds; profile renames
+reach identity replies; BLE display names are UTF-8 truncated on character
+boundaries and idle GATT connections are released after five minutes; the
+migrator runs once behind a prefs marker.
+
+Accepted with rationale (recorded at the call sites): PKCS#1 v1.5
+signatures instead of RSA-PSS (both ends must agree on the encoding; PSS is
+queued for a coordinated upgrade), no AAD in the GCM envelope (the sealed
+payload already signs everything inside it), double RSA verification of
+announcements (defense in depth across two state owners), write
+amplification from per-message re-encryption of conversation history, the
+GATT characteristic writable by any nearby device (bounded by assembly
+caps), no BLE advertising or GATT server on iOS (Android-only platform
+code), the 8-character minimum password with no change flow, the WiFi
+Direct receiver registered only in onResume, and the discovery beacons
+themselves (UUID plus public key every 5 s over UDP, shortId plus truncated
+display name in the BLE scan response), which are inherent to serverless
+proximity discovery and are mitigated by rotating nothing: users opt into
+Off the Grid.
+
+Deferred with a recorded blocker: R8/minification stays off because a
+release build cannot be validated without `android/key.properties`; the
+gradle comment now states the real blocker instead of the doubtful
+reflection claim. Verified against the pub cache:
+`flutter_secure_storage` 9.2.4 does not deprecate `encryptedSharedPreferences`.
+
+## Documentation drift, fixed
+
+`ahoy_router.dart` deleted (it was referenced nowhere); README no longer
+references `discovery_controls.dart` (removed in the third review),
+`_maybeStartTransports` (never existed under that name) or
+`Navigator.pushNamed`, and the bootstrap constructor listing now includes
+keyStore and localDataCrypto.
+
+## Known limitation, recorded
+
+The WiFi Direct platform layer reports no MAC to IP linkage, so the
+auto-connect cap (two expired attempts per address per group session)
+counts a slow real peer the same as a printer; pull-to-refresh clears the
+marks for a manual retry.
+
+## Validation
+
+Every commit ran `flutter analyze` clean and its targeted tests; the full
+suite is green at 135 tests on Flutter 3.47.9 / Dart 3.13.7. Gate note: run
+the suite without piping so a failing exit code cannot be masked.

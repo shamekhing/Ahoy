@@ -111,8 +111,6 @@ lib/
     │   ├── discovery_provider.dart   Peer list, transport toggles, block list
     │   ├── transport_provider.dart   Live transport mode per peer (for media gating)
     │   └── chat_provider.dart        Conversation list, message cache, inbound listener
-    ├── router/
-    │   └── ahoy_router.dart          Route name constants (Navigator.pushNamed paths)
     ├── screens/
     │   ├── root_screen.dart          Auth gate + transport bootstrap controller
     │   ├── main_shell.dart           4-tab NavigationBar scaffold
@@ -166,7 +164,6 @@ lib/
         │   └── reply_preview.dart     Reply-to bar with clear button
         └── discover/
             ├── peer_card.dart         Peer list tile with transport badges
-            └── discovery_controls.dart  Transport toggle bottom sheet (referenced from Settings)
 
 android/app/src/main/kotlin/com/ahoy/app/
 └── MainActivity.kt   WiFi P2P manager, TCP ServerSocket, BLE GATT server, both MethodChannels
@@ -188,7 +185,7 @@ AhoyApp (StatefulWidget)
        ├─ 2.  PrefsStore()                   SharedPreferences (await .init())
        ├─ 3.  CryptoService()                RSA/AES engine (inactive until keys loaded)
        ├─ 4.  KeyStore(secureStore, crypto)  SecureStore ↔ CryptoService bridge
-       ├─ 5.  AuthService(secureStore, prefs, crypto, keyStore)
+       ├─ 5.  AuthService(secureStore, prefs, profileService, crypto, keyStore, localDataCrypto)
        ├─ 6.  ProfileService(prefs)
        ├─ 7.  TransportManager()             creates WiFiDirectTransport, LanTransport, BleTransport
        ├─ 8.  DiscoveryService()             in-memory peer map + cleanup timer
@@ -222,7 +219,7 @@ RootScreen.build()
   └─ if auth.isSignedIn && auth.user != null  →  MainShell
   └─ else                                     →  SignInScreen (with nav to SignUpScreen)
 
-AuthProvider addListener → _maybeStartTransports()   [fires on every auth state change]
+AuthProvider addListener → RootScreen._handleAuthChanged()   [starts or tears down the session]
 ```
 
 ---
@@ -261,7 +258,7 @@ AuthService.signUp()
 
 AuthProvider.state = AuthState.signedIn
 AuthProvider notifyListeners()
-  └─ RootScreen._maybeStartTransports()   [see §6]
+  └─ RootScreen._handleAuthChanged()      [see §6]
 ```
 
 ---
@@ -307,10 +304,10 @@ AuthProvider.signIn(password)
 
 ## 6. Transport Startup
 
-Triggered once after `AuthState.signedIn` via `RootScreen._maybeStartTransports()`.
+Triggered once after `AuthState.signedIn` via `RootScreen._handleAuthChanged()`.
 
 ```
-_maybeStartTransports()   [guarded runs exactly once per session]
+_startTransports(_auth.user.id)   [guarded by _transportsStarted, runs once per session]
   │
   ├─ Request Android runtime permissions:
   │    ACCESS_FINE_LOCATION, BLUETOOTH_SCAN, BLUETOOTH_CONNECT,
