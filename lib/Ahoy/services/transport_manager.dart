@@ -217,6 +217,12 @@ class TransportManager {
   @visibleForTesting
   String? get debugAnnouncementSignature => _myAnnouncementSignature;
 
+  /// Injects a packet as if a transport delivered it (tests).
+  @visibleForTesting
+  void debugEmitPacket(InboundPacket packet) {
+    _onPacket(packet);
+  }
+
   /// Identity-binding gate for announcements (audit #5): routing state and
   /// discovery updates happen only for announcements that pass verification.
   /// Keyless announcements are legitimate only from BLE scan responses.

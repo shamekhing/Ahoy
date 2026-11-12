@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/chat_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../core/enums.dart';
 import '../../core/constants.dart';
@@ -252,6 +253,13 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
     if (user != null) {
       // Keep AuthProvider in sync so outgoing messages use the new display name.
       context.read<AuthProvider>().updateUser(user);
+      // Keep the chat layer's sender identity in sync so identity replies
+      // carry the new name too (audit L-7).
+      context.read<ChatProvider>().updateMyIdentity(
+            myShortId: user.shortId,
+            myDisplayName: user.username,
+            myPublicKeyPEM: user.publicKeyPEM,
+          );
       // Re-advertise so nearby peers see the updated name and status
       // immediately. refreshAdvertising() is a no-op while Off the Grid is
       // on, so a profile edit cannot broadcast a hidden identity (audit H-3).

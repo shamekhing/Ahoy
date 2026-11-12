@@ -22,6 +22,14 @@ class ChatProvider extends ChangeNotifier {
   final Map<String, List<Message>> _messages = {};
   String? _error;
 
+  // Sender identity for inbound handling and identity replies. Refreshable
+  // on profile rename so outgoing payloads never carry a stale name
+  // (audit L-7).
+  String? _myUuid;
+  String? _myShortId;
+  String? _myDisplayName;
+  String? _myPublicKeyPEM;
+
   StreamSubscription? _inboundSub;
 
   List<Conversation> get conversations => _conversations;
@@ -47,6 +55,10 @@ class ChatProvider extends ChangeNotifier {
   }) async {
     _inboundSub?.cancel();
     _chatService.attachBlockedPeers(blockedUuids);
+    _myUuid = myUuid;
+    _myShortId = myShortId;
+    _myDisplayName = myDisplayName;
+    _myPublicKeyPEM = myPublicKeyPEM;
     // Orphaned sends from a previous process have no outbox backing them
     // (audit M-6); surface them as failed before the list is built. The
     // persisted outbox is restored first so its entries keep waiting.
@@ -62,10 +74,10 @@ class ChatProvider extends ChangeNotifier {
           peerUuid: packet.peerUuid,
           peerShortId: packet.peerShortId,
           peerDisplayName: packet.peerDisplayName,
-          myUuid: myUuid,
-          myShortId: myShortId,
-          myDisplayName: myDisplayName,
-          myPublicKeyPEM: myPublicKeyPEM,
+          myUuid: _myUuid ?? '',
+          myShortId: _myShortId,
+          myDisplayName: _myDisplayName,
+          myPublicKeyPEM: _myPublicKeyPEM,
           transport: packet.transport,
           receiveOff: receiveOff(),
           blockedUuids: blockedUuids,
@@ -195,6 +207,19 @@ class ChatProvider extends ChangeNotifier {
   /// open profile screens drop the key-change banner immediately.
   void promotePeerBySafetyNumber(String uuid) {
     _chatService.promotePeerBySafetyNumber(uuid);
+    notifyListeners();
+  }
+
+  /// Applies a profile rename to the sender identity used in identity
+  /// replies and inbound handling (audit L-7).
+  void updateMyIdentity({
+    String? myShortId,
+    String? myDisplayName,
+    String? myPublicKeyPEM,
+  }) {
+    if (myShortId != null) _myShortId = myShortId;
+    if (myDisplayName != null) _myDisplayName = myDisplayName;
+    if (myPublicKeyPEM != null) _myPublicKeyPEM = myPublicKeyPEM;
     notifyListeners();
   }
 
