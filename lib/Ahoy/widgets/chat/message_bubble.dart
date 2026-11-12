@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../../core/enums.dart';
 import '../../services/crypto/local_data_crypto.dart';
+import 'reply_preview.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
@@ -75,7 +76,7 @@ class MessageBubble extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        message.replyToPreview!,
+        ReplyPreview.sanitize(message.replyToPreview!),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.7)),

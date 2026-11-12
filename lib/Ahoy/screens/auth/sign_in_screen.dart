@@ -7,10 +7,18 @@ class SignInScreen extends StatefulWidget {
   final VoidCallback onSignUp;
   final Future<void> Function() onSignedIn;
 
+  /// Whether the screen may fire the system biometric prompt on its own.
+  /// RootScreen already attempts biometric sign-in once during bootstrap;
+  /// passing false here prevents a second consecutive prompt when that first
+  /// attempt was cancelled or failed (UI review #3). The manual "Use
+  /// Biometric" button always works.
+  final bool autoPromptBiometric;
+
   const SignInScreen({
     super.key,
     required this.onSignUp,
     required this.onSignedIn,
+    this.autoPromptBiometric = true,
   });
 
   @override
@@ -26,7 +34,9 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    if (widget.autoPromptBiometric) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    }
   }
 
   Future<void> _tryBiometric() async {

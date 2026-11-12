@@ -81,6 +81,15 @@ class SettingsScreen extends StatelessWidget {
           _BiometricTile(auth: auth),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.lock_outline),
+            title: const Text('Lock'),
+            subtitle: const Text(
+              'Return to the sign-in screen. Your data stays on this device.',
+            ),
+            onTap: () => auth.lock(),
+          ),
+          const Divider(),
+          ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text(
               'Sign Out & Erase Data',
@@ -97,9 +106,10 @@ class SettingsScreen extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Sign Out'),
+        title: const Text('Sign Out & Erase Data'),
         content: const Text(
-          'All data will be permanently erased from this device.',
+          'This will erase all your messages, conversations, and account data '
+          'from this device. This cannot be undone.',
         ),
         actions: [
           TextButton(

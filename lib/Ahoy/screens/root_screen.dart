@@ -28,6 +28,10 @@ class _RootScreenState extends State<RootScreen> {
   bool _transportsStarted = false;
   bool _authInitialized = false;
 
+  /// Whether the cold-start bootstrap already fired the biometric prompt
+  /// (UI review #3): SignInScreen must not ask again right after it.
+  bool _biometricAttempted = false;
+
   late final AuthProvider _auth;
   StreamSubscription? _announcementSub;
 
@@ -100,7 +104,10 @@ class _RootScreenState extends State<RootScreen> {
       }
 
       if (_auth.isSignedIn && _auth.user == null) {
-        // Attempt biometric fast-path; falls through to password screen if denied.
+        // Attempt biometric fast-path; falls through to password screen if
+        // denied. SignInScreen suppresses its own automatic prompt so the
+        // user is never asked twice in a row (UI review #3).
+        _biometricAttempted = true;
         await _auth.signInWithBiometric();
       }
       // _maybeStartTransports() will have fired via the listener if signIn succeeded.
@@ -205,6 +212,7 @@ class _RootScreenState extends State<RootScreen> {
       onSignUp: () => setState(() => _showSignUp = true),
       // Same: listener handles everything; callback kept for interface consistency.
       onSignedIn: () async {},
+      autoPromptBiometric: !_biometricAttempted,
     );
   }
 }

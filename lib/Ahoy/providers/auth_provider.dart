@@ -96,6 +96,18 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Locks the session without erasing anything (UI review #5): transports
+  /// stop and the UI returns to the sign-in screen. Unlocking is the normal
+  /// password or biometric sign-in, which never touches stored data —
+  /// unlike [signOut], which permanently erases the account from the device.
+  Future<void> lock() async {
+    await _transport.stopAll();
+    _user = null;
+    _state = AuthState.signedOut;
+    _error = null;
+    notifyListeners();
+  }
+
   Future<bool> get isBiometricAvailable => _authService.isBiometricAvailable;
   Future<bool> get isBiometricEnabled => _authService.isBiometricEnabled;
 

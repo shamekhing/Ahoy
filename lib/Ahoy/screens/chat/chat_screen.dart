@@ -68,7 +68,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _sendText(String text) async {
+  Future<bool> _sendText(String text) async {
     final auth = context.read<AuthProvider>();
     final chat = context.read<ChatProvider>();
     final conv = _currentConv(chat);
@@ -77,7 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
       (p) => p.uuid == conv.peerUuid,
       orElse: () => widget.peer,
     );
-    await chat.sendMessage(
+    final sent = await chat.sendMessage(
       myUuid: auth.user!.id,
       myShortId: auth.user!.shortId,
       myDisplayName: auth.user!.username,
@@ -89,14 +89,18 @@ class _ChatScreenState extends State<ChatScreen> {
       myPublicKeyPEM: auth.user!.publicKeyPEM,
       peerPublicKeyPEM: _peerPublicKeyFor(conv, livePeer),
       replyToId: _replyTo?.id,
-      replyToPreview: _replyTo == null
-          ? null
-          : (_replyTo!.content.length > 80
-                ? '${_replyTo!.content.substring(0, 80)}…'
-                : _replyTo!.content),
+      // Media replies quote a label, never the local file path (UI review #1).
+      replyToPreview: _replyTo == null ? null : ReplyPreview.labelFor(_replyTo!),
     );
+    if (sent == null) {
+      // Failed send: keep the text in the input field and the reply context
+      // so nothing the user typed is lost (UI review #2). The failure reason
+      // is surfaced through chat.error.
+      return false;
+    }
     setState(() => _replyTo = null);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    return true;
   }
 
   Future<void> _sendImage(String path) async {
@@ -311,9 +315,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 if (_replyTo != null)
                   ReplyPreview(
-                    preview: _replyTo!.content.length > 80
-                        ? '${_replyTo!.content.substring(0, 80)}…'
-                        : _replyTo!.content,
+                    preview: ReplyPreview.labelFor(_replyTo!),
                     onClear: () => setState(() => _replyTo = null),
                   ),
                 MessageInputBar(

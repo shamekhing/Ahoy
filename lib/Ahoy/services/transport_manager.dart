@@ -86,11 +86,60 @@ class TransportManager {
   /// the mapping here so sends and incoming packets are routed to the right peer.
   final Map<String, String> _peerAliases = {};
 
-  TransportManager({CryptoService? crypto})
-    : _crypto = crypto,
-      _wifiDirect = WiFiDirectTransport(),
-      _lan = LanTransport(crypto: crypto),
-      _ble = BleTransport();
+  TransportManager({
+    CryptoService? crypto,
+    WiFiDirectTransport? wifiDirect,
+    LanTransport? lan,
+    BleTransport? ble,
+  }) : _crypto = crypto,
+       _wifiDirect = wifiDirect ?? WiFiDirectTransport(),
+       _lan = lan ?? LanTransport(crypto: crypto),
+       _ble = ble ?? BleTransport();
+
+  /// Restarts discovery on every enabled transport WITHOUT tearing down live
+  /// connections (pull-to-refresh). Unlike the per-transport settings
+  /// toggles this never stops advertising, so the WiFi Direct group and its
+  /// live chats survive: toggling WiFi Direct off removes the group
+  /// (removeGroup), which would drop every conversation running over it
+  /// (UI review #4). The identity is re-announced on the connectionless
+  /// transports unless Off the Grid suppresses it.
+  Future<void> restartScanning() async {
+    if (_bleEnabled) {
+      await _ble.stopScanning();
+      await _ble.startScanning();
+    }
+    if (_lanEnabled) {
+      await _lan.stopScanning();
+      await _lan.startScanning();
+    }
+    if (_wifiDirectEnabled) {
+      await _wifiDirect.stopScanning();
+      await _wifiDirect.startScanning();
+    }
+    if (!_offGrid && _myUuid != null) {
+      final signature = _computeAnnouncementSignature();
+      if (_lanEnabled) {
+        await _lan.startAdvertising(
+          uuid: _myUuid!,
+          shortId: _myShortId!,
+          displayName: _myDisplayName!,
+          statusMessage: _myStatusMessage,
+          publicKeyPEM: _myPublicKeyPEM,
+          announcementSignature: signature,
+        );
+      }
+      if (_bleEnabled) {
+        await _ble.startAdvertising(
+          uuid: _myUuid!,
+          shortId: _myShortId!,
+          displayName: _myDisplayName!,
+          statusMessage: _myStatusMessage,
+          publicKeyPEM: _myPublicKeyPEM,
+          announcementSignature: signature,
+        );
+      }
+    }
+  }
 
   Future<void> start({
     required String uuid,

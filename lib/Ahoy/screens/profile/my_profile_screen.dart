@@ -35,9 +35,9 @@ class MyProfileScreen extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign Out',
-            onPressed: () => _confirmSignOut(context, auth),
+            icon: const Icon(Icons.lock_outline),
+            tooltip: 'Lock',
+            onPressed: () => _lock(context),
           ),
         ],
       ),
@@ -145,44 +145,19 @@ class MyProfileScreen extends StatelessWidget {
           ],
           const SizedBox(height: 32),
           OutlinedButton.icon(
-            icon: const Icon(Icons.logout, color: Colors.red),
-            label: const Text(
-              'Sign Out & Erase Data',
-              style: TextStyle(color: Colors.red),
-            ),
-            onPressed: () => _confirmSignOut(context, auth),
+            icon: const Icon(Icons.lock_outline),
+            label: const Text('Lock'),
+            onPressed: () => _lock(context),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _confirmSignOut(BuildContext context, AuthProvider auth) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: const Text(
-          'This will erase all your messages, conversations, and account data from this device. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Erase & Sign Out'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true && context.mounted) {
-      final profileProvider = context.read<ProfileProvider>();
-      await auth.signOut();
-      if (context.mounted) profileProvider.clear();
-    }
+  /// Locks the session (UI review #5): non-destructive, the data stays on
+  /// the device and unlocking is the normal sign-in flow.
+  Future<void> _lock(BuildContext context) async {
+    await context.read<AuthProvider>().lock();
   }
 }
 

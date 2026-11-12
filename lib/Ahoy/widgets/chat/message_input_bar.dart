@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 class MessageInputBar extends StatefulWidget {
   final bool canSendMedia;
   final bool isRecording;
-  final void Function(String text) onSendText;
+
+  /// Returns whether the message was accepted (stored, sent or queued).
+  /// The field is only cleared when this resolves to true, so a failed send
+  /// never discards the user's text (UI review #2).
+  final Future<bool> Function(String text) onSendText;
   final VoidCallback onPickImage;
   final VoidCallback onCapturePhoto;
   final VoidCallback onToggleRecord;
@@ -25,6 +29,7 @@ class MessageInputBar extends StatefulWidget {
 class _MessageInputBarState extends State<MessageInputBar> {
   final _controller = TextEditingController();
   bool _hasText = false;
+  bool _sending = false;
 
   @override
   void initState() {
@@ -41,11 +46,19 @@ class _MessageInputBarState extends State<MessageInputBar> {
     super.dispose();
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
-    widget.onSendText(text);
-    _controller.clear();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    bool sent;
+    try {
+      sent = await widget.onSendText(text);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+    // Clear on success only (UI review #2): an unreachable or blocked peer
+    // must not swallow what the user typed.
+    if (sent) _controller.clear();
   }
 
   @override
@@ -106,8 +119,14 @@ class _MessageInputBarState extends State<MessageInputBar> {
             ),
             const SizedBox(width: 4),
             IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: _hasText ? _send : null,
+              icon: _sending
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send),
+              onPressed: (_hasText && !_sending) ? _send : null,
               color: Theme.of(context).colorScheme.primary,
             ),
           ],

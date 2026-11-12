@@ -225,20 +225,11 @@ class DiscoveryProvider extends ChangeNotifier {
   }
 
   Future<void> refreshPeers() async {
-    // Restart each enabled transport individually so only one is dark at a
-    // time the others keep advertising and scanning while it cycles.
-    if (_bleEnabled) {
-      await setBleEnabled(false);
-      await setBleEnabled(true);
-    }
-    if (_lanEnabled) {
-      await setLanEnabled(false);
-      await setLanEnabled(true);
-    }
-    if (_wifiDirectEnabled) {
-      await setWifiDirectEnabled(false);
-      await setWifiDirectEnabled(true);
-    }
+    // Restart discovery without the off/on toggle: toggling a transport off
+    // tears down its live state — for WiFi Direct the settings toggle calls
+    // stopAdvertising, which removes the group and drops active chats
+    // (UI review #4). Scanning alone restarts here.
+    await _transport.restartScanning();
   }
 
   @override
