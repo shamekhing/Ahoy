@@ -6,6 +6,11 @@ import 'package:ahoy/Ahoy/services/chat/message_store.dart';
 import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -14,7 +19,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final prefs = PrefsStore();
     await prefs.init();
-    final store = ConversationStore(prefs);
+    final store = ConversationStore(prefs, _localCrypto);
     await store.upsert(
       Conversation(
         id: 'conv-1',
@@ -44,7 +49,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final prefs = PrefsStore();
     await prefs.init();
-    final store = MessageStore(prefs);
+    final store = MessageStore(prefs, _localCrypto);
 
     await Future.wait([
       for (var i = 0; i < 20; i++)

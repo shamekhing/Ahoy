@@ -8,9 +8,14 @@ import '../storage/prefs_store.dart';
 
 class ConversationStore {
   final PrefsStore _prefs;
-  final LocalDataCrypto? _localDataCrypto;
 
-  ConversationStore(this._prefs, [this._localDataCrypto]);
+  /// Required since the ninth review: a plaintext write path for
+  /// conversation rows must not exist, even latently (spec §10, matching the
+  /// round-8 ProfileService decision). Legacy plaintext rows are still
+  /// readable so the migrator can rewrite them encrypted.
+  final LocalDataCrypto _localDataCrypto;
+
+  ConversationStore(this._prefs, this._localDataCrypto);
 
   // Simple async mutex: serialises all read-modify-write operations so
   // concurrent send + receive can't lose each other's updates. Lock ownership
@@ -81,8 +86,7 @@ class ConversationStore {
 
   bool get needsLegacyPlaintextMigration {
     final raw = _prefs.getString(AhoyConstants.prefConversations);
-    final crypto = _localDataCrypto;
-    return raw != null && crypto != null && !crypto.isEncryptedValue(raw);
+    return raw != null && !_localDataCrypto.isEncryptedValue(raw);
   }
 
   Future<void> rewriteAll() {
@@ -93,15 +97,9 @@ class ConversationStore {
 
   Future<void> _saveAll(List<Conversation> conversations) async {
     final jsonList = conversations.map((c) => c.toJson()).toList();
-    final crypto = _localDataCrypto;
-    if (crypto == null) {
-      await _prefs.setJsonList(AhoyConstants.prefConversations, jsonList);
-      return;
-    }
-
     await _prefs.setString(
       AhoyConstants.prefConversations,
-      crypto.encryptString(jsonEncode(jsonList)),
+      _localDataCrypto.encryptString(jsonEncode(jsonList)),
     );
   }
 
@@ -237,10 +235,10 @@ class ConversationStore {
     final raw = _prefs.getString(AhoyConstants.prefConversations);
     if (raw == null) return [];
 
-    final crypto = _localDataCrypto;
-    if (crypto != null && crypto.isEncryptedValue(raw)) {
+    if (_localDataCrypto.isEncryptedValue(raw)) {
       try {
-        final decoded = jsonDecode(crypto.decryptString(raw)) as List;
+        final decoded =
+            jsonDecode(_localDataCrypto.decryptString(raw)) as List;
         return decoded.cast<Map<String, dynamic>>();
       } catch (_) {
         // Lost or rotated at-rest key: quarantine and start empty instead of

@@ -10,6 +10,11 @@ import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
 import 'package:ahoy/Ahoy/services/transport_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _myUuid = '11111111-1111-4111-8111-111111111111';
 const _peerUuid = '22222222-2222-4222-8222-222222222222';
@@ -140,8 +145,8 @@ Future<_Harness> _createHarness() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = PrefsStore();
   await prefs.init();
-  final convStore = ConversationStore(prefs);
-  final msgStore = MessageStore(prefs);
+  final convStore = ConversationStore(prefs, _localCrypto);
+  final msgStore = MessageStore(prefs, _localCrypto);
   final crypto = CryptoService();
   final keys = await crypto.generateKeyPair();
   crypto.activate(keys['privateKey']!, keys['publicKey']!);
@@ -151,6 +156,7 @@ Future<_Harness> _createHarness() async {
     convStore,
     msgStore,
     crypto,
+    _localCrypto,
   );
   return _Harness(
     transport: transport,

@@ -23,6 +23,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _peerUuid = '22222222-2222-4222-8222-222222222222';
 
@@ -55,14 +59,15 @@ Future<ChatProvider> _chatProvider() async {
   SharedPreferences.setMockInitialValues({});
   final prefs = PrefsStore();
   await prefs.init();
-  final convStore = ConversationStore(prefs);
-  final msgStore = MessageStore(prefs);
+  final convStore = ConversationStore(prefs, _localCrypto);
+  final msgStore = MessageStore(prefs, _localCrypto);
   final transport = _SilentTransport();
   final service = ChatService(
     transport,
     convStore,
     msgStore,
     CryptoService(),
+    _localCrypto,
   );
   return ChatProvider(service, convStore, msgStore, transport);
 }

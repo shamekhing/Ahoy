@@ -11,6 +11,11 @@ import 'package:ahoy/Ahoy/services/transport/transport_interface.dart';
 import 'package:ahoy/Ahoy/services/transport_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _myUuid = '11111111-1111-4111-8111-111111111111';
 const _peerUuid = '22222222-2222-4222-8222-222222222222';
@@ -47,14 +52,15 @@ void main() {
     final transport = _CapturingTransport();
     final service = ChatService(
       transport,
-      ConversationStore(prefs),
-      MessageStore(prefs),
+      ConversationStore(prefs, _localCrypto),
+      MessageStore(prefs, _localCrypto),
       crypto,
+      _localCrypto,
     );
     final chat = ChatProvider(
       service,
-      ConversationStore(prefs),
-      MessageStore(prefs),
+      ConversationStore(prefs, _localCrypto),
+      MessageStore(prefs, _localCrypto),
       transport,
     );
     addTearDown(chat.dispose);

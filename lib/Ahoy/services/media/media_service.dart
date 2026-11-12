@@ -9,7 +9,10 @@ import '../crypto/local_data_crypto.dart';
 import '../../core/logging.dart';
 
 class MediaService {
-  final LocalDataCrypto? _localDataCrypto;
+  /// Required since the ninth review: playback of owned media goes through
+  /// the at-rest crypto; a nullable instance would silently reintroduce a
+  /// plaintext path (spec §10).
+  final LocalDataCrypto _localDataCrypto;
   final ImagePicker _picker = ImagePicker();
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
@@ -18,7 +21,7 @@ class MediaService {
 
   bool _isRecording = false;
 
-  MediaService([this._localDataCrypto]) {
+  MediaService(this._localDataCrypto) {
     _completionSub = _player.onPlayerComplete.listen((_) {
       unawaited(_deleteTempAudio());
     });
@@ -69,13 +72,13 @@ class MediaService {
     await _player.stop();
     await _deleteTempAudio();
 
-    final crypto = _localDataCrypto;
-    if (crypto == null || !crypto.isEncryptedFilePath(path)) {
+    if (!_localDataCrypto.isEncryptedFilePath(path)) {
+      // Legacy plaintext path from before at-rest encryption (audit L-10).
       await _player.play(DeviceFileSource(path));
       return;
     }
 
-    final bytes = await crypto.readEncryptedFile(File(path));
+    final bytes = await _localDataCrypto.readEncryptedFile(File(path));
     if (bytes.isEmpty) {
       // A quarantined or empty media file has nothing to play (sixth
       // review, finding 8).

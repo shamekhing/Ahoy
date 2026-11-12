@@ -9,9 +9,14 @@ import '../crypto/crypto_service.dart';
 
 class MessageStore {
   final PrefsStore _prefs;
-  final LocalDataCrypto? _localDataCrypto;
 
-  MessageStore(this._prefs, [this._localDataCrypto]);
+  /// Required since the ninth review: a plaintext write path for message
+  /// rows must not exist, even latently (spec §10, matching the round-8
+  /// ProfileService decision). Legacy plaintext rows are still readable so
+  /// the migrator can rewrite them encrypted.
+  final LocalDataCrypto _localDataCrypto;
+
+  MessageStore(this._prefs, this._localDataCrypto);
 
   // Per-conversation async mutex mirrors ConversationStore._withLock.
   // Prevents concurrent send+receive from overwriting each other via read→dedup→write.
@@ -68,8 +73,7 @@ class MessageStore {
 
   bool needsLegacyPlaintextMigration(String conversationId) {
     final raw = _prefs.getString(_key(conversationId));
-    final crypto = _localDataCrypto;
-    return raw != null && crypto != null && !crypto.isEncryptedValue(raw);
+    return raw != null && !_localDataCrypto.isEncryptedValue(raw);
   }
 
   List<Message> loadMessages(String conversationId) {
@@ -169,10 +173,10 @@ class MessageStore {
     final raw = _prefs.getString(key);
     if (raw == null) return [];
 
-    final crypto = _localDataCrypto;
-    if (crypto != null && crypto.isEncryptedValue(raw)) {
+    if (_localDataCrypto.isEncryptedValue(raw)) {
       try {
-        final decoded = jsonDecode(crypto.decryptString(raw)) as List;
+        final decoded =
+            jsonDecode(_localDataCrypto.decryptString(raw)) as List;
         return decoded.cast<Map<String, dynamic>>();
       } catch (_) {
         // Lost or rotated at-rest key: quarantine and start empty instead of
@@ -190,15 +194,9 @@ class MessageStore {
     List<Message> messages,
   ) async {
     final jsonList = messages.map((m) => m.toJson()).toList();
-    final crypto = _localDataCrypto;
-    if (crypto == null) {
-      await _prefs.setJsonList(_key(conversationId), jsonList);
-      return;
-    }
-
     await _prefs.setString(
       _key(conversationId),
-      crypto.encryptString(jsonEncode(jsonList)),
+      _localDataCrypto.encryptString(jsonEncode(jsonList)),
     );
   }
 }

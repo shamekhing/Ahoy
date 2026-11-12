@@ -5,6 +5,11 @@ import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _convId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -30,7 +35,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final prefs = PrefsStore();
     await prefs.init();
-    final store = MessageStore(prefs);
+    final store = MessageStore(prefs, _localCrypto);
 
     final now = DateTime.now();
     // B carries the most aggressive future-skewed sender timestamp but was
@@ -56,7 +61,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final prefs = PrefsStore();
     await prefs.init();
-    final store = MessageStore(prefs);
+    final store = MessageStore(prefs, _localCrypto);
 
     final base = DateTime.now();
     await store.addMessage(_message('old-1', base));

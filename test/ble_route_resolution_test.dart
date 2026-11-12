@@ -12,6 +12,11 @@ import 'package:ahoy/Ahoy/services/transport/transport_interface.dart';
 import 'package:ahoy/Ahoy/services/transport_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _myUuid = '11111111-1111-4111-8111-111111111111';
 const _peerRealUuid = '22222222-2222-4222-8222-222222222222';
@@ -149,10 +154,10 @@ void main() {
       final (peerCrypto, peerKeys) = await _identity();
 
       final prefs = await _prefs();
-      final convStore = ConversationStore(prefs);
-      final msgStore = MessageStore(prefs);
+      final convStore = ConversationStore(prefs, _localCrypto);
+      final msgStore = MessageStore(prefs, _localCrypto);
       final transport = _CapturingTransportManager();
-      final service = ChatService(transport, convStore, msgStore, myCrypto);
+      final service = ChatService(transport, convStore, msgStore, myCrypto, _localCrypto);
 
       // 1. The user messages a BLE scan-response peer: no key is known, so
       // only the signed identity goes out and the message queues under the
@@ -245,10 +250,10 @@ void main() {
       final (peerCrypto, peerKeys) = await _identity();
 
       final prefs = await _prefs();
-      final convStore = ConversationStore(prefs);
-      final msgStore = MessageStore(prefs);
+      final convStore = ConversationStore(prefs, _localCrypto);
+      final msgStore = MessageStore(prefs, _localCrypto);
       final transport = _CapturingTransportManager();
-      final service = ChatService(transport, convStore, msgStore, myCrypto);
+      final service = ChatService(transport, convStore, msgStore, myCrypto, _localCrypto);
 
       await service.sendMessage(
         myUuid: _myUuid,
@@ -344,10 +349,10 @@ void main() {
     final (peerCrypto, peerKeys) = await _identity();
 
     final prefs = await _prefs();
-    final convStore = ConversationStore(prefs);
-    final msgStore = MessageStore(prefs);
+    final convStore = ConversationStore(prefs, _localCrypto);
+    final msgStore = MessageStore(prefs, _localCrypto);
     final transport = _CapturingTransportManager();
-    final service = ChatService(transport, convStore, msgStore, myCrypto);
+    final service = ChatService(transport, convStore, msgStore, myCrypto, _localCrypto);
     final provider = ChatProvider(service, convStore, msgStore, transport);
 
     await service.sendMessage(

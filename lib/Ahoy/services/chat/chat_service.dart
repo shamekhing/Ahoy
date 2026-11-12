@@ -29,7 +29,11 @@ class ChatService {
   final ConversationStore _convStore;
   final MessageStore _msgStore;
   final CryptoService _crypto;
-  final LocalDataCrypto? _localDataCrypto;
+
+  /// Required since the ninth review: the retry outbox and owned media must
+  /// never have a latent plaintext write path (spec §10, matching the
+  /// round-8 ProfileService decision).
+  final LocalDataCrypto _localDataCrypto;
   final PrefsStore? _prefsStore;
 
   /// Text messages that failed to send, queued per peer for automatic retry
@@ -162,8 +166,8 @@ class ChatService {
     this._transport,
     this._convStore,
     this._msgStore,
-    this._crypto, [
-    this._localDataCrypto,
+    this._crypto,
+    this._localDataCrypto, [
     PeerTrustStore? trustStore,
     this._prefsStore,
   ]) : _trust = trustStore ?? PeerTrustStore();
@@ -586,12 +590,10 @@ class ChatService {
           },
     ];
     final json = jsonEncode(entries);
-    final crypto = _localDataCrypto;
-    if (crypto != null) {
-      await prefs.setString(_outboxKey, crypto.encryptString(json));
-    } else {
-      await prefs.setString(_outboxKey, json);
-    }
+    await prefs.setString(
+      _outboxKey,
+      _localDataCrypto.encryptString(json),
+    );
   }
 
   /// Reloads the persisted outbox at session start, before the orphan sweep.
@@ -603,15 +605,16 @@ class ChatService {
     final raw = prefs.getString(_outboxKey);
     if (raw == null || raw.isEmpty) return;
     String json;
-    final crypto = _localDataCrypto;
-    if (crypto != null && crypto.isEncryptedValue(raw)) {
+    if (_localDataCrypto.isEncryptedValue(raw)) {
       try {
-        json = crypto.decryptString(raw);
+        json = _localDataCrypto.decryptString(raw);
       } catch (_) {
         await prefs.quarantineValue(_outboxKey);
         return;
       }
     } else {
+      // Legacy plaintext outbox row from before at-rest encryption: still
+      // readable so the restored entries keep waiting (audit M-6).
       json = raw;
     }
     try {
@@ -987,17 +990,10 @@ class ChatService {
     // and other apps cannot read them without permission.
     final dir = await getApplicationDocumentsDirectory();
     final ext = type == MessageType.image ? 'jpg' : 'aac';
-    final crypto = _localDataCrypto;
-    if (crypto == null) {
-      final file = File('${dir.path}/ahoy_media_$msgId.$ext');
-      await file.writeAsBytes(bytes);
-      return file.path;
-    }
-
     final file = File(
       '${dir.path}/ahoy_media_$msgId.$ext${LocalDataCrypto.encryptedFileExtension}',
     );
-    await crypto.writeEncryptedFile(file, Uint8List.fromList(bytes));
+    await _localDataCrypto.writeEncryptedFile(file, Uint8List.fromList(bytes));
     return file.path;
   }
 

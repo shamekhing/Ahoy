@@ -10,6 +10,11 @@ import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
 import 'package:ahoy/Ahoy/services/transport_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _myUuid = '11111111-1111-4111-8111-111111111111';
 
@@ -24,9 +29,10 @@ void main() {
     final transport = _CapturingTransport();
     final service = ChatService(
       transport,
-      ConversationStore(prefs),
-      MessageStore(prefs),
+      ConversationStore(prefs, _localCrypto),
+      MessageStore(prefs, _localCrypto),
       CryptoService(),
+      _localCrypto,
     );
 
     final attacker = CryptoService();

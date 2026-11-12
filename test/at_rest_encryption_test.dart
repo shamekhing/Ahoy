@@ -7,12 +7,15 @@ import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/models/conversation.dart';
 import 'package:ahoy/Ahoy/models/local_user.dart';
 import 'package:ahoy/Ahoy/models/message.dart';
+import 'package:ahoy/Ahoy/services/chat/chat_service.dart';
 import 'package:ahoy/Ahoy/services/chat/conversation_store.dart';
 import 'package:ahoy/Ahoy/services/chat/message_store.dart';
+import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
 import 'package:ahoy/Ahoy/services/maintenance/local_data_migrator.dart';
 import 'package:ahoy/Ahoy/services/profile/profile_service.dart';
 import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
+import 'package:ahoy/Ahoy/services/transport_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -191,6 +194,62 @@ void main() {
       );
     },
   );
+
+  test('the retry outbox is encrypted in SharedPreferences', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = PrefsStore();
+    await prefs.init();
+    final localCrypto = _crypto();
+    final myCrypto = CryptoService();
+    final myKeys = await myCrypto.generateKeyPair();
+    myCrypto.activate(myKeys['privateKey']!, myKeys['publicKey']!);
+    final peerCrypto = CryptoService();
+    final peerKeys = await peerCrypto.generateKeyPair();
+
+    final service = ChatService(
+      _FailingTransport(),
+      ConversationStore(prefs, localCrypto),
+      MessageStore(prefs, localCrypto),
+      myCrypto,
+      localCrypto,
+      null,
+      prefs,
+    );
+
+    await service.sendMessage(
+      myUuid: '11111111-1111-4111-8111-111111111111',
+      myShortId: 'ME1234',
+      myDisplayName: 'Me',
+      peerUuid: '22222222-2222-4222-8222-222222222222',
+      peerDisplayName: 'Peer',
+      peerShortId: 'PEER12',
+      type: MessageType.text,
+      content: 'queued secret',
+      myPublicKeyPEM: myKeys['publicKey'],
+      peerPublicKeyPEM: peerKeys['publicKey'],
+    );
+
+    final raw = prefs.getString('ahoy_outbox')!;
+    expect(raw, startsWith(LocalDataCrypto.encryptedValuePrefix));
+    expect(raw, isNot(contains('queued secret')));
+
+    final restored = localCrypto.decryptString(raw);
+    expect(restored, contains('queued secret'));
+  });
+}
+
+class _FailingTransport extends TransportManager {
+  @override
+  TransportMode currentModeFor(String peerUuid) => TransportMode.lan;
+
+  @override
+  Future<bool> send(
+    String peerUuid,
+    String fromUuid,
+    String fromShortId,
+    String fromName,
+    Map<String, dynamic> data,
+  ) async => false;
 }
 
 Future<PrefsStore> _prefs() async {

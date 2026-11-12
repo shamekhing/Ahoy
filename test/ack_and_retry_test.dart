@@ -10,6 +10,11 @@ import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
 import 'package:ahoy/Ahoy/services/transport_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
+import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
+
+// At-rest crypto for stores that now require it (ninth review N-4).
+final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 
 const _aliceUuid = '11111111-1111-4111-8111-111111111111';
 const _bobUuid = '22222222-2222-4222-8222-222222222222';
@@ -107,18 +112,18 @@ void main() {
     final bobPrefs = await _prefs();
     final aliceTransport = _CapturingTransportManager();
     final bobTransport = _CapturingTransportManager();
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
-    final bobConv = ConversationStore(bobPrefs);
-    final bobMsg = MessageStore(bobPrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
+    final bobConv = ConversationStore(bobPrefs, _localCrypto);
+    final bobMsg = MessageStore(bobPrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(aliceTransport, aliceConv, aliceMsg, alice),
+      ChatService(aliceTransport, aliceConv, aliceMsg, alice, _localCrypto),
       aliceTransport,
       aliceConv,
       aliceMsg,
     );
     final bobH = _Harness(
-      ChatService(bobTransport, bobConv, bobMsg, bob),
+      ChatService(bobTransport, bobConv, bobMsg, bob, _localCrypto),
       bobTransport,
       bobConv,
       bobMsg,
@@ -178,10 +183,10 @@ void main() {
     final (bob, _) = await _identity();
     final alicePrefs = await _prefs();
     final aliceTransport = _CapturingTransportManager();
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(aliceTransport, aliceConv, aliceMsg, alice),
+      ChatService(aliceTransport, aliceConv, aliceMsg, alice, _localCrypto),
       aliceTransport,
       aliceConv,
       aliceMsg,
@@ -240,10 +245,10 @@ void main() {
     final (mallory, _) = await _identity();
     final alicePrefs = await _prefs();
     final aliceTransport = _CapturingTransportManager();
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(aliceTransport, aliceConv, aliceMsg, alice),
+      ChatService(aliceTransport, aliceConv, aliceMsg, alice, _localCrypto),
       aliceTransport,
       aliceConv,
       aliceMsg,
@@ -299,10 +304,10 @@ void main() {
     final (_, bobKeys) = await _identity();
     final alicePrefs = await _prefs();
     final tm = _FlakyTransportManager(alwaysFails: false);
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(tm, aliceConv, aliceMsg, alice),
+      ChatService(tm, aliceConv, aliceMsg, alice, _localCrypto),
       tm,
       aliceConv,
       aliceMsg,
@@ -342,10 +347,10 @@ void main() {
     final (_, bobKeys) = await _identity();
     final alicePrefs = await _prefs();
     final tm = _FlakyTransportManager(alwaysFails: true);
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(tm, aliceConv, aliceMsg, alice),
+      ChatService(tm, aliceConv, aliceMsg, alice, _localCrypto),
       tm,
       aliceConv,
       aliceMsg,
@@ -382,10 +387,10 @@ void main() {
     final (bob, bobKeys) = await _identity();
     final alicePrefs = await _prefs();
     final tm = _FlakyTransportManager(alwaysFails: false);
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(tm, aliceConv, aliceMsg, alice),
+      ChatService(tm, aliceConv, aliceMsg, alice, _localCrypto),
       tm,
       aliceConv,
       aliceMsg,
@@ -456,10 +461,10 @@ void main() {
     final (_, bobKeys) = await _identity();
     final alicePrefs = await _prefs();
     final tm = _CapturingTransportManager();
-    final aliceConv = ConversationStore(alicePrefs);
-    final aliceMsg = MessageStore(alicePrefs);
+    final aliceConv = ConversationStore(alicePrefs, _localCrypto);
+    final aliceMsg = MessageStore(alicePrefs, _localCrypto);
     final aliceH = _Harness(
-      ChatService(tm, aliceConv, aliceMsg, alice),
+      ChatService(tm, aliceConv, aliceMsg, alice, _localCrypto),
       tm,
       aliceConv,
       aliceMsg,
