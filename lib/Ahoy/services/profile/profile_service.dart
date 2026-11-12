@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -25,10 +26,22 @@ class ProfileService {
     if (raw == null) return null;
 
     final crypto = _localDataCrypto;
-    final plaintext = crypto != null && crypto.isEncryptedValue(raw)
-        ? crypto.decryptString(raw)
-        : raw;
-    return LocalUser.fromJson(jsonDecode(plaintext) as Map<String, dynamic>);
+    if (crypto != null && crypto.isEncryptedValue(raw)) {
+      try {
+        final plaintext = crypto.decryptString(raw);
+        return LocalUser.fromJson(jsonDecode(plaintext) as Map<String, dynamic>);
+      } catch (_) {
+        // The at-rest key was rotated or lost (reinstall, keystore
+        // invalidation). Quarantine the ciphertext so startup and sign-in
+        // recover instead of failing forever (audit M-1). The stored private
+        // key may still be valid, but without a profile the identity cannot
+        // be used, so the user re-registers through the confirmed
+        // erase-and-replace flow.
+        unawaited(_prefsStore.quarantineValue(AhoyConstants.prefProfile));
+        return null;
+      }
+    }
+    return LocalUser.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
   Future<void> saveProfile(LocalUser user) async {

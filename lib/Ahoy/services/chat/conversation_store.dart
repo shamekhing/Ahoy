@@ -171,8 +171,15 @@ class ConversationStore {
 
     final crypto = _localDataCrypto;
     if (crypto != null && crypto.isEncryptedValue(raw)) {
-      final decoded = jsonDecode(crypto.decryptString(raw)) as List;
-      return decoded.cast<Map<String, dynamic>>();
+      try {
+        final decoded = jsonDecode(crypto.decryptString(raw)) as List;
+        return decoded.cast<Map<String, dynamic>>();
+      } catch (_) {
+        // Lost or rotated at-rest key: quarantine and start empty instead of
+        // throwing from every caller, including app startup (audit M-1).
+        unawaited(_prefs.quarantineValue(AhoyConstants.prefConversations));
+        return [];
+      }
     }
 
     return _prefs.getJsonList(AhoyConstants.prefConversations);

@@ -48,6 +48,19 @@ class PrefsStore {
     await _prefs.remove(key);
   }
 
+  /// Moves an undecryptable value out of the live namespace so repeated
+  /// reads cannot keep failing, keeping the original bytes for diagnostics
+  /// (audit M-1). The first quarantined copy wins.
+  Future<void> quarantineValue(String key) async {
+    final raw = _prefs.getString(key);
+    if (raw == null) return;
+    final quarantineKey = 'ahoy_corrupt_$key';
+    if (_prefs.getString(quarantineKey) == null) {
+      await _prefs.setString(quarantineKey, raw);
+    }
+    await _prefs.remove(key);
+  }
+
   Future<void> clearAll() async {
     await _prefs.clear();
   }

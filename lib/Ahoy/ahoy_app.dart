@@ -62,6 +62,9 @@ class _AhoyAppState extends State<AhoyApp> {
       _cryptoService = CryptoService();
       _keyStore = KeyStore(_secureStore, _cryptoService);
       _localDataCrypto = LocalDataCrypto(_secureStore);
+      // Rewrites Keychain items with the device-bound accessibility option
+      // before the at-rest key is read (audit M-1).
+      await _secureStore.migrateAccessibility(_prefsStore);
       await _localDataCrypto.init();
 
       _profileService = ProfileService(_prefsStore, _localDataCrypto);

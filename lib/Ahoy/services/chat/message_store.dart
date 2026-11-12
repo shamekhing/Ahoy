@@ -125,8 +125,15 @@ class MessageStore {
 
     final crypto = _localDataCrypto;
     if (crypto != null && crypto.isEncryptedValue(raw)) {
-      final decoded = jsonDecode(crypto.decryptString(raw)) as List;
-      return decoded.cast<Map<String, dynamic>>();
+      try {
+        final decoded = jsonDecode(crypto.decryptString(raw)) as List;
+        return decoded.cast<Map<String, dynamic>>();
+      } catch (_) {
+        // Lost or rotated at-rest key: quarantine and start empty instead of
+        // throwing on every read (audit M-1).
+        unawaited(_prefs.quarantineValue(key));
+        return [];
+      }
     }
 
     return _prefs.getJsonList(key);

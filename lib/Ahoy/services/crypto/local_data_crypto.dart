@@ -93,11 +93,34 @@ class LocalDataCrypto {
   }
 
   Uint8List readEncryptedFileSync(File file) {
-    return base64.decode(decryptString(file.readAsStringSync()));
+    try {
+      return base64.decode(decryptString(file.readAsStringSync()));
+    } catch (_) {
+      _quarantineFile(file);
+      return Uint8List(0);
+    }
   }
 
   Future<Uint8List> readEncryptedFile(File file) async {
-    return base64.decode(decryptString(await file.readAsString()));
+    try {
+      return base64.decode(decryptString(await file.readAsString()));
+    } catch (_) {
+      _quarantineFile(file);
+      return Uint8List(0);
+    }
+  }
+
+  /// Undecryptable media is renamed out of the way instead of throwing on
+  /// every read: a rotated or lost at-rest key must not make the app fail
+  /// on each render (audit M-1). Empty bytes render as an unavailable
+  /// placeholder.
+  void _quarantineFile(File file) {
+    try {
+      final quarantinePath = '${file.path}.ahoycorrupt';
+      if (file.existsSync() && !File(quarantinePath).existsSync()) {
+        file.renameSync(quarantinePath);
+      }
+    } catch (_) {}
   }
 
   enc.Key _requireKey() {
