@@ -484,6 +484,16 @@ States and copy — what the app says when something cannot proceed:
 | 29 | A startup exception rendered a raw dump with no way forward | Startup now builds all services into locals and commits only on full success (a partial init rolls back transports/recorders); the error screen says "Ahoy could not start. Your data is intact." with **Retry**, a confirmed **Erase local data and retry** last resort, and the raw exception tucked into a Details expander |
 | 30 | Run-on copy lacked punctuation: "Off the Grid you are invisible to others", "Receive Off new chat requests are blocked", "short ID is display only compare…", "Read this number aloud with your peer it is identical…", "This is your key fingerprint peers see…" | Em-dashes restored in all five strings; a source-scan test asserts each corrected sentence |
 
+## Batch 7 fixed (same review, follow-up commit)
+
+Form and list correctness:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 19 | Sign-up had no password confirmation, no warning that a forgotten password means a lost identity, and a silent wait while keys were generated | A "Confirm password" field (mismatch blocks submission), a plain-spoken warning under the password field ("If you forget it, this identity and its conversations cannot be recovered" — there is no server-side reset), and the submit button now reads **"Generating keys…"** with its spinner while the KDF + RSA run |
+| 24 | Long peer names overflowed the chat and peer-profile app bars | `maxLines: 1, overflow: ellipsis` on both dynamic titles; a 120-character name pumps without any RenderFlex exception |
+| 26 | Conversation-list media previews showed the raw enum name (`[image]`, `[voice]`), and the `[Blocked]` description vanished whenever the thread had no messages (so a blocked thread with no messages showed nothing) | A shared `MessageLabels.forMessage` (now also backing `ReplyPreview.labelFor`) yields `[Photo]` / `[Voice message]`; the tile subtitle is always present: `[Blocked]`, the preview, or "No messages yet" |
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
@@ -493,9 +503,11 @@ hardening (done in batch 4), per-conversation error scoping (done in batch
 (done in batch 4), fullscreen image viewing (done in batch 4; save-to-gallery
 still open), BLE media-button handling, blocked-thread unblock path (done in
 batch 6), safety-number UX (copy and rewording done in batch 5; QR still
-open), sign-up hardening copy, dropping the gender field (done in batch 5),
-dark-mode contrast and text sizes (done in batch 3), avatar unification
-(done in batch 5), message and conversation-list actions, navigation
-consolidation, settings copy (done in batch 6), startup error recovery (done
-in batch 6), tooltips and semantics, color independence, localization, and
-layout constraints.
+open), sign-up hardening copy (done in batch 7), dropping the gender field
+(done in batch 5), dark-mode contrast and text sizes (done in batch 3),
+avatar unification (done in batch 5), message and conversation-list actions
+(media preview labels and row descriptions done in batch 7; copy/delete,
+date separators, swipe and search still open), navigation consolidation,
+settings copy (done in batch 6), startup error recovery (done in batch 6),
+app bar title overflow (done in batch 7), tooltips and semantics, color
+independence, localization, and layout constraints.
