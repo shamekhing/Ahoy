@@ -91,7 +91,11 @@ JSON is the canonical encoding produced by `jsonEncode` with keys in the listed 
 
 8. **Announcement replay cache:** the pair `(uuid, signature)` is remembered in a bounded set (1024 entries, FIFO). An announcement whose pair is already present is dropped before signature verification, so replays never reach the crypto layer.
 
+9. **Announcement rate limit:** announcements from one address are processed at most 20 per 10-second window; excess datagrams are dropped before any parsing or verification. Loopback is exempt, matching the TCP carve-out.
+
 Packets from outside the device's own interface subnets are dropped. Loopback is accepted.
+
+The per-transport route and known-key maps are bounded at 512 entries each (expired routes drop first, then the oldest), so a flood of unique valid announcements cannot grow transport memory without bound (§8).
 
 ### 3.2 BLE scan response
 
@@ -271,6 +275,8 @@ A peer seen only over BLE has no key. A sender with no verified recipient key do
 
 Content never leaves the device without a verified recipient key.
 
+**Rebinding to the canonical identity.** The first contact is keyed by the temporary transport id (the Bluetooth MAC). When a signed payload — the peer's identity or first sealed message — proves the canonical UUID, the transport binds the temporary id to it (§8) and the conversation, its messages and the outbox entries are re-keyed to the canonical UUID, so replies, acknowledgments and retries agree with the wire `convId` both sides derive from the real UUIDs.
+
 ### 6.4 Pinning on first message
 
 For a new conversation, an inbound chat message is accepted only if:
@@ -304,7 +310,7 @@ Clock skew of more than 15 minutes between devices causes rejections. There is n
 
 ## 8. Transport framing
 
-**Routing tables.** Verified Ahoy-UUID routing entries are capped at 512. Temporary transport identifiers (Bluetooth MACs, WiFi Direct addresses) are capped at 128 in their own table, so ambient discoverable devices cannot churn real peers out of the verified-UUID table. Alias registration merges a temporary entry into the verified table.
+**Routing tables.** Verified Ahoy-UUID routing entries are capped at 512. Temporary transport identifiers (Bluetooth MACs, WiFi Direct addresses) are capped at 128 in their own table, so ambient discoverable devices cannot churn real peers out of the verified-UUID table. Alias registration merges a temporary entry into the verified table. Each transport also keeps its own bounded route and known-key maps (512 entries each, §3.1); the BLE scan cache is capped at 256 devices.
 
 ### 8.1 LAN (TCP, port 45679)
 
@@ -409,6 +415,8 @@ Each item needs a decision before the protocol is frozen.
 | 2026-11-12 | §6.1: identity processing is capped by a global budget (20 per 10 s) applied before verification and replies | External review: UUID rotation defeats per-peer throttles and buys unlimited RSA work |
 | 2026-11-12 | §7: replays that survive the seen-set are state-neutral — the store dedup gates the unread counter and last-message fields | External review: a replayed message re-incremented `unreadCount` |
 | 2026-11-12 | §8: routing tables split — verified UUIDs capped at 512, temporary transport ids capped at 128 in their own table | External review: ambient BLE devices could churn real peers out of the single shared table |
+| 2026-11-12 | §3.1 rule 9 and §8: per-address UDP announcement rate limit (20 per 10 s) and bounded per-transport route/key maps (512 each); BLE scan cache capped at 256 | Ninth review: the LAN route and key maps and the WiFi Direct key map grew without bound under unique valid announcements, and UDP announcements had no rate limit |
+| 2026-11-12 | §6.3 and §8: alias binding at packet receipt — sends, retry triggers and first-contact conversations rebind to the canonical UUID once a signed payload binds the temporary transport id to it; the BLE transport resolves the canonical UUID to the device address on send | Ninth review: a pure BLE first contact could never complete — the responder's sends and the initiator's retry were keyed under ids the BLE transport could not resolve |
 
 Record every future change here, with the finding or decision that motivated it. A change to a signed field set must update §5, §6, or §3 as relevant, and must bump the prefix.
 
@@ -453,6 +461,10 @@ Every limit in this specification. The code must match these values. Changing on
 | LAN TCP idle timeout | 10 s | §8.1 |
 | LAN absolute TCP connection lifetime | 60 s | §8.1 |
 | LAN aggregate inbound buffer budget | 64 MiB | §8.1 |
+| LAN route entries per transport | 512 | §3.1, §8 |
+| Known announcement keys per transport | 512 | §3.1, §8 |
+| LAN announcements per address per window | 20 per 10 s | §3.1 |
+| BLE scanned-device cache | 256 | §8.3 |
 | LAN outbound connect timeout | 5 s | §8.1 |
 | WiFi Direct TCP port | 8765 | §8.2 |
 | WiFi Direct max payload | 10 MiB | §8.2 |

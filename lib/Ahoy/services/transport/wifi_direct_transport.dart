@@ -24,9 +24,11 @@ class WiFiDirectTransport implements TransportInterface {
     int maxPayloadBytes = AhoyConstants.wifiDirectMaxPayloadBytes,
     CryptoService? crypto,
     Duration connectAttemptTtl = const Duration(seconds: 30),
+    int maxKnownKeys = AhoyConstants.maxTransportKeyEntries,
   }) : _maxPayloadBytes = maxPayloadBytes,
        _crypto = crypto,
-       _connectAttemptTtl = connectAttemptTtl;
+       _connectAttemptTtl = connectAttemptTtl,
+       _maxKnownKeys = maxKnownKeys;
 
   @override
   TransportMode get mode => TransportMode.wifiDirect;
@@ -48,8 +50,9 @@ class WiFiDirectTransport implements TransportInterface {
   // Ahoy UUID → public key learned from its first verified identity. A later
   // identity for the same UUID with a different key is refused, so a group
   // member cannot hijack the route of a peer it merely claims to be
-  // (audit H-2).
+  // (audit H-2). Bounded like the routing tables (ninth review N-2).
   final Map<String, String> _uuidKeys = {};
+  final int _maxKnownKeys;
 
   bool _initialized = false;
   bool _isGroupOwner = false;
@@ -327,6 +330,12 @@ class WiFiDirectTransport implements TransportInterface {
             return;
           }
           _uuidKeys[uuid] = announcedKey;
+          // The key map is bounded like the routing tables (ninth review
+          // N-2): a flood of unique verified identities must not grow memory
+          // without bound.
+          while (_uuidKeys.length > _maxKnownKeys) {
+            _uuidKeys.remove(_uuidKeys.keys.first);
+          }
           // Group owner: use the actual TCP senderIP to route replies back to client.
           // Client: always route to the group owner's IP.
           final routeIP = _isGroupOwner

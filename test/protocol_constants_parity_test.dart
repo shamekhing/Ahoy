@@ -102,6 +102,19 @@ void main() {
     expectRow('LAN aggregate inbound buffer budget', '64 MiB');
     expect(AhoyConstants.lanMaxTotalBufferedBytes, 64 * 1024 * 1024);
 
+    expectRow('LAN route entries per transport', '512');
+    expect(AhoyConstants.lanMaxRouteEntries, 512);
+
+    expectRow('Known announcement keys per transport', '512');
+    expect(AhoyConstants.maxTransportKeyEntries, 512);
+
+    expectRow('LAN announcements per address per window', '20 per 10 s');
+    expect(AhoyConstants.lanMaxAnnouncementsPerAddressPerWindow, 20);
+    expect(AhoyConstants.lanRateWindowSeconds, 10);
+
+    expectRow('BLE scanned-device cache', '256');
+    expect(bleSource, contains('static const int _maxScannedDevices = 256;'));
+
     expectRow('LAN outbound connect timeout', '5 s');
     expect(lanSource, contains('timeout: const Duration(seconds: 5)'));
 

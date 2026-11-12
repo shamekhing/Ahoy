@@ -39,6 +39,14 @@ class AhoyConstants {
   // lanMaxPayloadBytes of unterminated buffers is allocatable at once.
   static const int lanMaxTotalBufferedBytes = 64 * 1024 * 1024;
 
+  // Ninth review (N-2): the per-transport route and key maps are bounded
+  // like the routing tables (spec §8), and UDP announcements are
+  // rate-limited per address before RSA verification so a flood of unique
+  // signed announcements cannot buy unbounded work or memory.
+  static const int lanMaxRouteEntries = 512;
+  static const int maxTransportKeyEntries = 512;
+  static const int lanMaxAnnouncementsPerAddressPerWindow = 20;
+
 
   // WiFi Direct
   static const int wifiDirectMaxPayloadBytes = 10 * 1024 * 1024;

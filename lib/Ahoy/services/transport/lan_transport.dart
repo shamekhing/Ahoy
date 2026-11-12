@@ -65,6 +65,18 @@ class LanTransport implements TransportInterface {
   int _activeConnections = 0;
   final Map<String, _RateWindow> _rateWindows = {};
 
+  /// Fixed-window per-address rate limit for UDP announcements (ninth
+  /// review N-2), checked before RSA verification so a flood of unique
+  /// signed announcements stays off the crypto layer.
+  final Map<String, _RateWindow> _announceWindows = {};
+  final int _announceRate;
+
+  /// Bounds for the per-transport route and key maps (ninth review N-2): a
+  /// flood of unique valid announcements must not grow memory without bound
+  /// (spec §8 bounds the manager's tables; these bound the transport's).
+  final int _maxRouteEntries;
+  final int _maxKnownKeys;
+
   /// Aggregate bytes currently buffered in incomplete inbound TCP messages
   /// across all connections (round 7). Bounded so lanMaxConnections ×
   /// lanMaxPayloadBytes of unterminated garbage cannot be resident at once.
@@ -99,6 +111,10 @@ class LanTransport implements TransportInterface {
       seconds: AhoyConstants.lanTcpMaxLifetimeSeconds,
     ),
     int? maxTotalBufferedBytes,
+    int announceRatePerWindow =
+        AhoyConstants.lanMaxAnnouncementsPerAddressPerWindow,
+    int maxRouteEntries = AhoyConstants.lanMaxRouteEntries,
+    int maxKnownKeys = AhoyConstants.maxTransportKeyEntries,
     CryptoService? crypto,
   }) : _discoveryPort = discoveryPort,
        _messagingPort = messagingPort,
@@ -108,6 +124,9 @@ class LanTransport implements TransportInterface {
        _tcpMaxLifetime = tcpMaxLifetime,
        _maxTotalBufferedBytes =
            maxTotalBufferedBytes ?? AhoyConstants.lanMaxTotalBufferedBytes,
+       _announceRate = announceRatePerWindow,
+       _maxRouteEntries = maxRouteEntries,
+       _maxKnownKeys = maxKnownKeys,
        _crypto = crypto;
 
   @visibleForTesting
@@ -178,6 +197,7 @@ class LanTransport implements TransportInterface {
   @override
   Future<void> stopScanning() async {
     _announceSubnets.clear();
+    _announceWindows.clear();
     _udpSocket?.close();
     _udpSocket = null;
     _sendSocket?.close();
@@ -296,6 +316,15 @@ class LanTransport implements TransportInterface {
         return;
       }
 
+      // Per-address announcement rate limit (ninth review N-2): excess
+      // datagrams are dropped before any parsing or verification work.
+      // Loopback is exempt, matching the local-tooling carve-out on TCP.
+      if (!_isLoopbackAddress(senderAddress) &&
+          !_allowAnnouncement(senderAddress.address)) {
+        ahoyLog('[LAN] dropping announcement over the rate limit');
+        return;
+      }
+
       // Verify the signed identity BEFORE any routing state is written —
       // LAN announces must carry a key and a valid signature over it
       // (audit #5). Fail closed when verification is unavailable.
@@ -361,6 +390,9 @@ class LanTransport implements TransportInterface {
         _seenAnnouncements.remove(_seenAnnouncements.first);
       }
       _uuidKeys[uuid] = pem;
+      while (_uuidKeys.length > _maxKnownKeys) {
+        _uuidKeys.remove(_uuidKeys.keys.first);
+      }
 
       final prefix = _subnetPrefix(senderAddress.address);
       if (prefix != null) _announceSubnets.add(prefix);
@@ -384,8 +416,19 @@ class LanTransport implements TransportInterface {
         return;
       }
       // The announced port is never trusted (audit M-5): the messaging port
-      // is fixed on both ends of the protocol.
+      // is fixed on both ends of the protocol. The route table is bounded
+      // (ninth review N-2): expired routes are dropped first, then the
+      // oldest entries, so a flood of unique signed announcements cannot
+      // grow memory without bound.
+      _peerConns.removeWhere(
+        (_, conn) =>
+            now.difference(conn.pinnedAt) >=
+            const Duration(seconds: AhoyConstants.lanPeerExpirySeconds),
+      );
       _peerConns[uuid] = _PeerConn(senderAddress, _messagingPort, now);
+      while (_peerConns.length > _maxRouteEntries) {
+        _peerConns.remove(_peerConns.keys.first);
+      }
 
       _announcementController.add(
         PeerAnnouncement(
@@ -640,6 +683,38 @@ class LanTransport implements TransportInterface {
     return address.isLoopback;
   }
 
+  /// True only for loopback, which is exempt from the announcement rate
+  /// limit so local tooling keeps working (ninth review N-2).
+  bool _isLoopbackAddress(InternetAddress address) {
+    if (address.type == InternetAddressType.IPv4) {
+      return address.address.startsWith('127.');
+    }
+    return address.isLoopback;
+  }
+
+  /// Fixed-window per-address rate limit for UDP announcements: each
+  /// datagram that passes the subnet filter counts once, before any parsing
+  /// or RSA verification (ninth review N-2). The window map is bounded the
+  /// same way as the TCP message limiter.
+  bool _allowAnnouncement(String address) {
+    final now = DateTime.now();
+    final window = _announceWindows[address];
+    if (window == null ||
+        now.difference(window.start) >
+            const Duration(seconds: AhoyConstants.lanRateWindowSeconds)) {
+      _announceWindows[address] = _RateWindow(now, 1);
+      if (_announceWindows.length > 512) {
+        _announceWindows.removeWhere(
+          (_, w) => now.difference(w.start) >
+              const Duration(seconds: AhoyConstants.lanRateWindowSeconds),
+        );
+      }
+      return true;
+    }
+    window.count++;
+    return window.count <= _announceRate;
+  }
+
   /// TCP peers must come from a subnet that actually announced itself
   /// (audit M-4) or from loopback, which keeps local tooling working.
   bool _isAllowedTcpPeer(InternetAddress address) {
@@ -688,6 +763,11 @@ class LanTransport implements TransportInterface {
 
   @visibleForTesting
   int get debugSeenAnnouncementCount => _seenAnnouncements.length;
+
+  /// Feeds a datagram address through the announcement rate limiter without
+  /// touching a socket (ninth review tests).
+  @visibleForTesting
+  bool debugAllowAnnouncement(String address) => _allowAnnouncement(address);
 
   /// Feeds a raw announcement through the full validation pipeline without
   /// touching a socket (round 7 tests).
