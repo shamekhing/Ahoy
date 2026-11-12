@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -13,6 +14,7 @@ import '../../models/message.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/local_data_crypto.dart';
 import '../crypto/peer_trust_store.dart';
+import '../storage/prefs_store.dart';
 import '../transport_manager.dart';
 import 'conversation_store.dart';
 import 'message_store.dart';
@@ -28,6 +30,7 @@ class ChatService {
   final MessageStore _msgStore;
   final CryptoService _crypto;
   final LocalDataCrypto? _localDataCrypto;
+  final PrefsStore? _prefsStore;
 
   /// Text messages that failed to send, queued per peer for automatic retry
   /// when the peer is next seen in discovery (audit M-3).
@@ -80,6 +83,7 @@ class ChatService {
   /// Clears all per-session state (called on sign-out, audit #3).
   void reset() {
     _outbox.clear();
+    unawaited(_prefsStore?.remove(_outboxKey));
     _trust.clear();
     _identitySentAt.clear();
     _identityRepliedTo.clear();
@@ -93,6 +97,7 @@ class ChatService {
     this._crypto, [
     this._localDataCrypto,
     PeerTrustStore? trustStore,
+    this._prefsStore,
   ]) : _trust = trustStore ?? PeerTrustStore();
 
   /// Send a message to a peer. Throws [TransportError] for media over BLE.
@@ -209,6 +214,7 @@ class ChatService {
         );
       }
       ahoyLog('[ChatService] message queued until the peer identity is known');
+      await persistOutbox();
       return message.copyWith(status: MessageStatus.sending);
     }
 
@@ -264,6 +270,7 @@ class ChatService {
         ),
       );
       ahoyLog('[ChatService] queued message for retry when peer returns');
+      await persistOutbox();
     }
 
     return message.copyWith(status: finalStatus);
@@ -330,6 +337,7 @@ class ChatService {
       }
     }
     if (requeue.isNotEmpty) _outbox[peerUuid] = requeue;
+    await persistOutbox();
     return touched.toList();
   }
 
@@ -441,6 +449,124 @@ class ChatService {
     }
 
     return (stored: stored, wire: wire);
+  }
+
+  /// Marks stored `sending` messages as failed at session start (audit M-6).
+  /// Messages backed by a restored outbox entry keep waiting; everything else
+  /// from a previous process has no pending retry and would otherwise sit at
+  /// the clock icon forever. Inbound messages are never `sending`, so every
+  /// match is one of ours.
+  Future<void> failOrphanedSends() async {
+    final live = <String>{
+      for (final queue in _outbox.values)
+        for (final pending in queue) pending.msgId,
+    };
+    for (final conversation in _convStore.loadAll()) {
+      for (final message in _msgStore.loadMessages(conversation.id)) {
+        if (message.status != MessageStatus.sending) continue;
+        if (live.contains(message.id)) continue;
+        await _msgStore.updateMessageStatus(
+          conversation.id,
+          message.id,
+          MessageStatus.failed,
+        );
+      }
+    }
+  }
+
+  static const String _outboxKey = 'ahoy_outbox';
+
+  /// Persists the retry outbox so queued first contacts survive a restart
+  /// (audit M-6). Media bytes are not persisted: a restored media entry
+  /// retries from its source file and is dropped by [restoreOutbox] when the
+  /// source is gone.
+  Future<void> persistOutbox() async {
+    final prefs = _prefsStore;
+    if (prefs == null) return;
+    final entries = <Map<String, dynamic>>[
+      for (final queue in _outbox.values)
+        for (final item in queue)
+          {
+            'msgId': item.msgId,
+            'convId': item.convId,
+            'peerUuid': item.peerUuid,
+            'peerDisplayName': item.peerDisplayName,
+            'peerShortId': item.peerShortId,
+            'type': item.type.name,
+            'content': item.content,
+            'replyToId': item.replyToId,
+            'replyToPreview': item.replyToPreview,
+            'myUuid': item.myUuid,
+            'myShortId': item.myShortId,
+            'myDisplayName': item.myDisplayName,
+            'myPublicKeyPEM': item.myPublicKeyPEM,
+            'peerPublicKeyPEM': item.peerPublicKeyPEM,
+          },
+    ];
+    final json = jsonEncode(entries);
+    final crypto = _localDataCrypto;
+    if (crypto != null) {
+      await prefs.setString(_outboxKey, crypto.encryptString(json));
+    } else {
+      await prefs.setString(_outboxKey, json);
+    }
+  }
+
+  /// Reloads the persisted outbox at session start, before the orphan sweep.
+  /// Entries whose media source disappeared are dropped so the sweep marks
+  /// their messages failed (audit M-6).
+  Future<void> restoreOutbox() async {
+    final prefs = _prefsStore;
+    if (prefs == null || _outbox.isNotEmpty) return;
+    final raw = prefs.getString(_outboxKey);
+    if (raw == null || raw.isEmpty) return;
+    String json;
+    final crypto = _localDataCrypto;
+    if (crypto != null && crypto.isEncryptedValue(raw)) {
+      try {
+        json = crypto.decryptString(raw);
+      } catch (_) {
+        await prefs.quarantineValue(_outboxKey);
+        return;
+      }
+    } else {
+      json = raw;
+    }
+    try {
+      final list = jsonDecode(json) as List;
+      for (final entry in list.cast<Map<String, dynamic>>()) {
+        final type = MessageType.values.byName(entry['type'] as String);
+        final content = entry['content'] as String? ?? '';
+        if (type != MessageType.text &&
+            (content.isEmpty || !File(content).existsSync())) {
+          continue;
+        }
+        final peerUuid = entry['peerUuid'] as String? ?? '';
+        if (peerUuid.isEmpty) continue;
+        _outbox.putIfAbsent(peerUuid, () => []).add(
+              _PendingSend(
+                msgId: entry['msgId'] as String? ?? '',
+                convId: entry['convId'] as String? ?? '',
+                peerUuid: peerUuid,
+                peerDisplayName: entry['peerDisplayName'] as String? ?? '',
+                peerShortId: entry['peerShortId'] as String? ?? '',
+                type: type,
+                content: content,
+                mediaBase64: null,
+                replyToId: entry['replyToId'] as String?,
+                replyToPreview: entry['replyToPreview'] as String?,
+                myUuid: entry['myUuid'] as String? ?? '',
+                myShortId: entry['myShortId'] as String? ?? '',
+                myDisplayName: entry['myDisplayName'] as String? ?? '',
+                myPublicKeyPEM: entry['myPublicKeyPEM'] as String?,
+                peerPublicKeyPEM: entry['peerPublicKeyPEM'] as String?,
+              ),
+            );
+      }
+    } catch (e) {
+      ahoyLog('[ChatService] outbox restore failed', e);
+      await prefs.quarantineValue(_outboxKey);
+    }
   }
 
   /// Called when an inbound packet arrives. Returns null if the message should be dropped.

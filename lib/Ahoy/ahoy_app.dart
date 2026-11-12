@@ -95,6 +95,8 @@ class _AhoyAppState extends State<AhoyApp> {
         _msgStore,
         _cryptoService,
         _localDataCrypto,
+        null,
+        _prefsStore,
       );
 
       _mediaService = MediaService(_localDataCrypto);

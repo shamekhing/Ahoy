@@ -35,16 +35,21 @@ class ChatProvider extends ChangeNotifier {
     this._transport,
   );
 
-  void init({
+  Future<void> init({
     required String myUuid,
     String? myShortId,
     String? myDisplayName,
     String? myPublicKeyPEM,
     required bool Function() receiveOff,
     required Set<String> blockedUuids,
-  }) {
+  }) async {
     _inboundSub?.cancel();
     _chatService.attachBlockedPeers(blockedUuids);
+    // Orphaned sends from a previous process have no outbox backing them
+    // (audit M-6); surface them as failed before the list is built. The
+    // persisted outbox is restored first so its entries keep waiting.
+    await _chatService.restoreOutbox();
+    await _chatService.failOrphanedSends();
     _conversations = _convStore.loadAll();
     notifyListeners();
 
