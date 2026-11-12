@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../core/constants.dart';
 import '../../core/enums.dart';
@@ -31,7 +32,9 @@ class BleTransport implements TransportInterface {
   StreamSubscription? _scanSub;
   StreamSubscription? _scanStateSub;
 
-  // Chunk reassembly: msgId → { seqNo → decoded chunk bytes }
+  // Chunk reassembly: assemblyKey → { seqNo → decoded chunk bytes }. The key
+  // binds the sender device address and the message id, so two devices
+  // sending in the same millisecond cannot interleave (audit L-3).
   final Map<String, Map<int, Uint8List>> _chunkBuffer = {};
   final Map<String, int> _chunkTotal = {};
   final Map<String, int> _chunkByteCounts = {};
@@ -325,7 +328,7 @@ class BleTransport implements TransportInterface {
     BluetoothCharacteristic char,
     String payload,
   ) async {
-    final msgId = DateTime.now().millisecondsSinceEpoch.toString();
+    final msgId = const Uuid().v4();
     final bytes = utf8.encode(payload);
     if (bytes.length > _maxPayloadBytes) {
       ahoyLog('[BLE] refusing oversized payload');
@@ -366,13 +369,14 @@ class BleTransport implements TransportInterface {
       if (seq < 0 || seq >= total) return;
       if (data.isEmpty || data.length > _maxChunkDataLength) return;
 
-      final existingTotal = _chunkTotal[msgId];
+      final key = _assemblyKey(deviceAddress, msgId);
+      final existingTotal = _chunkTotal[key];
       if (existingTotal != null && existingTotal != total) {
-        _dropAssembly(msgId);
+        _dropAssembly(key);
         return;
       }
 
-      if (!_chunkBuffer.containsKey(msgId) &&
+      if (!_chunkBuffer.containsKey(key) &&
           _chunkBuffer.length >= _maxActiveAssemblies) {
         _evictOldestAssembly();
       }
@@ -380,26 +384,26 @@ class BleTransport implements TransportInterface {
       final bytes = Uint8List.fromList(base64.decode(data));
       if (bytes.length > AhoyConstants.bleChunkSize) return;
 
-      _chunkBuffer.putIfAbsent(msgId, () => {});
-      _chunkTotal[msgId] = total;
-      final previousBytes = _chunkBuffer[msgId]![seq]?.length ?? 0;
-      _chunkBuffer[msgId]![seq] = bytes;
+      _chunkBuffer.putIfAbsent(key, () => {});
+      _chunkTotal[key] = total;
+      final previousBytes = _chunkBuffer[key]![seq]?.length ?? 0;
+      _chunkBuffer[key]![seq] = bytes;
       final byteCount =
-          (_chunkByteCounts[msgId] ?? 0) - previousBytes + bytes.length;
+          (_chunkByteCounts[key] ?? 0) - previousBytes + bytes.length;
       if (byteCount > _maxPayloadBytes) {
-        _dropAssembly(msgId);
+        _dropAssembly(key);
         return;
       }
-      _chunkByteCounts[msgId] = byteCount;
-      _chunkTimestamps[msgId] = DateTime.now();
+      _chunkByteCounts[key] = byteCount;
+      _chunkTimestamps[key] = DateTime.now();
 
-      if (_chunkBuffer[msgId]!.length == total) {
-        final sortedKeys = _chunkBuffer[msgId]!.keys.toList()..sort();
+      if (_chunkBuffer[key]!.length == total) {
+        final sortedKeys = _chunkBuffer[key]!.keys.toList()..sort();
         final allBytes = sortedKeys
-            .expand((k) => _chunkBuffer[msgId]![k]!)
+            .expand((k) => _chunkBuffer[key]![k]!)
             .toList();
         final payload = utf8.decode(allBytes);
-        _dropAssembly(msgId);
+        _dropAssembly(key);
 
         // Parse peer identity from the assembled payload so the packet
         // carries the real Ahoy UUID rather than the BT MAC address.
@@ -428,12 +432,17 @@ class BleTransport implements TransportInterface {
     }
   }
 
-  void _dropAssembly(String msgId) {
-    _chunkBuffer.remove(msgId);
-    _chunkTotal.remove(msgId);
-    _chunkByteCounts.remove(msgId);
-    _chunkTimestamps.remove(msgId);
+  void _dropAssembly(String key) {
+    _chunkBuffer.remove(key);
+    _chunkTotal.remove(key);
+    _chunkByteCounts.remove(key);
+    _chunkTimestamps.remove(key);
   }
+
+  /// Assemblies are keyed by sender device and message id so same-millisecond
+  /// messages from different devices cannot interleave (audit L-3).
+  String _assemblyKey(String deviceAddress, String msgId) =>
+      '$deviceAddress|$msgId';
 
   void _evictOldestAssembly() {
     if (_chunkTimestamps.isEmpty) return;

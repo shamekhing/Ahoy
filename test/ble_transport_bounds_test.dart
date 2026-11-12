@@ -120,6 +120,39 @@ void main() {
       expect(packets.map((packet) => packet.payload), ['new-done']);
     },
   );
+
+  test('assemblies from different devices with identical msg ids do not collide (audit L-3)', () async {
+    final transport = BleTransport(maxPayloadBytes: 1024);
+    addTearDown(transport.dispose);
+    final packets = <InboundPacket>[];
+    final sub = transport.packetStream.listen(packets.add);
+    addTearDown(sub.cancel);
+
+    // Two devices, same message id, interleaved chunks. The halves join into
+    // a valid JSON payload per device so the peer identity parses.
+    transport.debugReceiveChunk(
+      _chunk(msgId: 'same-id', seq: 0, total: 2, payload: '{"from":"peer-A"'),
+      'device-A',
+    );
+    transport.debugReceiveChunk(
+      _chunk(msgId: 'same-id', seq: 0, total: 2, payload: '{"from":"peer-B"'),
+      'device-B',
+    );
+    transport.debugReceiveChunk(
+      _chunk(msgId: 'same-id', seq: 1, total: 2, payload: '}'),
+      'device-A',
+    );
+    transport.debugReceiveChunk(
+      _chunk(msgId: 'same-id', seq: 1, total: 2, payload: '}'),
+      'device-B',
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(packets, hasLength(2));
+    final uuids = packets.map((p) => p.peerUuid).toSet();
+    expect(uuids, {'peer-A', 'peer-B'},
+        reason: 'each device reassembles its own payload');
+  });
 }
 
 String _chunk({
@@ -135,3 +168,4 @@ String _chunk({
     'data': base64.encode(utf8.encode(payload)),
   });
 }
+
