@@ -186,7 +186,6 @@ void main() {
         LocalUser(
           id: _myUuid,
           username: 'Me',
-          gender: Gender.unspecified,
           interests: const [],
           publicKeyPEM: 'key',
           shortId: 'ME1234',

@@ -46,7 +46,6 @@ void main() {
     final user = await auth.signUp(
       username: 'First',
       password: 'password1',
-      gender: Gender.unspecified,
     );
 
     expect(user.username, 'First');
@@ -59,7 +58,6 @@ void main() {
     await auth.signUp(
       username: 'First',
       password: 'password1',
-      gender: Gender.unspecified,
     );
 
     // The naive path taken by the sign-in screen link must not replace the
@@ -68,7 +66,6 @@ void main() {
       auth.signUp(
         username: 'Second',
         password: 'password1',
-        gender: Gender.unspecified,
       ),
       throwsA(isA<AuthFailed>()),
     );
@@ -84,7 +81,6 @@ void main() {
     final first = await auth.signUp(
       username: 'First',
       password: 'password1',
-      gender: Gender.unspecified,
     );
 
     // A conversation from the old identity must not survive the replacement.
@@ -105,7 +101,6 @@ void main() {
     final second = await auth.signUp(
       username: 'Second',
       password: 'password2',
-      gender: Gender.unspecified,
       replaceExisting: true,
     );
 

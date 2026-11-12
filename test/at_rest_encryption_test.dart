@@ -270,7 +270,6 @@ LocalUser _user({String username = 'User', String? bio, String? avatarPath}) {
     id: 'user-1',
     username: username,
     bio: bio,
-    gender: Gender.unspecified,
     avatarPath: avatarPath,
     interests: const [],
     publicKeyPEM: 'public-key',

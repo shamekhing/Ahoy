@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:ahoy/Ahoy/core/constants.dart';
-import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/services/auth/auth_service.dart';
 import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:ahoy/Ahoy/services/crypto/key_store.dart';
@@ -28,7 +27,6 @@ void main() {
     await harness.auth.signUp(
       username: 'First',
       password: 'password1',
-      gender: Gender.unspecified,
     );
     // Simulate an account created before the PBKDF2 migration and a user
     // who enabled biometrics back then.

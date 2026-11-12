@@ -98,7 +98,7 @@ lib/
     ├── ahoy_app.dart                 App root: service init, MultiProvider wiring
     ├── core/
     │   ├── constants.dart            UUIDs, ports, key names, size limits
-    │   ├── enums.dart                TransportMode, MessageType, MessageStatus, Gender
+    │   ├── enums.dart                TransportMode, MessageType, MessageStatus
     │   └── errors.dart               TransportError (thrown for BLE media attempts)
     ├── models/
     │   ├── local_user.dart           Signed-in user profile (stored locally)
@@ -154,7 +154,7 @@ lib/
     │       └── ble_transport.dart     BLE scan/advertise + GATT chunked write
     └── widgets/
         ├── common/
-        │   ├── peer_avatar.dart       Avatar with file/base64/gender-icon fallback
+        │   ├── peer_avatar.dart       Avatar with file/base64/initials fallback
         │   └── transport_badge.dart   Colored chip per TransportMode
         ├── auth/
         │   └── password_field.dart    Password input with visibility toggle + validator
@@ -234,10 +234,9 @@ AuthProvider addListener → RootScreen._handleAuthChanged()   [starts or tears 
 | Display Name | required, non-empty | shown to peers |
 | Password | ≥ 8 characters | local-only, hashed with PBKDF2 |
 | Bio | optional | max 200 chars |
-| Gender | segmented: Male / Female / Other | optional |
 | Interests | filter chips (multi-select) | Music, Tech, Sports, Food, Travel, Art, Gaming, Reading, Fitness, Nature |
 
-**On submit → `AuthProvider.signUp(username, password, gender, interests?, bio?)`:**
+**On submit → `AuthProvider.signUp(username, password, interests?, bio?)`:**
 
 ```
 AuthService.signUp()
@@ -420,7 +419,7 @@ PeerAnnouncement
 ### 8b. Peer Card
 
 Each `NearbyPeer` renders as a `PeerCard`:
-- **Avatar**: `PeerAvatar` file path → base64 → gender-colored icon (fallback chain)
+- **Avatar**: `PeerAvatar` file path → base64 → initials on a shortId-derived color (fallback chain)
 - **Title**: `peer.displayName`
 - **Subtitle**: status message (if any) + `TransportBadges` (colored chips: green=WiFi Direct, blue=LAN, indigo=BLE)
 - **Trailing**: "Chat" button, or block icon if `peer.isBlocked`
@@ -619,11 +618,10 @@ _EditProfileScreen fields:
   - Display Name (TextFormField, required)
   - Bio (max 200 chars, optional)
   - Status Message (max 80 chars, optional)
-  - Gender (SegmentedButton: Male / Female / Other)
   - Interests (FilterChip multi-select, same 10 options as sign-up)
 
 Save:
-  → ProfileProvider.update(username?, bio?, gender?, interests?, statusMessage?)
+  → ProfileProvider.update(username?, bio?, interests?, statusMessage?)
        → ProfileService.updateProfile(current, ...)
             → Build new LocalUser with changed fields
             → ProfileService.saveProfile(user)   [encrypted at rest]
@@ -651,7 +649,7 @@ Camera icon overlay tap:
 **File:** `lib/Ahoy/screens/profile/peer_profile_screen.dart`
 
 Read-only view of a `NearbyPeer`:
-- `PeerAvatar` (gender: unspecified icon, no actual avatar data available)
+- `PeerAvatar` (initials on a shortId-derived color, no actual avatar data available)
 - Display name + `@shortId`
 - `TransportBadges` for all transports seen for this peer
 - Status message (if set)
@@ -1405,7 +1403,6 @@ Own signed-in user. Persisted as JSON in `PrefsStore[prefProfile]`.
 | `id` | String | UUID v4 (stable identifier) |
 | `username` | String | Display name shown to peers |
 | `bio` | String? | Optional freetext biography |
-| `gender` | Gender | Male / Female / Unspecified |
 | `avatarPath` | String? | Local file path to avatar JPEG |
 | `interests` | List\<String\> | Selected interest tags |
 | `publicKeyPEM` | String | RSA-2048 public key (shared with peers) |
@@ -1489,13 +1486,6 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 | `sent` | ✓ | transport accepted the payload |
 | `delivered` | ✓✓ | peer returned a signed delivery ack |
 | `failed` | ✗ | transport returned false (text messages auto-retry when the peer returns) |
-
-**`Gender`** profile and avatar display:
-| Value | Avatar color |
-|-------|-------------|
-| `male` | blue |
-| `female` | pink |
-| `unspecified` | purple |
 
 ---
 

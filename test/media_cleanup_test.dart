@@ -138,7 +138,6 @@ void main() {
     await authService.signUp(
       username: 'old',
       password: 'old password',
-      gender: Gender.unspecified,
     );
 
     // Files owned by the old account, exactly the shapes sign-out sweeps.
@@ -154,7 +153,6 @@ void main() {
     await authService.signUp(
       username: 'new',
       password: 'new password',
-      gender: Gender.unspecified,
       replaceExisting: true,
     );
 

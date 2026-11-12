@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/profile_provider.dart';
-import '../../core/enums.dart';
 import '../../core/constants.dart';
 import '../../services/crypto/crypto_service.dart';
 import '../../services/crypto/local_data_crypto.dart';
@@ -49,7 +48,8 @@ class MyProfileScreen extends StatelessWidget {
               children: [
                 PeerAvatar(
                   avatarPath: user.avatarPath,
-                  gender: user.gender,
+                  name: user.username,
+                  shortId: user.shortId,
                   radius: 48,
                   localDataCrypto: context.read<LocalDataCrypto>(),
                 ),
@@ -172,7 +172,6 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
   late TextEditingController _usernameCtrl;
   late TextEditingController _bioCtrl;
   late TextEditingController _statusCtrl;
-  late Gender _gender;
   late List<String> _interests;
   bool _loading = false;
 
@@ -198,7 +197,6 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
     _usernameCtrl = TextEditingController(text: user.username);
     _bioCtrl = TextEditingController(text: user.bio ?? '');
     _statusCtrl = TextEditingController(text: user.statusMessage ?? '');
-    _gender = user.gender;
     _interests = List.from(user.interests);
   }
 
@@ -216,7 +214,6 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
     await profile.update(
       username: _usernameCtrl.text.trim(),
       bio: _bioCtrl.text.trim().isEmpty ? null : _bioCtrl.text.trim(),
-      gender: _gender,
       interests: _interests,
       statusMessage: _statusCtrl.text.trim().isEmpty
           ? null
@@ -298,21 +295,6 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
             maxLength: AhoyConstants.maxStatusLength,
           ),
           const SizedBox(height: 8),
-          const Text('Gender'),
-          const SizedBox(height: 4),
-          SegmentedButton<Gender>(
-            segments: const [
-              ButtonSegment(value: Gender.male, label: Text('Male')),
-              ButtonSegment(value: Gender.female, label: Text('Female')),
-              ButtonSegment(value: Gender.unspecified, label: Text('Other')),
-            ],
-            selected: {_gender},
-            onSelectionChanged: (s) {
-              if (s.isNotEmpty) {
-                setState(() => _gender = s.first);
-              }
-            },
-          ),
           const SizedBox(height: 16),
           const Text(
             'Interests',

@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import '../models/local_user.dart';
-import '../core/enums.dart';
 import '../services/auth/auth_service.dart';
 import '../services/transport_manager.dart';
 
@@ -30,7 +29,6 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> signUp({
     required String username,
     required String password,
-    required Gender gender,
     List<String> interests = const [],
     String? bio,
     bool replaceExisting = false,
@@ -41,7 +39,6 @@ class AuthProvider extends ChangeNotifier {
       _user = await _authService.signUp(
         username: username,
         password: password,
-        gender: gender,
         interests: interests,
         bio: bio,
         replaceExisting: replaceExisting,

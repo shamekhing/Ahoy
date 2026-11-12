@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import '../models/local_user.dart';
-import '../core/enums.dart';
 import '../services/profile/profile_service.dart';
 
 class ProfileProvider extends ChangeNotifier {
@@ -22,7 +21,6 @@ class ProfileProvider extends ChangeNotifier {
   Future<void> update({
     String? username,
     String? bio,
-    Gender? gender,
     List<String>? interests,
     String? statusMessage,
   }) async {
@@ -33,7 +31,6 @@ class ProfileProvider extends ChangeNotifier {
       _user!,
       username: username,
       bio: bio,
-      gender: gender,
       interests: interests,
       statusMessage: statusMessage,
     );

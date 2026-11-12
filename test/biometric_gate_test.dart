@@ -1,4 +1,3 @@
-import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/services/auth/auth_service.dart';
 import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:ahoy/Ahoy/services/crypto/key_store.dart';
@@ -47,7 +46,6 @@ void main() {
     await auth.signUp(
       username: 'First',
       password: 'password1',
-      gender: Gender.unspecified,
     );
 
     _authResult = false;
@@ -60,7 +58,6 @@ void main() {
     await auth.signUp(
       username: 'First',
       password: 'password1',
-      gender: Gender.unspecified,
     );
 
     _authResult = true;

@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../core/constants.dart';
 import '../../models/local_user.dart';
-import '../../core/enums.dart';
 import '../crypto/local_data_crypto.dart';
 import '../storage/prefs_store.dart';
 
@@ -79,7 +78,6 @@ class ProfileService {
     LocalUser current, {
     String? username,
     String? bio,
-    Gender? gender,
     List<String>? interests,
     String? statusMessage,
   }) async {
@@ -89,7 +87,6 @@ class ProfileService {
       id: current.id,
       username: username ?? current.username,
       bio: bio,
-      gender: gender ?? current.gender,
       avatarPath: current.avatarPath,
       interests: interests ?? current.interests,
       publicKeyPEM: current.publicKeyPEM,

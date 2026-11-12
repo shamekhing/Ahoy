@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../models/nearby_peer.dart';
-import '../../core/enums.dart';
 import '../../services/crypto/peer_trust_store.dart';
 import '../common/peer_avatar.dart';
+import '../common/trust_state_sheet.dart';
 import '../common/transport_badge.dart';
 
 class PeerCard extends StatelessWidget {
@@ -27,7 +27,11 @@ class PeerCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
-        leading: PeerAvatar(gender: Gender.unspecified, radius: 22),
+        leading: PeerAvatar(
+          name: peer.displayName,
+          shortId: peer.shortId,
+          radius: 22,
+        ),
         title: Row(
           children: [
             Expanded(
@@ -36,18 +40,36 @@ class PeerCard extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
+            // Tappable trust markers (UI review #17): a long-press tooltip is
+            // undiscoverable on mobile and the default unverified state needs
+            // an explanation, not a silent warning.
             if (trustState == PeerTrustState.unverified)
-              const Tooltip(
-                message: 'Key seen in a self-signed announcement. Compare the '
-                    'safety number before trusting this peer.',
-                child: Icon(Icons.help_outline,
-                    size: 18, color: Colors.orange),
+              IconButton(
+                icon: const Icon(
+                  Icons.help_outline,
+                  size: 18,
+                  color: Colors.orange,
+                ),
+                tooltip: 'What does this mean?',
+                onPressed: () => showTrustStateSheet(
+                  context,
+                  state: trustState,
+                  peerName: peer.displayName,
+                ),
               )
             else if (trustState == PeerTrustState.verifiedBySafetyNumber)
-              const Tooltip(
-                message: 'Safety number compared out of band.',
-                child:
-                    Icon(Icons.verified_user, size: 18, color: Colors.green),
+              IconButton(
+                icon: const Icon(
+                  Icons.verified_user,
+                  size: 18,
+                  color: Colors.green,
+                ),
+                tooltip: 'What does this mean?',
+                onPressed: () => showTrustStateSheet(
+                  context,
+                  state: trustState,
+                  peerName: peer.displayName,
+                ),
               ),
           ],
         ),

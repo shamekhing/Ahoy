@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../core/enums.dart';
 import '../../widgets/auth/password_field.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -23,7 +22,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _bioCtrl = TextEditingController();
-  Gender _gender = Gender.unspecified;
   final List<String> _interests = [];
   bool _loading = false;
 
@@ -65,7 +63,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final ok = await auth.signUp(
       username: _usernameCtrl.text.trim(),
       password: _passwordCtrl.text,
-      gender: _gender,
       interests: _interests,
       bio: _bioCtrl.text.trim().isEmpty ? null : _bioCtrl.text.trim(),
       replaceExisting: replaceExisting,
@@ -162,25 +159,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 ),
                 maxLines: 2,
                 maxLength: 200,
-              ),
-              const SizedBox(height: 8),
-              Text('I am:', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              SegmentedButton<Gender>(
-                segments: const [
-                  ButtonSegment(value: Gender.male, label: Text('Male')),
-                  ButtonSegment(value: Gender.female, label: Text('Female')),
-                  ButtonSegment(
-                    value: Gender.unspecified,
-                    label: Text('Other'),
-                  ),
-                ],
-                selected: {_gender},
-                onSelectionChanged: (s) {
-                  if (s.isNotEmpty) {
-                    setState(() => _gender = s.first);
-                  }
-                },
               ),
               const SizedBox(height: 16),
               Text(

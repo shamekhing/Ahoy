@@ -278,7 +278,6 @@ void main() {
         await provider.signUp(
           username: 'Locky',
           password: 'lock pass 123',
-          gender: Gender.unspecified,
         );
         expect(provider.isSignedIn, isTrue);
 

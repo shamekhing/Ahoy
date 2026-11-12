@@ -156,7 +156,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Identity changed'), findsOneWidget);
 
-        await tester.tap(find.text('Mark as verified'));
+        await tester.tap(find.text('I verified the current key'));
         await tester.pumpAndSettle();
 
         expect(find.text('Identity changed'), findsNothing);

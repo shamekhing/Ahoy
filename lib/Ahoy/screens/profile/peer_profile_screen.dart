@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/nearby_peer.dart';
 import '../../providers/auth_provider.dart';
@@ -7,8 +8,8 @@ import '../../providers/discovery_provider.dart';
 import '../../services/crypto/crypto_service.dart';
 import '../../services/crypto/peer_trust_store.dart';
 import '../../widgets/common/peer_avatar.dart';
+import '../../widgets/common/trust_state_sheet.dart';
 import '../../widgets/common/transport_badge.dart';
-import '../../core/enums.dart';
 
 class PeerProfileScreen extends StatelessWidget {
   final NearbyPeer peer;
@@ -64,7 +65,20 @@ class PeerProfileScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Center(child: PeerAvatar(gender: Gender.unspecified, radius: 48)),
+          Center(
+            child: GestureDetector(
+              onTap: () => showTrustStateSheet(
+                context,
+                state: trust?.state,
+                peerName: peer.displayName,
+              ),
+              child: PeerAvatar(
+                name: peer.displayName,
+                shortId: peer.shortId,
+                radius: 48,
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
           Center(
             child: Text(
@@ -93,7 +107,16 @@ class PeerProfileScreen extends StatelessWidget {
           ),
           if (trust != null) ...[
             const SizedBox(height: 8),
-            Center(child: _TrustChip(state: trust.state)),
+            Center(
+              child: GestureDetector(
+                onTap: () => showTrustStateSheet(
+                  context,
+                  state: trust.state,
+                  peerName: peer.displayName,
+                ),
+                child: _TrustChip(state: trust.state),
+              ),
+            ),
           ],
           const SizedBox(height: 8),
           Center(child: TransportBadges(transports: peer.transports)),
@@ -145,7 +168,7 @@ class PeerProfileScreen extends StatelessWidget {
                       TextButton(
                         onPressed: () =>
                             chat.promotePeerBySafetyNumber(peer.uuid),
-                        child: const Text('Mark as verified'),
+                        child: const Text('I verified the current key'),
                       ),
                     ],
                   ),
@@ -171,11 +194,33 @@ class PeerProfileScreen extends StatelessWidget {
                 height: 1.4,
               ),
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Read this number aloud with your peer it is identical on '
-              'both devices for this conversation.',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Read this number aloud with your peer it is identical on '
+                    'both devices for this conversation.',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy safety number',
+                  onPressed: () {
+                    // Capture before the async gap (build context here is
+                    // still mounted).
+                    final messenger = ScaffoldMessenger.of(context);
+                    Clipboard.setData(ClipboardData(text: safetyNumber)).then(
+                      (_) => messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Safety number copied.'),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ],
           if (peer.statusMessage != null && peer.statusMessage!.isNotEmpty) ...[

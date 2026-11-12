@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/conversation.dart';
 import '../../models/nearby_peer.dart';
+import '../../widgets/common/peer_avatar.dart';
 import '../../widgets/common/transport_badge.dart';
 import 'chat_screen.dart';
 
@@ -55,19 +56,10 @@ class _ConversationTile extends StatelessWidget {
       leading: Stack(
         clipBehavior: Clip.none,
         children: [
-          CircleAvatar(
-            // Theme-aware surfaces replace pale tints that washed out in
-            // dark mode (UI review #21); a blocked thread uses error
-            // containers so the state survives theme switches.
-            backgroundColor: conv.isBlocked
-                ? colorScheme.errorContainer
-                : colorScheme.surfaceContainerHighest,
-            child: Icon(
-              conv.isBlocked ? Icons.block : Icons.person,
-              color: conv.isBlocked
-                  ? colorScheme.onErrorContainer
-                  : colorScheme.onSurfaceVariant,
-            ),
+          PeerAvatar(
+            name: conv.peerDisplayName,
+            shortId: conv.peerShortId,
+            radius: 22,
           ),
           if (conv.unreadCount > 0)
             Positioned(

@@ -5,7 +5,6 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants.dart';
 import '../../core/errors.dart';
 import '../../models/local_user.dart';
-import '../../core/enums.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/key_store.dart';
 import '../crypto/local_data_crypto.dart';
@@ -53,7 +52,6 @@ class AuthService {
   Future<LocalUser> signUp({
     required String username,
     required String password,
-    required Gender gender,
     List<String> interests = const [],
     String? bio,
     bool replaceExisting = false,
@@ -104,7 +102,6 @@ class AuthService {
       id: id,
       username: username.trim(),
       bio: bio,
-      gender: gender,
       interests: interests,
       publicKeyPEM: keys['publicKey']!,
       shortId: shortId,
