@@ -199,3 +199,49 @@ marks for a manual retry.
 Every commit ran `flutter analyze` clean and its targeted tests; the full
 suite is green at 135 tests on Flutter 3.47.9 / Dart 3.13.7. Gate note: run
 the suite without piping so a failing exit code cannot be masked.
+
+---
+
+# Sixth External Review (announcement freshness focus)
+
+A focused review of the post-fifth-review code. Findings and dispositions:
+
+## Fixed
+
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| 1 | High | Announcements had no freshness: a captured announcement replayed from another node's IP repointed the LAN TCP route for a victim UUID | announcementMaterial now includes a timestamp, LAN re-signs every broadcast, all receivers (LAN, WD, TransportManager, DiscoveryProvider) reject anything older than 15 minutes, and LAN routing is keyed like WiFi Direct routing: the first verified announcement fixes the UUID's key and a different key is refused before route state changes |
+| 2 | High | The same replay refreshed DiscoveryService lastSeen, keeping departed peers online | Same freshness gate runs in both acceptance layers |
+| 3 | High | Signed materials had no domain separation; announcement material had no msgType-like discriminator | Every signed material carries a context prefix: ahoy-announce-v1, ahoy-chat-v3, ahoy-ack-v1, ahoy-identity-v1 |
+| 4 | Med | A squatted first key had no user-facing reject path | The Identity changed banner gains a Keep current key action that discards pendingKey; sealing never used the pending key (first-key-wins), so this was UX, not crypto |
+| 5 | Med | WiFi Direct send fell back to the group owner's address for unknown UUIDs | Removed: no route means no send; the ack and identity paths only deliver to learned routes |
+| 6 | Med | reset() left the identity flood throttle populated; outbox removal on reset was fire-and-forget | reset clears the throttle; the on-disk outbox is covered by signOut's prefs clearAll which precedes any repersist |
+| 8 | Med | playAudio would write and play a zero-byte decrypted file (what a quarantined file yields) | Empty bytes refuse to play |
+| 9/11/12/14 | Low | Comment grammar, stopScanning guard order, contradictory README requirements sentence, no-AAD trade-off invisible to README readers | All corrected; the encrypt dependency row now points at the recorded trade-off |
+
+## Rejected with evidence
+
+Finding 7 (identity throttle race): the throttle check and the map write in
+`_handleInboundIdentity` are adjacent synchronous statements with no await
+between them, so Dart's single-threaded event loop cannot interleave two
+callers at that point. A burst yields one reply per peer per window, which
+is the intended behavior.
+
+## Accepted and recorded
+
+Finding 13: a failed WiFi Direct initialize is not retried by
+startScanning; recovery happens on the next discovery cycle or transport
+toggle. Also recorded: the sixth round is another coordinated wire change
+(previous builds cannot verify announcements or sealed messages from this
+one), consistent with the no-compat decision for the legacy inbound path.
+
+## New tests
+
+Stale announcement rejected, conflicting-key announcement refused with the
+route intact, announcement signature refused as a chat payload, WiFi Direct
+key binding surviving teardown, Keep current key dismissal flow.
+
+## Validation
+
+flutter analyze clean; flutter test 139/139 passing on Flutter 3.47.9 /
+Dart 3.13.7.
