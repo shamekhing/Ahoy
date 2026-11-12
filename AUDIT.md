@@ -394,3 +394,18 @@ route takeover, the security-relevant path, stays pinned.
 this round, 12 added across the fixes) on Flutter 3.47.9 / Dart 3.13.7.
 Kotlin changes are inspection-validated (no Kotlin test harness),
 consistent with every earlier platform round.
+
+## Post-review fix (device install)
+
+Installing the debug build on a physical device surfaced one more finding,
+outside the code the review examined: `assets/app_icon.svg` — the logo
+rendered by both auth screens — was not an SVG at all but a misnamed PNG
+carrying a C2PA content-credential block, so `SvgPicture.asset` threw an
+unhandled `XmlParserException` on every launch. The asset is now
+`assets/auth_logo.png` (named for what it is), rendered with `Image.asset`;
+the unused `flutter_svg` dependency is gone; and `asset_integrity_test.dart`
+asserts every declared asset exists and matches its extension, so a binary
+blob cannot ship under an `.svg` name again. Two Flutter-migrator flags
+landed in `android/gradle.properties` during the first device build
+(AGP compatibility, added automatically). Verified on device: clean launch,
+no exceptions in logcat. Suite now 191 tests.
