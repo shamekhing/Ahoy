@@ -15,8 +15,6 @@ const _myUuid = '11111111-1111-4111-8111-111111111111';
 const _peerUuid = '22222222-2222-4222-8222-222222222222';
 const _keyA =
     '-----BEGIN RSA PUBLIC KEY-----\nKEY_A\n-----END RSA PUBLIC KEY-----';
-const _keyB =
-    '-----BEGIN RSA PUBLIC KEY-----\nKEY_B\n-----END RSA PUBLIC KEY-----';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -80,8 +78,19 @@ void main() {
       final harness = await _createHarness();
       await _seedPinnedConversation(harness.convStore, _keyA);
 
+      // A real peer key sealed to us: the pinned placeholder key cannot
+      // verify the signature, so the message is rejected and the pin stays.
+      final peerCrypto = CryptoService();
+      final otherKeys = await peerCrypto.generateKeyPair();
+      peerCrypto.activate(otherKeys['privateKey']!, otherKeys['publicKey']!);
+      final payload = await _sealedInboundPacket(
+        harness,
+        peerCrypto,
+        senderPublicKeyPEM: otherKeys['publicKey']!,
+      );
+
       await harness.service.onInboundPacket(
-        rawPayload: _inboundPacket(senderPublicKeyPEM: _keyB),
+        rawPayload: payload,
         peerUuid: _peerUuid,
         peerShortId: 'PEER12',
         peerDisplayName: 'Peer',
@@ -96,18 +105,31 @@ void main() {
       expect(
         harness.msgStore.loadMessages(conversation.id),
         isEmpty,
-        reason: 'unsigned keyed payloads are not accepted',
+        reason: 'payloads that fail verification are rejected',
       );
     },
   );
 
   test(
-    'drops unkeyed unsigned inbound payload for a new conversation',
+    'drops unsealed unsigned inbound payload for a new conversation',
     () async {
       final harness = await _createHarness();
+      final peerCrypto = CryptoService();
+      final keys = await peerCrypto.generateKeyPair();
+      peerCrypto.activate(keys['privateKey']!, keys['publicKey']!);
+
+      final inner = _innerPayload(senderPublicKeyPEM: keys['publicKey']!);
+      // No signature at all.
+      final payload = jsonEncode({
+        'v': 3,
+        'ct': peerCrypto.encryptForPeer(
+          jsonEncode(inner),
+          harness.myPublicKeyPEM,
+        ),
+      });
 
       final message = await harness.service.onInboundPacket(
-        rawPayload: jsonEncode(_inboundPayload()),
+        rawPayload: payload,
         peerUuid: _peerUuid,
         peerShortId: 'PEER12',
         peerDisplayName: 'Peer',
@@ -132,21 +154,21 @@ void main() {
   );
 
   test(
-    'accepts signed inbound payload and pins the sender public key',
+    'accepts sealed signed inbound payload and pins the sender public key',
     () async {
       final harness = await _createHarness();
       final peerCrypto = CryptoService();
       final keys = await peerCrypto.generateKeyPair();
       peerCrypto.activate(keys['privateKey']!, keys['publicKey']!);
 
-      final payload = _inboundPayload(senderPublicKeyPEM: keys['publicKey']!);
-      payload['signatureVersion'] = 1;
-      payload['signature'] = peerCrypto.signPayload(
-        _signatureMaterial(payload),
+      final payload = await _sealedInboundPacket(
+        harness,
+        peerCrypto,
+        senderPublicKeyPEM: keys['publicKey']!,
       );
 
       final message = await harness.service.onInboundPacket(
-        rawPayload: jsonEncode(payload),
+        rawPayload: payload,
         peerUuid: _peerUuid,
         peerShortId: 'PEER12',
         peerDisplayName: 'Peer',
@@ -201,27 +223,52 @@ Future<void> _seedPinnedConversation(ConversationStore convStore, String key) {
   );
 }
 
-String _inboundPacket({String? senderPublicKeyPEM}) {
-  return jsonEncode(_inboundPayload(senderPublicKeyPEM: senderPublicKeyPEM));
+/// Builds a sealed v3 payload signed by [peerCrypto] over the frozen inner
+/// field set, addressed to the harness public key.
+Future<String> _sealedInboundPacket(
+  _Harness harness,
+  CryptoService peerCrypto, {
+  required String senderPublicKeyPEM,
+  String content = 'hello',
+  String msgId = 'aaaaaaaa-1111-2222-3333-444444444444',
+}) async {
+  final inner = _innerPayload(
+    senderPublicKeyPEM: senderPublicKeyPEM,
+    content: content,
+    msgId: msgId,
+  );
+  inner['signature'] = peerCrypto.signPayload(_signatureMaterialV3(inner));
+  return jsonEncode({
+    'v': 3,
+    'ct': peerCrypto.encryptForPeer(
+      jsonEncode(inner),
+      harness.myPublicKeyPEM,
+    ),
+  });
 }
 
-Map<String, dynamic> _inboundPayload({String? senderPublicKeyPEM}) {
+Map<String, dynamic> _innerPayload({
+  required String senderPublicKeyPEM,
+  String content = 'hello',
+  String msgId = 'aaaaaaaa-1111-2222-3333-444444444444',
+}) {
   return {
     'msgType': 'chat',
-    'msgId': 'aaaaaaaa-1111-2222-3333-444444444444',
+    'msgId': msgId,
     'convId': MessageStore.conversationId(_myUuid, _peerUuid),
     'senderUuid': _peerUuid,
     'senderShortId': 'PEER12',
     'senderName': 'Peer',
     'type': MessageType.text.name,
-    'content': 'hello',
-    'isEncrypted': false,
-    'senderPublicKeyPEM': ?senderPublicKeyPEM,
+    'content': content,
+    'replyToId': null,
+    'replyToPreview': null,
     'timestamp': DateTime.now().toIso8601String(),
+    'senderPublicKeyPEM': senderPublicKeyPEM,
   };
 }
 
-String _signatureMaterial(Map<String, dynamic> payload) {
+String _signatureMaterialV3(Map<String, dynamic> payload) {
   return jsonEncode({
     'msgType': payload['msgType'],
     'msgId': payload['msgId'],
@@ -231,11 +278,10 @@ String _signatureMaterial(Map<String, dynamic> payload) {
     'senderName': payload['senderName'],
     'type': payload['type'],
     'content': payload['content'],
-    'isEncrypted': payload['isEncrypted'],
-    'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
     'replyToId': payload['replyToId'],
     'replyToPreview': payload['replyToPreview'],
     'timestamp': payload['timestamp'],
+    'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
   });
 }
 

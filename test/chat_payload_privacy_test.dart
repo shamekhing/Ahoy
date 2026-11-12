@@ -19,23 +19,6 @@ const _validMsgId = 'aaaaaaaa-1111-2222-3333-444444444444';
 String _wire(Map<String, dynamic> data, String fromUuid) =>
     jsonEncode({...data, 'from': fromUuid});
 
-/// Mirrors ChatService._signatureMaterial (legacy flat payloads).
-String _legacyMaterial(Map<String, dynamic> p) => jsonEncode({
-  'msgType': p['msgType'],
-  'msgId': p['msgId'],
-  'convId': p['convId'],
-  'senderUuid': p['senderUuid'],
-  'senderShortId': p['senderShortId'],
-  'senderName': p['senderName'],
-  'type': p['type'],
-  'content': p['content'],
-  'isEncrypted': p['isEncrypted'],
-  'senderPublicKeyPEM': p['senderPublicKeyPEM'],
-  'replyToId': p['replyToId'],
-  'replyToPreview': p['replyToPreview'],
-  'timestamp': p['timestamp'],
-});
-
 /// Mirrors ChatService._signatureMaterialV3 (sealed inner payloads).
 String _v3Material(Map<String, dynamic> p) => jsonEncode({
   'msgType': p['msgType'],
@@ -98,7 +81,8 @@ Future<(CryptoService, Map<String, String>)> _identity() async {
   return (crypto, keys);
 }
 
-Map<String, dynamic> _legacyPayload({
+Map<String, dynamic> _sealedPayload({
+  required String recipientPublicKeyPEM,
   required CryptoService signer,
   required String publicKeyPEM,
   String? msgId,
@@ -106,7 +90,7 @@ Map<String, dynamic> _legacyPayload({
   String? senderUuid,
   DateTime? timestamp,
 }) {
-  final p = <String, dynamic>{
+  final inner = <String, dynamic>{
     'msgType': 'chat',
     'msgId': msgId ?? _validMsgId,
     'convId': convId ?? MessageStore.conversationId(_bobUuid, _aliceUuid),
@@ -115,14 +99,16 @@ Map<String, dynamic> _legacyPayload({
     'senderName': 'Alice',
     'type': 'text',
     'content': 'hello',
-    'isEncrypted': false,
-    'senderPublicKeyPEM': publicKeyPEM,
     'replyToId': null,
     'replyToPreview': null,
     'timestamp': (timestamp ?? DateTime.now()).toIso8601String(),
+    'senderPublicKeyPEM': publicKeyPEM,
   };
-  p['signature'] = signer.signPayload(_legacyMaterial(p));
-  return p;
+  inner['signature'] = signer.signPayload(_v3Material(inner));
+  return {
+    'v': 3,
+    'ct': signer.encryptForPeer(jsonEncode(inner), recipientPublicKeyPEM),
+  };
 }
 
 void main() {
@@ -229,9 +215,11 @@ void main() {
 
   test('drops messages outside the freshness window (replay)', () async {
     final (alice, aliceKeys) = await _identity();
-    final bobSide = await _createHarness(CryptoService());
+    final (bob, bobKeys) = await _identity();
+    final bobSide = await _createHarness(bob);
 
-    final payload = _legacyPayload(
+    final payload = _sealedPayload(
+      recipientPublicKeyPEM: bobKeys['publicKey']!,
       signer: alice,
       publicKeyPEM: aliceKeys['publicKey']!,
       timestamp: DateTime.now().subtract(const Duration(hours: 2)),
@@ -254,11 +242,13 @@ void main() {
 
   test('drops payloads replayed into a different conversation', () async {
     final (alice, aliceKeys) = await _identity();
-    final bobSide = await _createHarness(CryptoService());
+    final (bob, bobKeys) = await _identity();
+    final bobSide = await _createHarness(bob);
 
     // Genuinely signed by Alice but bound to her conversation with Mallory.
     // Replaying it over the wire as "from Alice" must fail the binding.
-    final payload = _legacyPayload(
+    final payload = _sealedPayload(
+      recipientPublicKeyPEM: bobKeys['publicKey']!,
       signer: alice,
       publicKeyPEM: aliceKeys['publicKey']!,
       convId: MessageStore.conversationId(_bobUuid, _malloryUuid),
@@ -281,9 +271,11 @@ void main() {
 
   test('drops messages with invalid msgId', () async {
     final (alice, aliceKeys) = await _identity();
-    final bobSide = await _createHarness(CryptoService());
+    final (bob, bobKeys) = await _identity();
+    final bobSide = await _createHarness(bob);
 
-    final payload = _legacyPayload(
+    final payload = _sealedPayload(
+      recipientPublicKeyPEM: bobKeys['publicKey']!,
       signer: alice,
       publicKeyPEM: aliceKeys['publicKey']!,
       msgId: 'f' * 80,
@@ -304,31 +296,59 @@ void main() {
     expect(bobSide.convStore.loadAll(), isEmpty);
   });
 
-  test('accepts a fresh signed legacy message (receiver-side compat)', () async {
+  test('rejects an unsealed legacy payload (audit L-2)', () async {
     final (alice, aliceKeys) = await _identity();
-    final bobSide = await _createHarness(CryptoService());
+    final (bob, bobKeys) = await _identity();
+    final bobSide = await _createHarness(bob);
 
-    final payload = _legacyPayload(
-      signer: alice,
-      publicKeyPEM: aliceKeys['publicKey']!,
+    // A well-signed but versionless flat payload: nothing sends it any more
+    // and it exposed metadata and plaintext content on the wire.
+    final flat = <String, dynamic>{
+      'msgType': 'chat',
+      'msgId': _validMsgId,
+      'convId': MessageStore.conversationId(_bobUuid, _aliceUuid),
+      'senderUuid': _aliceUuid,
+      'senderShortId': 'ALICE1',
+      'senderName': 'Alice',
+      'type': 'text',
+      'content': 'plaintext on the wire',
+      'isEncrypted': false,
+      'senderPublicKeyPEM': aliceKeys['publicKey'],
+      'replyToId': null,
+      'replyToPreview': null,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+    flat['signature'] = alice.signPayload(
+      jsonEncode({
+        'msgType': flat['msgType'],
+        'msgId': flat['msgId'],
+        'convId': flat['convId'],
+        'senderUuid': flat['senderUuid'],
+        'senderShortId': flat['senderShortId'],
+        'senderName': flat['senderName'],
+        'type': flat['type'],
+        'content': flat['content'],
+        'isEncrypted': flat['isEncrypted'],
+        'senderPublicKeyPEM': flat['senderPublicKeyPEM'],
+        'replyToId': flat['replyToId'],
+        'replyToPreview': flat['replyToPreview'],
+        'timestamp': flat['timestamp'],
+      }),
     );
 
     final delivered = await bobSide.service.onInboundPacket(
-      rawPayload: _wire(payload, _aliceUuid),
+      rawPayload: _wire(flat, _aliceUuid),
       peerUuid: _aliceUuid,
-      peerShortId: '',
-      peerDisplayName: 'Unknown',
+      peerShortId: 'ALICE1',
+      peerDisplayName: 'Alice',
       myUuid: _bobUuid,
       transport: TransportMode.lan,
       receiveOff: false,
       blockedUuids: const {},
     );
 
-    expect(delivered, isNotNull);
-    expect(delivered!.content, 'hello');
-    final conversation = bobSide.convStore.loadAll().single;
-    expect(conversation.peerShortId, 'ALICE1');
-    expect(conversation.peerDisplayName, 'Alice');
+    expect(delivered, isNull);
+    expect(bobSide.convStore.loadAll(), isEmpty);
   });
 
   test('keyless first contact exchanges signed identities then seals (audit #1)', () async {
@@ -407,14 +427,16 @@ void main() {
   test('first contacts must pin the discovery-verified key (audit #7)', () async {
     final (alice, aliceKeys) = await _identity();
     final (mallory, malloryKeys) = await _identity();
-    final bobSide = await _createHarness(CryptoService());
+    final (bob, bobKeys) = await _identity();
+    final bobSide = await _createHarness(bob);
 
     // Bob learned Alice's key from her signed announcement.
     bobSide.service.registerVerifiedPeerKey(_aliceUuid, aliceKeys['publicKey']!);
 
     // Mallory messages first claiming to be Alice self-consistent key, but
     // it does not match the discovery-verified one.
-    final payload = _legacyPayload(
+    final payload = _sealedPayload(
+      recipientPublicKeyPEM: bobKeys['publicKey']!,
       signer: mallory,
       publicKeyPEM: malloryKeys['publicKey']!,
     );
@@ -432,7 +454,8 @@ void main() {
     expect(bobSide.convStore.loadAll(), isEmpty);
 
     // The real Alice matching key is accepted.
-    final genuine = _legacyPayload(
+    final genuine = _sealedPayload(
+      recipientPublicKeyPEM: bobKeys['publicKey']!,
       signer: alice,
       publicKeyPEM: aliceKeys['publicKey']!,
     );

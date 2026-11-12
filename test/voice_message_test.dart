@@ -158,8 +158,12 @@ void main() {
       ),
     );
 
-    final payload = _signedInbound(peerCrypto, peerKeys['publicKey']!,
-        content: '');
+    final payload = await _sealedInbound(
+      harness,
+      peerCrypto,
+      peerKeys['publicKey']!,
+      content: '',
+    );
     final result = await harness.service.onInboundPacket(
       rawPayload: jsonEncode(payload),
       peerUuid: _peerUuid,
@@ -183,12 +187,14 @@ Future<File> _writeTempAudio(List<int> bytes) async {
   return file;
 }
 
-Map<String, dynamic> _signedInbound(
+/// Builds a sealed v3 inbound payload signed by [peerCrypto].
+Future<String> _sealedInbound(
+  _Harness harness,
   CryptoService peerCrypto,
   String peerPublicKeyPEM, {
   required String content,
-}) {
-  final payload = <String, dynamic>{
+}) async {
+  final inner = <String, dynamic>{
     'msgType': 'chat',
     'msgId': 'aaaaaaaa-1111-2222-3333-444444444444',
     'convId': MessageStore.conversationId(_myUuid, _peerUuid),
@@ -197,15 +203,22 @@ Map<String, dynamic> _signedInbound(
     'senderName': 'Peer',
     'type': MessageType.voice.name,
     'content': content,
-    'isEncrypted': false,
-    'senderPublicKeyPEM': peerPublicKeyPEM,
+    'replyToId': null,
+    'replyToPreview': null,
     'timestamp': DateTime.now().toIso8601String(),
+    'senderPublicKeyPEM': peerPublicKeyPEM,
   };
-  payload['signature'] = peerCrypto.signPayload(_signatureMaterial(payload));
-  return payload;
+  inner['signature'] = peerCrypto.signPayload(_signatureMaterialV3(inner));
+  return jsonEncode({
+    'v': 3,
+    'ct': peerCrypto.encryptForPeer(
+      jsonEncode(inner),
+      harness.myPublicKeyPEM,
+    ),
+  });
 }
 
-String _signatureMaterial(Map<String, dynamic> payload) {
+String _signatureMaterialV3(Map<String, dynamic> payload) {
   return jsonEncode({
     'msgType': payload['msgType'],
     'msgId': payload['msgId'],
@@ -215,11 +228,10 @@ String _signatureMaterial(Map<String, dynamic> payload) {
     'senderName': payload['senderName'],
     'type': payload['type'],
     'content': payload['content'],
-    'isEncrypted': payload['isEncrypted'],
-    'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
     'replyToId': payload['replyToId'],
     'replyToPreview': payload['replyToPreview'],
     'timestamp': payload['timestamp'],
+    'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
   });
 }
 

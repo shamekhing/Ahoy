@@ -651,7 +651,15 @@ class ChatService {
   }) async {
     try {
       final outer = jsonDecode(rawPayload) as Map<String, dynamic>;
-      final isV3 = outer['v'] == 3;
+      // Identity exchanges are intentionally unsealed (they bootstrap the
+      // key relationship) but chat and ack payloads must be sealed v3: the
+      // legacy versionless format exposed identity metadata and could carry
+      // plaintext content on the wire (audit L-2).
+      final isIdentity = outer['msgType'] == 'identity';
+      if (!isIdentity && outer['v'] != 3) {
+        ahoyLog('[ChatService] dropping unsealed legacy payload');
+        return null;
+      }
 
       if (blockedUuids.contains(peerUuid)) return null;
 
@@ -685,22 +693,18 @@ class ChatService {
       // v3: everything except the routing UUID lives inside the encrypted
       // blob decrypt first, then validate (audit M-1).
       Map<String, dynamic> json;
-      if (isV3) {
-        if (!_crypto.isReady) {
-          ahoyLog('[ChatService] dropping sealed message; crypto not ready');
-          return null;
-        }
-        final ct = outer['ct'] as String?;
-        if (ct == null || ct.isEmpty) return null;
-        try {
-          final plain = _crypto.decryptFromPeer(ct);
-          json = jsonDecode(plain) as Map<String, dynamic>;
-        } catch (e) {
-          ahoyLog('[ChatService] dropping undecryptable sealed message', e);
-          return null;
-        }
-      } else {
-        json = outer;
+      if (!_crypto.isReady) {
+        ahoyLog('[ChatService] dropping sealed message; crypto not ready');
+        return null;
+      }
+      final ct = outer['ct'] as String?;
+      if (ct == null || ct.isEmpty) return null;
+      try {
+        final plain = _crypto.decryptFromPeer(ct);
+        json = jsonDecode(plain) as Map<String, dynamic>;
+      } catch (e) {
+        ahoyLog('[ChatService] dropping undecryptable sealed message', e);
+        return null;
       }
 
       if (json['msgType'] == 'ack') {
@@ -773,7 +777,7 @@ class ChatService {
       if (!_verifyInboundSignature(
         json,
         trustedPeerPublicKeyPEM,
-        v3: isV3,
+        v3: true,
       )) {
         return null;
       }
@@ -798,17 +802,9 @@ class ChatService {
       }
 
       final type = MessageType.values.byName(json['type'] as String? ?? 'text');
-      final isEncrypted = isV3 || (json['isEncrypted'] as bool? ?? false);
+      // v3 payloads are sealed by construction (audit L-2).
+      const isEncrypted = true;
       String content = json['content'] as String? ?? '';
-
-      if (!isV3 && isEncrypted && _crypto.isReady) {
-        try {
-          content = _crypto.decryptFromPeer(content);
-        } catch (e) {
-          ahoyLog('[ChatService] decryption failed', e);
-          content = '[Message could not be decrypted]';
-        }
-      }
 
       // Signed identity fields win over transport-level hints (which are
       // empty for sealed messages).
