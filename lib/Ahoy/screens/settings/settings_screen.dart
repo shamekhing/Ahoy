@@ -90,10 +90,10 @@ class SettingsScreen extends StatelessWidget {
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text(
+            leading: Icon(Icons.logout, color: Theme.of(context).colorScheme.error),
+            title: Text(
               'Sign Out & Erase Data',
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
             onTap: () => _confirmSignOut(context, auth),
           ),
@@ -118,7 +118,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Erase & Sign Out'),
           ),
         ],

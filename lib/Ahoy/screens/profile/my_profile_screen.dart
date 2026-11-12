@@ -104,7 +104,7 @@ class MyProfileScreen extends StatelessWidget {
             'This is your key fingerprint peers see the same number on '
             'your profile card. Open a peer\'s profile to compare your '
             'per-conversation safety number.',
-            style: TextStyle(color: Colors.grey, fontSize: 11),
+            style: TextStyle(color: Colors.grey, fontSize: 12),
           ),
           if (user.statusMessage != null && user.statusMessage!.isNotEmpty) ...[
             const SizedBox(height: 8),

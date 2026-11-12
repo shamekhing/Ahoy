@@ -147,13 +147,17 @@ class MessageBubble extends StatelessWidget {
         Text(
           time,
           style: TextStyle(
-            fontSize: 10,
-            color: textColor.withValues(alpha: 0.6),
+            fontSize: 12,
+            color: textColor.withValues(alpha: 0.85),
           ),
         ),
         if (isMine) ...[
           const SizedBox(width: 4),
-          Icon(_statusIcon, size: 12, color: textColor.withValues(alpha: 0.6)),
+          Icon(
+            _statusIcon,
+            size: 14,
+            color: textColor.withValues(alpha: 0.85),
+          ),
         ],
       ],
     );

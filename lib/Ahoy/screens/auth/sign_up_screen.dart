@@ -97,9 +97,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text(
+            child: Text(
               'Erase & Replace',
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(dialogContext).colorScheme.error),
             ),
           ),
         ],
@@ -208,7 +208,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ),
               if (auth.error != null) ...[
                 const SizedBox(height: 12),
-                Text(auth.error!, style: const TextStyle(color: Colors.red)),
+                Text(auth.error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
               ],
               const SizedBox(height: 24),
               SizedBox(

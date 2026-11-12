@@ -173,8 +173,8 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             if (!conv.isBlocked)
               ListTile(
-                leading: const Icon(Icons.block, color: Colors.red),
-                title: const Text('Block', style: TextStyle(color: Colors.red)),
+                leading: Icon(Icons.block, color: Theme.of(context).colorScheme.error),
+                title: Text('Block', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 onTap: () async {
                   Navigator.pop(context);
                   final discovery = context.read<DiscoveryProvider>();
@@ -195,10 +195,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
             ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text(
+              leading: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
+              title: Text(
                 'Delete Conversation',
-                style: TextStyle(color: Colors.red),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
               onTap: () async {
                 Navigator.pop(context);
@@ -224,7 +224,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Delete'),
           ),
         ],
@@ -271,7 +271,7 @@ class _ChatScreenState extends State<ChatScreen> {
             else
               const Text(
                 'Not nearby',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
           ],
         ),
@@ -294,13 +294,13 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: conv.isBlocked
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.block, size: 64, color: Colors.red),
-                  SizedBox(height: 12),
-                  Text('This conversation is blocked'),
+                  Icon(Icons.block, size: 64, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(height: 12),
+                  const Text('This conversation is blocked'),
                 ],
               ),
             )

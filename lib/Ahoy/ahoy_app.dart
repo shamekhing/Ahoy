@@ -130,7 +130,7 @@ class _AhoyAppState extends State<AhoyApp> {
               child: Text(
                 'Startup error:\n$_initError',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
           ),

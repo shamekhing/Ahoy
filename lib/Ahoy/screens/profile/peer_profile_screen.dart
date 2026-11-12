@@ -39,6 +39,9 @@ class PeerProfileScreen extends StatelessWidget {
     final isBlocked = discovery.blockedUuids.contains(peer.uuid);
     final trust = chat.peerTrust(peer.uuid);
     final hasKeyChange = trust?.pendingKey != null;
+    // Theme-aware containers replace hardcoded pale tints that turned
+    // near-invisible in dark mode (UI review #21).
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -48,9 +51,9 @@ class PeerProfileScreen extends StatelessWidget {
             onSelected: (action) => _handleAction(context, action, discovery),
             itemBuilder: (_) => [
               if (!isBlocked)
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'block',
-                  child: Text('Block', style: TextStyle(color: Colors.red)),
+                  child: Text('Block', style: TextStyle(color: colorScheme.error)),
                 )
               else
                 const PopupMenuItem(value: 'unblock', child: Text('Unblock')),
@@ -74,15 +77,18 @@ class PeerProfileScreen extends StatelessWidget {
           Center(
             child: Text(
               '@${peer.shortId}',
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
             ),
           ),
           const SizedBox(height: 4),
-          const Center(
+          Center(
             child: Text(
               'short ID is display only compare the safety number to verify',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey, fontSize: 11),
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
             ),
           ),
           if (trust != null) ...[
@@ -96,30 +102,38 @@ class PeerProfileScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
+                color: colorScheme.tertiaryContainer,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.shade200),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                      SizedBox(width: 8),
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         'Identity changed',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onTertiaryContainer,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'A different public key was announced for this peer. '
                     'Messages are still sealed to the key you already know. '
                     'Compare the safety number out of band before trusting '
                     'the new key.',
-                    style: TextStyle(fontSize: 12),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.onTertiaryContainer,
+                    ),
                   ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -161,7 +175,7 @@ class PeerProfileScreen extends StatelessWidget {
             const Text(
               'Read this number aloud with your peer it is identical on '
               'both devices for this conversation.',
-              style: TextStyle(color: Colors.grey, fontSize: 11),
+              style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ],
           if (peer.statusMessage != null && peer.statusMessage!.isNotEmpty) ...[
@@ -182,17 +196,16 @@ class PeerProfileScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
+                color: colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.shade200),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.block, color: Colors.red),
-                  SizedBox(width: 8),
+                  Icon(Icons.block, color: colorScheme.onErrorContainer),
+                  const SizedBox(width: 8),
                   Text(
                     'You have blocked this person',
-                    style: TextStyle(color: Colors.red),
+                    style: TextStyle(color: colorScheme.onErrorContainer),
                   ),
                 ],
               ),

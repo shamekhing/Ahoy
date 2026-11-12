@@ -63,7 +63,10 @@ class PeerCard extends StatelessWidget {
         isThreeLine:
             peer.statusMessage != null && peer.statusMessage!.isNotEmpty,
         trailing: peer.isBlocked
-            ? const Icon(Icons.block, color: Colors.red)
+            ? Icon(
+                Icons.block,
+                color: Theme.of(context).colorScheme.error,
+              )
             : TextButton(onPressed: onConnect, child: const Text('Chat')),
         onTap: onViewProfile,
       ),

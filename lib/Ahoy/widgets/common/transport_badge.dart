@@ -14,7 +14,7 @@ class TransportBadge extends StatelessWidget {
       avatar: Icon(_icon, size: 14, color: Colors.white),
       label: Text(
         _label,
-        style: const TextStyle(fontSize: 11, color: Colors.white),
+        style: const TextStyle(fontSize: 12, color: Colors.white),
       ),
       backgroundColor: _color,
       padding: const EdgeInsets.symmetric(horizontal: 4),

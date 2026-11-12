@@ -103,7 +103,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     const SizedBox(height: 8),
                     Text(
                       auth.error!,
-                      style: const TextStyle(color: Colors.red),
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
                     ),
                   ],
                   const SizedBox(height: 16),

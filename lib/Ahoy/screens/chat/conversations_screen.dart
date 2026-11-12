@@ -50,17 +50,23 @@ class _ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return ListTile(
       leading: Stack(
         clipBehavior: Clip.none,
         children: [
           CircleAvatar(
+            // Theme-aware surfaces replace pale tints that washed out in
+            // dark mode (UI review #21); a blocked thread uses error
+            // containers so the state survives theme switches.
             backgroundColor: conv.isBlocked
-                ? Colors.red.shade100
-                : Colors.blue.shade100,
+                ? colorScheme.errorContainer
+                : colorScheme.surfaceContainerHighest,
             child: Icon(
               conv.isBlocked ? Icons.block : Icons.person,
-              color: conv.isBlocked ? Colors.red : Colors.blue,
+              color: conv.isBlocked
+                  ? colorScheme.onErrorContainer
+                  : colorScheme.onSurfaceVariant,
             ),
           ),
           if (conv.unreadCount > 0)
@@ -68,11 +74,11 @@ class _ConversationTile extends StatelessWidget {
               right: -4,
               top: -4,
               child: CircleAvatar(
-                radius: 9,
-                backgroundColor: Colors.red,
+                radius: 10,
+                backgroundColor: colorScheme.error,
                 child: Text(
                   '${conv.unreadCount > 9 ? '9+' : conv.unreadCount}',
-                  style: const TextStyle(fontSize: 10, color: Colors.white),
+                  style: TextStyle(fontSize: 12, color: colorScheme.onError),
                 ),
               ),
             ),
@@ -103,7 +109,10 @@ class _ConversationTile extends StatelessWidget {
       trailing: conv.lastMessageAt != null
           ? Text(
               _formatDate(conv.lastMessageAt!),
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant,
+              ),
             )
           : null,
       onTap: () => Navigator.push(
