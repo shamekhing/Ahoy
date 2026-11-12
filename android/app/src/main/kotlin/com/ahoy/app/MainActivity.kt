@@ -52,6 +52,13 @@ class MainActivity : FlutterActivity() {
         private const val P2P_PORT = 8765
         private const val MAX_PAYLOAD = 10 * 1024 * 1024 // 10 MB guard
         private const val CLIENT_TTL_MS = 10 * 60 * 1000L // prune idle clients
+
+        // Ninth review (N-5): bound concurrent inbound handlers. Without this
+        // cap the accept loop queues unbounded sockets, each of which may
+        // allocate up to MAX_PAYLOAD for a single frame. Mirrors the LAN
+        // connection cap (spec §8.1); the group subnet check (§8.2) already
+        // limits who can reach this server.
+        private const val MAX_INBOUND_CONNECTIONS = 16
     }
 
     private val isDebugBuild: Boolean
@@ -97,6 +104,10 @@ class MainActivity : FlutterActivity() {
     // Bounded pool for incoming-connection handlers a flood of connections
     // can no longer spawn unbounded threads (audit L-2).
     private val clientExecutor = java.util.concurrent.Executors.newFixedThreadPool(4)
+
+    // Permits for concurrent inbound handlers (ninth review N-5): sockets
+    // beyond the cap are closed immediately instead of queueing.
+    private val inboundPermits = java.util.concurrent.Semaphore(MAX_INBOUND_CONNECTIONS)
 
     private val p2pIntentFilter = IntentFilter().apply {
         addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
@@ -315,7 +326,18 @@ class MainActivity : FlutterActivity() {
                     if (server == null || server.isClosed) break
                     try {
                         val client = server.accept()
-                        clientExecutor.execute { handleIncomingConnection(client) }
+                        if (!inboundPermits.tryAcquire()) {
+                            logWarn("WiFi Direct inbound connection cap reached; rejecting")
+                            try { client.close() } catch (_: IOException) {}
+                            continue
+                        }
+                        clientExecutor.execute {
+                            try {
+                                handleIncomingConnection(client)
+                            } finally {
+                                inboundPermits.release()
+                            }
+                        }
                     } catch (e: IOException) {
                         if (server.isClosed.not()) logError("WiFi Direct accept error", e)
                     }

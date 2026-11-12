@@ -124,6 +124,9 @@ void main() {
     expectRow('WiFi Direct max payload', '10 MiB');
     expect(AhoyConstants.wifiDirectMaxPayloadBytes, 10 * 1024 * 1024);
 
+    expectRow('WiFi Direct concurrent inbound connections', '16');
+    expect(kotlinSource, contains('MAX_INBOUND_CONNECTIONS = 16'));
+
     expectRow('WiFi Direct socket read timeout', '10 s');
     expect(kotlinSource, contains('soTimeout = 10_000'));
 

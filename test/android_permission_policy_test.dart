@@ -43,4 +43,16 @@ void main() {
     expect(activity, contains('!isDebugBuild'),
         reason: 'debug builds stay screenshotable for development');
   });
+
+  test('WiFi Direct inbound connections are capped (ninth review N-5)', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt',
+    ).readAsStringSync();
+    // The accept loop must gate handlers behind a bounded permit set and
+    // close sockets beyond it instead of queueing them (spec §8.2).
+    expect(activity, contains('MAX_INBOUND_CONNECTIONS = 16'));
+    expect(activity, contains('inboundPermits.tryAcquire()'));
+    expect(activity, contains('inboundPermits.release()'));
+    expect(activity, contains('inbound connection cap reached'));
+  });
 }

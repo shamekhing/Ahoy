@@ -330,6 +330,7 @@ Clock skew of more than 15 minutes between devices causes rejections. There is n
 - Framing is a 4-byte big-endian length followed by the payload.
 - Maximum payload: 10 MiB.
 - Accepted only from the group's /24 subnet, which is derived from the group owner's address. If the subnet is unknown, all inbound connections are refused.
+- At most 16 concurrent inbound connections; sockets beyond the cap are closed immediately instead of queueing.
 - Routes are learned only from verified WiFi Direct identity packets.
 - The first verified key for a UUID is kept for the process lifetime. A later identity for the same UUID with a different key is refused. This key binding is cleared on sign-out only; teardown of the group does not clear it (accepted, see §13).
 
@@ -419,6 +420,7 @@ Each item needs a decision before the protocol is frozen.
 | 2026-11-12 | §6.3 and §8: alias binding at packet receipt — sends, retry triggers and first-contact conversations rebind to the canonical UUID once a signed payload binds the temporary transport id to it; the BLE transport resolves the canonical UUID to the device address on send | Ninth review: a pure BLE first contact could never complete — the responder's sends and the initiator's retry were keyed under ids the BLE transport could not resolve |
 | 2026-11-12 | §6.1: the global identity budget is charged only by identities that pass the per-peer throttle | Ninth review: a single identity flooding identity packets consumed the whole budget and starved every other peer's handshake |
 | 2026-11-12 | §10: at-rest crypto is now a required constructor parameter for `ChatService`, `MessageStore`, `ConversationStore` and `MediaService`; the remaining latent plaintext write paths (outbox persist, media write, store saves) are removed | Ninth review: the same latent-write hazard the round-8 review removed from `ProfileService` existed in the chat and media layers |
+| 2026-11-12 | §8.2: WiFi Direct inbound connections capped at 16 concurrent (sockets beyond the cap are closed, not queued) | Ninth review: the LAN side capped connections and buffers in round 7; the Kotlin WiFi Direct server queued unbounded sockets, each allocating up to 10 MiB |
 
 Record every future change here, with the finding or decision that motivated it. A change to a signed field set must update §5, §6, or §3 as relevant, and must bump the prefix.
 
@@ -470,6 +472,7 @@ Every limit in this specification. The code must match these values. Changing on
 | LAN outbound connect timeout | 5 s | §8.1 |
 | WiFi Direct TCP port | 8765 | §8.2 |
 | WiFi Direct max payload | 10 MiB | §8.2 |
+| WiFi Direct concurrent inbound connections | 16 | §8.2 |
 | WiFi Direct socket read timeout | 10 s | §8.2 |
 | WiFi Direct connect attempt TTL | 30 s | §8.2 |
 | WiFi Direct auto-connect strikes before giving up on a device | 2 | §8.2 |
