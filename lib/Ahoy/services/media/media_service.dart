@@ -6,7 +6,7 @@ import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import '../crypto/local_data_crypto.dart';
-import '../core/logging.dart';
+import '../../core/logging.dart';
 
 class MediaService {
   final LocalDataCrypto? _localDataCrypto;
