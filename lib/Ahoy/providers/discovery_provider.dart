@@ -92,11 +92,6 @@ class DiscoveryProvider extends ChangeNotifier {
 
   void onAnnouncement(PeerAnnouncement announcement) {
     if (!_acceptAnnouncement(announcement)) return;
-    if (announcement.publicKeyPEM != null &&
-        announcement.publicKeyPEM!.isNotEmpty) {
-      // Verified identity available for first-contact pinning (audit #7).
-      onVerifiedKey?.call(announcement.uuid, announcement.publicKeyPEM!);
-    }
     final alias = _discovery.onAnnouncement(announcement, blockedUuids);
     if (alias != null) {
       // A temporary identifier (BT/WFD MAC) was resolved to a canonical Ahoy UUID.
@@ -105,6 +100,17 @@ class DiscoveryProvider extends ChangeNotifier {
         tempId: alias.tempId,
         canonicalId: alias.canonicalId,
       );
+    }
+    // The key handed to chat must be the one DiscoveryService actually kept.
+    // A later announcement claiming the same UUID with a different key is
+    // refused there, so the chat layer must never observe the refused key
+    // (audit H-2). This used to run before the veto, which let a forged
+    // self-signed announcement poison first-contact pinning.
+    final canonicalUuid = alias?.canonicalId ?? announcement.uuid;
+    final acceptedPeer = _discovery.peer(canonicalUuid);
+    final key = acceptedPeer?.publicKeyPEM;
+    if (key != null && key.isNotEmpty) {
+      onVerifiedKey?.call(acceptedPeer!.uuid, key);
     }
   }
 

@@ -11,6 +11,7 @@ import '../../models/conversation.dart';
 import '../../models/message.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/local_data_crypto.dart';
+import '../crypto/peer_trust_store.dart';
 import '../transport_manager.dart';
 import 'conversation_store.dart';
 import 'message_store.dart';
@@ -31,10 +32,10 @@ class ChatService {
   /// when the peer is next seen in discovery (audit M-3).
   final _outbox = <String, List<_PendingSend>>{};
 
-  /// Public keys verified via signed announcements or identity exchanges,
-  /// per peer uuid first contacts must pin to these when available
-  /// (audit #7).
-  final _verifiedKeys = <String, String>{};
+  /// Single authority for peer key trust (audit H-2). Replaces the old
+  /// overwrite-on-arrival `_verifiedKeys` map: the first key observed for a
+  /// UUID wins and conflicting keys are never applied.
+  final PeerTrustStore _trust;
 
   /// Live reference to the discovery-owned blocked set enforced on the
   /// sending path too (third review #4).
@@ -58,15 +59,19 @@ class ChatService {
   final _identityRepliedTo = <String>{};
 
   /// Records a discovery-verified public key for [uuid] (audit #7).
-  void registerVerifiedPeerKey(String uuid, String pem) {
-    if (uuid.isEmpty || pem.isEmpty) return;
-    _verifiedKeys[uuid] = pem;
+  /// Returns false when a different key was already known: the first key
+  /// wins and the conflict is surfaced instead of applied (audit H-2).
+  bool registerVerifiedPeerKey(String uuid, String pem) {
+    if (uuid.isEmpty || pem.isEmpty) return false;
+    final before = _trust.get(uuid);
+    _trust.observe(uuid, pem);
+    return before == null || _samePublicKey(before.key, pem);
   }
 
   /// Clears all per-session state (called on sign-out, audit #3).
   void reset() {
     _outbox.clear();
-    _verifiedKeys.clear();
+    _trust.clear();
     _identitySentAt.clear();
     _identityRepliedTo.clear();
     _seenMessageIds.clear();
@@ -78,7 +83,8 @@ class ChatService {
     this._msgStore,
     this._crypto, [
     this._localDataCrypto,
-  ]);
+    PeerTrustStore? trustStore,
+  ]) : _trust = trustStore ?? PeerTrustStore();
 
   /// Send a message to a peer. Throws [TransportError] for media over BLE.
   Future<Message> sendMessage({
@@ -121,7 +127,7 @@ class ChatService {
     // Discovery-verified keys participate in first-contact resolution too
     // (audit #7): a key learned from a signed announcement or identity
     // exchange is as good as one passed in by the UI.
-    final candidateKey = peerPublicKeyPEM ?? _verifiedKeys[peerUuid];
+    final candidateKey = peerPublicKeyPEM ?? _trust.get(peerUuid)?.key;
     final trustedPeerPublicKeyPEM = _resolvePeerPublicKey(
       pinnedKey: existingConversation?.peerPublicKeyPEM,
       candidateKey: candidateKey,
@@ -275,7 +281,7 @@ class ChatService {
       try {
         final peerKey =
             _findConversation(item.convId)?.peerPublicKeyPEM ??
-            _verifiedKeys[item.peerUuid] ??
+            _trust.get(item.peerUuid)?.key ??
             item.peerPublicKeyPEM;
         final payload = _buildPayload(
           item.myUuid,
@@ -526,7 +532,7 @@ class ChatService {
       // A discovery-verified key must match on first contact otherwise an
       // impersonator messaging first pins their own key and the real peer is
       // silently locked out (audit #7).
-      final verifiedKey = _verifiedKeys[peerUuid];
+      final verifiedKey = _trust.get(peerUuid)?.key;
       final pinnedKey = existingConversation?.peerPublicKeyPEM;
       final hasPinnedKey = pinnedKey != null && pinnedKey.isNotEmpty;
       if (!hasPinnedKey &&
@@ -546,6 +552,12 @@ class ChatService {
         v3: isV3,
       )) {
         return null;
+      }
+      // The peer proved ownership of the observed key by signing a message
+      // we accepted (audit H-2).
+      if (trustedPeerPublicKeyPEM != null &&
+          _trust.keyMatches(peerUuid, trustedPeerPublicKeyPEM)) {
+        _trust.markPinned(peerUuid);
       }
 
       // Bounded replay guard a captured packet replayed after the
@@ -973,6 +985,15 @@ class ChatService {
     final signature = json['signature'] as String? ?? '';
     if (!_crypto.verifyPayloadSignature(_identityMaterial(json), signature, pem)) {
       ahoyLog('[ChatService] dropping identity with invalid signature');
+      return;
+    }
+
+    // A conflicting identity never replaces a known key: the first key wins
+    // and the conflict is left for the UI to surface (audit H-2). Dropping
+    // here also avoids answering the impostor or unblocking queued sends.
+    final known = _trust.get(senderUuid);
+    if (known != null && !_samePublicKey(known.key, pem)) {
+      ahoyLog('[ChatService] dropping identity with a conflicting key');
       return;
     }
 

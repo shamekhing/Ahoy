@@ -155,8 +155,11 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Pins first-contact conversations to discovery-verified keys (audit #7).
-  void registerVerifiedPeerKey(String uuid, String pem) =>
+  /// Records a discovery-verified key for first-contact pinning (audit #7).
+  /// Returns false when a different key was already known for the peer: the
+  /// first key wins and the conflict is surfaced instead of applied
+  /// (audit H-2).
+  bool registerVerifiedPeerKey(String uuid, String pem) =>
       _chatService.registerVerifiedPeerKey(uuid, pem);
 
   /// Clears all per-session chat state (called on sign-out, audit #3).

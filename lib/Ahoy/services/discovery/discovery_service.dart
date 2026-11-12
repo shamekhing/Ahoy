@@ -29,6 +29,11 @@ class DiscoveryService {
   List<NearbyPeer> get currentPeers =>
       List.unmodifiable(_peers.values.toList());
 
+  /// The live record for [uuid], or null when unknown. Callers that must act
+  /// on the key DiscoveryService actually kept use this instead of the raw
+  /// announcement (audit H-2).
+  NearbyPeer? peer(String uuid) => _peers[uuid];
+
   /// Process a peer announcement from any transport.
   ///
   /// Returns a [PeerAlias] when a temporary ID (BT/WiFiDirect MAC) is merged
