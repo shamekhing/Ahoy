@@ -11,6 +11,13 @@ class CryptoService {
   static const int passwordHashIterations = 310000;
   static const int legacyPasswordHashIterations = 100000;
 
+  /// Upper bound for PEM strings parsed from untrusted payloads (audit L-4).
+  static const int maxPemLength = 4096;
+
+  /// Upper bound for PBKDF2 iteration counts read from storage so a tampered
+  /// hash cannot pin the CPU for minutes (audit L-4).
+  static const int maxPasswordHashIterations = 1000000;
+
   bool _isReady = false;
   pc.RSAPrivateKey? _privateKey;
 
@@ -59,7 +66,11 @@ class CryptoService {
       final parts = storedHash.split(':');
       if (parts.length != 5) return false;
       final iterations = int.tryParse(parts[2]);
-      if (iterations == null || iterations <= 0) return false;
+      if (iterations == null ||
+          iterations <= 0 ||
+          iterations > maxPasswordHashIterations) {
+        return false;
+      }
       final saltHex = parts[3];
       final expectedDkHex = parts[4];
       final dkHex = await Isolate.run(
@@ -121,6 +132,10 @@ class CryptoService {
 
   String encryptForPeer(String plaintext, String peerPublicKeyPEM) {
     _assertReady();
+    // Cap untrusted PEM input before the expensive parser (audit L-4).
+    if (peerPublicKeyPEM.isEmpty || peerPublicKeyPEM.length > maxPemLength) {
+      throw const CryptoFormatError('Invalid peer public key');
+    }
     final peerPublicKey =
         enc.RSAKeyParser().parse(peerPublicKeyPEM) as pc.RSAPublicKey;
     final aesKey = _randomBytes(32);
@@ -172,6 +187,11 @@ class CryptoService {
     String signatureBase64,
     String publicKeyPEM,
   ) {
+    // Cap untrusted PEM input before the expensive parser (audit L-4): a
+    // 2048-bit RSA PEM is around 450 bytes, so 4096 is generous.
+    if (publicKeyPEM.isEmpty || publicKeyPEM.length > maxPemLength) {
+      return false;
+    }
     try {
       final publicKey =
           enc.RSAKeyParser().parse(publicKeyPEM) as pc.RSAPublicKey;
