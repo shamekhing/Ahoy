@@ -462,6 +462,16 @@ The chat-polish quartet:
 | 14 | Voice messages were minimal: no timer, no cancel, silent mic-denial, bare playback, and leaving the screen mid-recording leaked the session | The input bar switches to a recording row with a ticking timer, a cancel action (stops and deletes the temp file via the new `MediaService.cancelRecording`) and a stop-and-send action; a denied microphone shows a snackbar; the playing bubble shows a progress bar driven by the player's position/duration streams with tap-to-stop; leaving the screen mid-recording cancels and stops playback in `dispose` |
 | 15 | Images were a fixed 200×200 crop with no viewer | Tapping a photo opens a fullscreen `Dialog.fullscreen` with an `InteractiveViewer` (pinch-zoom up to 8×), decrypting at rest off the build path with loading and unavailable states; the loader is injectable so widget tests avoid real file IO inside fake async. (Save-to-gallery remains deferred: it needs a platform channel.) |
 
+## Batch 5 fixed (same review, follow-up commit)
+
+Trust UX and the privacy-data drop:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 17 | The unverified marker was a Tooltip on a tiny icon — undiscoverable on mobile, and everyone is unverified by default, causing warning fatigue | The markers on peer cards and the trust chip on the peer profile are tappable and open a bottom sheet (`showTrustStateSheet`) explaining the current state in plain words: unverified (anyone nearby can announce any identity), pinned, verified by safety number, or no key yet — with a pointer to the safety number |
+| 18 | The safety number was a raw 60-digit string with no copy, and "Mark as verified" next to a key-change banner was ambiguous about which key it verifies | A copy button (clipboard + snackbar) sits next to the number, and the banner action is reworded to "I verified the current key" |
+| 20 + 23 | The gender field only colored an avatar peers never see — unneeded data for a privacy-first app — and avatars were inconsistent (generic circle in Conversations, gender-colored icons elsewhere) | The `Gender` enum and the field are gone from `LocalUser`, sign-up, the profile editor, and the stored JSON (legacy `gender` keys in existing profiles are ignored on load, no migration needed); README drift fixed. `PeerAvatar` now shows **initials on a color derived deterministically from the shortId** — stable across restarts, nothing stored — and Conversations/PeerCard/PeerProfile/MyProfile all use it |
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
@@ -470,9 +480,10 @@ hardening (done in batch 4), per-conversation error scoping (done in batch
 4), queued/failed message affordances (queueing done in batch 2;
 tap-to-retry still open), voice recorder UX (done in batch 4), fullscreen
 image viewing (done in batch 4; save-to-gallery still open), BLE
-media-button handling, blocked-thread unblock path, safety-number UX,
-sign-up hardening copy, dropping the gender field, dark-mode contrast and
-text sizes (done in batch 3), avatar unification, message and
-conversation-list actions, navigation consolidation, settings copy,
-startup error recovery, tooltips and semantics, color independence,
+media-button handling, blocked-thread unblock path, safety-number UX (copy
+and rewording done in batch 5; QR still open), sign-up hardening copy,
+dropping the gender field (done in batch 5), dark-mode contrast and
+text sizes (done in batch 3), avatar unification (done in batch 5),
+message and conversation-list actions, navigation consolidation, settings
+copy, startup error recovery, tooltips and semantics, color independence,
 localization, and layout constraints.
