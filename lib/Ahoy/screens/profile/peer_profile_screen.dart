@@ -97,7 +97,7 @@ class PeerProfileScreen extends StatelessWidget {
           const SizedBox(height: 4),
           Center(
             child: Text(
-              'short ID is display only compare the safety number to verify',
+              'short ID is display only — compare the safety number to verify',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: colorScheme.onSurfaceVariant,
@@ -199,7 +199,7 @@ class PeerProfileScreen extends StatelessWidget {
               children: [
                 const Expanded(
                   child: Text(
-                    'Read this number aloud with your peer it is identical on '
+                    'Read this number aloud with your peer — it is identical on '
                     'both devices for this conversation.',
                     style: TextStyle(color: Colors.grey, fontSize: 12),
                   ),

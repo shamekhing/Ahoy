@@ -14,6 +14,10 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onReply;
   final VoidCallback? onPlayAudio;
 
+  /// Tap handler for a failed message: retries the queued send (UI review
+  /// #11).
+  final VoidCallback? onRetry;
+
   /// While this bubble's voice message is playing: tap stops, and the
   /// progress bar tracks playback (UI review #14).
   final VoidCallback? onStopAudio;
@@ -27,6 +31,7 @@ class MessageBubble extends StatelessWidget {
     required this.isMine,
     this.onReply,
     this.onPlayAudio,
+    this.onRetry,
     this.onStopAudio,
     this.isPlaying = false,
     this.playbackProgress,
@@ -47,6 +52,11 @@ class MessageBubble extends StatelessWidget {
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: onReply,
+        // A failed message retries on tap (UI review #11); the tap must not
+        // swallow the long-press reply for healthy messages.
+        onTap: message.status == MessageStatus.failed && onRetry != null
+            ? onRetry
+            : null,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -207,15 +217,28 @@ class MessageBubble extends StatelessWidget {
         ),
         if (isMine) ...[
           const SizedBox(width: 4),
-          Icon(
-            _statusIcon,
-            size: 14,
-            color: textColor.withValues(alpha: 0.85),
+          // The status glyph carries its meaning in a tooltip (UI review
+          // #11): the clock can mean several things and the cross invites a
+          // tap-to-retry.
+          Tooltip(
+            message: _statusTooltip,
+            child: Icon(
+              _statusIcon,
+              size: 14,
+              color: textColor.withValues(alpha: 0.85),
+            ),
           ),
         ],
       ],
     );
   }
+
+  String get _statusTooltip => switch (message.status) {
+    MessageStatus.sending => 'Queued — waiting for the peer',
+    MessageStatus.sent => 'Sent',
+    MessageStatus.delivered => 'Delivered',
+    MessageStatus.failed => 'Failed — tap to retry',
+  };
 
   String _formatTime(DateTime dt) {
     final h = dt.hour.toString().padLeft(2, '0');

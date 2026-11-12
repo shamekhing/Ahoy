@@ -239,6 +239,34 @@ class _ChatScreenState extends State<ChatScreen> {
                 title: Text('Block', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 onTap: () async {
                   Navigator.pop(context);
+                  // Blocking is reversible but disruptive: confirm first
+                  // (UI review #13).
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Block peer?'),
+                      content: Text(
+                        'You will not receive messages from '
+                        '${conv.peerDisplayName} until you unblock them.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.error,
+                          ),
+                          child: const Text('Block'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed != true) return;
+                  if (!mounted) return;
                   final discovery = context.read<DiscoveryProvider>();
                   await chat.blockConversation(conv.id);
                   discovery.blockPeer(conv.peerUuid);
@@ -362,9 +390,26 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.block, size: 64, color: Theme.of(context).colorScheme.error),
+                  Icon(
+                    Icons.block,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                   const SizedBox(height: 12),
                   const Text('This conversation is blocked'),
+                  const SizedBox(height: 16),
+                  // The body carries its own unblock path (UI review #13):
+                  // the overflow menu alone was a dead end.
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.lock_open),
+                    label: const Text('Unblock'),
+                    onPressed: () async {
+                      final chat = context.read<ChatProvider>();
+                      final discovery = context.read<DiscoveryProvider>();
+                      await chat.unblockConversation(conv.id);
+                      discovery.unblockPeer(conv.peerUuid);
+                    },
+                  ),
                 ],
               ),
             )
@@ -397,6 +442,9 @@ class _ChatScreenState extends State<ChatScreen> {
                               message: msg,
                               isMine: msg.senderId == myUuid,
                               onReply: () => setState(() => _replyTo = msg),
+                              onRetry: msg.status == MessageStatus.failed
+                                  ? () => chat.retryFor(conv.peerUuid)
+                                  : null,
                               onPlayAudio: msg.type == MessageType.voice
                                   ? () => _togglePlay(msg)
                                   : null,

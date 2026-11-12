@@ -250,6 +250,11 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Retries every queued message for [peerUuid] — wired to tapping a
+  /// failed bubble (UI review #11).
+  Future<void> retryFor(String peerUuid) =>
+      _retryPending(_transport.canonicalUuid(peerUuid));
+
   void maybeRetryFor(String peerUuid) {
     // Discovery announcements may still carry the temporary transport id
     // (a BLE MAC) while the conversation and outbox were rebound to the

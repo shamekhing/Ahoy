@@ -55,8 +55,10 @@ class SettingsScreen extends StatelessWidget {
           SwitchListTile(
             secondary: const Icon(Icons.visibility_off),
             title: const Text('Off the Grid'),
+            // Say what the toggle does NOT do: scanning stays on, you can
+            // still discover others (UI review #28).
             subtitle: const Text(
-              'Stop broadcasting your presence to nearby devices',
+              'You are invisible to others but can still discover them',
             ),
             value: discovery.offGrid,
             onChanged: discovery.setOffGrid,
@@ -64,8 +66,10 @@ class SettingsScreen extends StatelessWidget {
           SwitchListTile(
             secondary: const Icon(Icons.block),
             title: const Text('Receive Off'),
+            // Spell out the actual behavior (spec §6.2): existing
+            // conversations are never cut off (UI review #28).
             subtitle: const Text(
-              'Silently reject all new incoming chat requests',
+              'Ignore chat requests from people you have not talked to before',
             ),
             value: discovery.receiveOff,
             onChanged: discovery.setReceiveOff,
@@ -96,6 +100,20 @@ class SettingsScreen extends StatelessWidget {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
             onTap: () => _confirmSignOut(context, auth),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('About'),
+            subtitle: const Text('Version 1.0.0'),
+            onTap: () => showAboutDialog(
+              context: context,
+              applicationName: 'Ahoy',
+              applicationVersion: '1.0.0',
+              applicationLegalese:
+                  'Offline, serverless messaging. Non-commercial use only '
+                  '(see LICENSE).',
+            ),
           ),
         ],
       ),
@@ -163,7 +181,16 @@ class _BiometricTileState extends State<_BiometricTile> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_available) return const SizedBox.shrink();
+    // The tile no longer vanishes silently when biometrics are unavailable
+    // (UI review #28): it shows a disabled state that explains why.
+    if (!_available) {
+      return const ListTile(
+        leading: Icon(Icons.fingerprint),
+        title: Text('Biometric Sign-In'),
+        subtitle: Text('Not available on this device'),
+        enabled: false,
+      );
+    }
     return SwitchListTile(
       title: const Text('Biometric Sign-In'),
       subtitle: const Text('Use fingerprint or face to sign in'),
