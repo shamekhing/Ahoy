@@ -17,6 +17,12 @@ class AhoyConstants {
   static const int lanTcpIdleTimeoutSeconds = 10;
   static const int lanMaxMessagesPerConnection = 8;
 
+  // Inbound hardening (audit M-8): bounded connections and a per-address
+  // message rate limit so RSA work cannot be bought cheaply.
+  static const int lanMaxConnections = 32;
+  static const int lanMaxMessagesPerAddressPerWindow = 20;
+  static const int lanRateWindowSeconds = 10;
+
   // WiFi Direct
   static const int wifiDirectMaxPayloadBytes = 10 * 1024 * 1024;
 

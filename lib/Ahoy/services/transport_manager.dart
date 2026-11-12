@@ -60,8 +60,10 @@ class TransportManager {
   String? _myPublicKeyPEM;
   String? _myAnnouncementSignature;
 
-  /// peerUuid → set of transports that have seen this peer.
+  /// peerUuid → set of transports that have seen this peer. Bounded against
+  /// forged announcement floods (audit M-8).
   final Map<String, Set<TransportMode>> _peerTransports = {};
+  static const int _maxPeerEntries = 512;
 
   /// tempId → canonicalId alias table.
   /// When a BT MAC or WFD address is resolved to a real Ahoy UUID, we record
@@ -343,6 +345,11 @@ class TransportManager {
 
   void _recordTransport(String uuid, TransportMode mode) {
     _peerTransports.putIfAbsent(uuid, () => {}).add(mode);
+    while (_peerTransports.length > _maxPeerEntries) {
+      final oldest = _peerTransports.keys.first;
+      _peerTransports.remove(oldest);
+      _peerAliases.removeWhere((alias, canonical) => canonical == oldest);
+    }
   }
 
   void _onPacket(InboundPacket packet) {
@@ -370,6 +377,9 @@ class TransportManager {
   void registerAlias({required String tempId, required String canonicalId}) {
     if (tempId == canonicalId) return;
     _peerAliases[tempId] = canonicalId;
+    while (_peerAliases.length > _maxPeerEntries) {
+      _peerAliases.remove(_peerAliases.keys.first);
+    }
     final tempTransports = _peerTransports.remove(tempId);
     if (tempTransports != null) {
       _peerTransports.putIfAbsent(canonicalId, () => {}).addAll(tempTransports);

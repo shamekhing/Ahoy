@@ -91,8 +91,20 @@ class ChatService {
   /// Last identity send per peer throttles identity broadcasts (audit #1).
   final _identitySentAt = <String, DateTime>{};
 
+  /// Last identity packet received per peer throttles identity floods
+  /// (audit M-8): RSA verifies and replies are not free.
+  final _identityReceivedAt = <String, DateTime>{};
+
   /// Peers we already answered with our own identity (reply-once guard).
   final _identityRepliedTo = <String>{};
+  static const int _maxIdentityPeers = 256;
+
+  void _cappedIdentityPut(Map<String, DateTime> map, String uuid, DateTime at) {
+    map[uuid] = at;
+    while (map.length > _maxIdentityPeers) {
+      map.remove(map.keys.first);
+    }
+  }
 
   /// Records a discovery-verified public key for [uuid] (audit #7).
   /// Returns false when a different key was already known: the first key
@@ -106,6 +118,12 @@ class ChatService {
 
   /// Trust record for [uuid], or null when the peer is unknown this session.
   PeerTrust? peerTrust(String uuid) => _trust.get(uuid);
+
+  @visibleForTesting
+  int get debugTrustedPeerCount => _trust.length;
+
+  @visibleForTesting
+  int get debugIdentityRepliedCount => _identityRepliedTo.length;
 
   /// The user compared safety numbers out of band, so the announced key is
   /// promoted to verified (audit H-2).
@@ -637,7 +655,14 @@ class ChatService {
           ahoyLog('[ChatService] receive off: dropping identity probe');
           return null;
         }
-        await _handleInboundIdentity(
+        final now = DateTime.now();
+    final last = _identityReceivedAt[peerUuid];
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      ahoyLog('[ChatService] dropping identity flood');
+      return null;
+    }
+    _cappedIdentityPut(_identityReceivedAt, peerUuid, now);
+    await _handleInboundIdentity(
           outer,
           peerUuid,
           myUuid,
@@ -1210,6 +1235,9 @@ class ChatService {
     // identity, so this cannot loop.
     if (!_identityRepliedTo.contains(peerUuid) && myPublicKeyPEM != null) {
       _identityRepliedTo.add(peerUuid);
+      while (_identityRepliedTo.length > _maxIdentityPeers) {
+        _identityRepliedTo.remove(_identityRepliedTo.first);
+      }
       await _sendIdentity(
         peerUuid: peerUuid,
         myUuid: myUuid,
@@ -1238,7 +1266,7 @@ class ChatService {
     if (last != null && now.difference(last) < const Duration(seconds: 10)) {
       return;
     }
-    _identitySentAt[peerUuid] = now;
+    _cappedIdentityPut(_identitySentAt, peerUuid, now);
 
     if (myPublicKeyPEM == null || !_crypto.isReady) return;
     final payload = _buildIdentityPayload(

@@ -50,6 +50,14 @@ class LanTransport implements TransportInterface {
   /// received TCP connections from other networks are rejected (audit M-4).
   final Set<String> _announceSubnets = {};
 
+  /// Bounded concurrent inbound connections and a per-address message rate
+  /// limit so one peer cannot buy unlimited RSA work (audit M-8).
+  int _activeConnections = 0;
+  final Map<String, _RateWindow> _rateWindows = {};
+
+  @visibleForTesting
+  int get debugActiveConnections => _activeConnections;
+
   DateTime? _localSubnetsAt;
   Set<String> _localSubnetsCache = const {};
 
@@ -269,11 +277,18 @@ class LanTransport implements TransportInterface {
   }
 
   void _onTcpConnection(Socket socket) {
+    if (_activeConnections >= AhoyConstants.lanMaxConnections) {
+      ahoyLog('[LAN] connection cap reached; dropping incoming connection');
+      socket.destroy();
+      return;
+    }
     if (!_isAllowedTcpPeer(socket.remoteAddress)) {
       ahoyLog('[LAN] rejecting TCP connection from unexpected network');
       socket.destroy();
       return;
     }
+    _activeConnections++;
+    final remoteAddress = socket.remoteAddress.address;
     final buffer = <int>[];
     var messagesProcessed = 0;
     var closed = false;
@@ -284,7 +299,36 @@ class LanTransport implements TransportInterface {
       closed = true;
       idleTimer?.cancel();
       if (discardBuffer) buffer.clear();
+      _activeConnections =
+          _activeConnections > 0 ? _activeConnections - 1 : 0;
       socket.destroy();
+    }
+
+    /// Fixed-window per-address rate limit: each processed message counts
+    /// against the sender's address (audit M-8).
+    bool allowMessage() {
+      final now = DateTime.now();
+      final window = _rateWindows[remoteAddress];
+      if (window == null ||
+          now.difference(window.start) >
+              const Duration(seconds: AhoyConstants.lanRateWindowSeconds)) {
+        _rateWindows[remoteAddress] = _RateWindow(now, 1);
+        // Keep the window map bounded under address-spoofing floods.
+        if (_rateWindows.length > 512) {
+          _rateWindows.removeWhere(
+            (_, w) => now.difference(w.start) >
+                const Duration(seconds: AhoyConstants.lanRateWindowSeconds),
+          );
+        }
+        return true;
+      }
+      window.count++;
+      if (window.count > AhoyConstants.lanMaxMessagesPerAddressPerWindow) {
+        ahoyLog('[LAN] message rate limit exceeded for $remoteAddress');
+        close(discardBuffer: true);
+        return false;
+      }
+      return true;
     }
 
     void resetIdleTimer() {
@@ -322,6 +366,7 @@ class LanTransport implements TransportInterface {
         resetIdleTimer();
         for (final byte in bytes) {
           if (byte == 10) {
+            if (!allowMessage()) return;
             if (!processBufferedMessage()) return;
             continue;
           }
@@ -495,4 +540,12 @@ class _PeerConn {
   final InternetAddress address;
   final int port;
   _PeerConn(this.address, this.port);
+}
+
+/// Fixed-window rate limiter state per remote address (audit M-8).
+class _RateWindow {
+  final DateTime start;
+  int count;
+
+  _RateWindow(this.start, this.count);
 }

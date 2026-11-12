@@ -18,8 +18,17 @@ class DiscoveryService {
   final _peers = <String, NearbyPeer>{};
 
   /// shortId → canonical Ahoy UUID (persists across peer staleness so
-  /// re-discovered peers are still correlated correctly).
+  /// re-discovered peers are still correlated correctly). Bounded against
+  /// forged announcement floods (audit M-8).
   final _shortIdToUuid = <String, String>{};
+  static const int _maxShortIdEntries = 512;
+
+  void _recordShortId(String shortId, String uuid) {
+    _shortIdToUuid[shortId] = uuid;
+    while (_shortIdToUuid.length > _maxShortIdEntries) {
+      _shortIdToUuid.remove(_shortIdToUuid.keys.first);
+    }
+  }
 
   final _controller = StreamController<List<NearbyPeer>>.broadcast();
   Timer? _cleanupTimer;
@@ -75,7 +84,7 @@ class DiscoveryService {
         }
       } else if (CryptoService.isRealAhoyUuid(announcement.uuid)) {
         // This announcement carries the real Ahoy UUID record the mapping.
-        _shortIdToUuid[announcement.shortId] = announcement.uuid;
+        _recordShortId(announcement.shortId, announcement.uuid);
 
         // Scan for an existing temp-ID entry with the same shortId and absorb it.
         final tempEntry = _peers.entries
