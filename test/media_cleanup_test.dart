@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:ahoy/Ahoy/core/enums.dart';
+import 'package:ahoy/Ahoy/providers/chat_provider.dart';
 import 'package:ahoy/Ahoy/services/auth/auth_service.dart';
 import 'package:ahoy/Ahoy/services/chat/chat_service.dart';
 import 'package:ahoy/Ahoy/services/chat/conversation_store.dart';
@@ -108,6 +109,45 @@ void main() {
     expect(playbackTemp.existsSync(), isFalse);
     expect(unrelated.existsSync(), isTrue,
         reason: 'files we do not own are never touched');
+  });
+
+  test('deleting a conversation sweeps its media files', () async {
+    final harness = await _createHarness();
+    final peerCrypto = CryptoService();
+    final peerKeys = await peerCrypto.generateKeyPair();
+    peerCrypto.activate(peerKeys['privateKey']!, peerKeys['publicKey']!);
+    final imageBytes = Uint8List.fromList(List.generate(64, (i) => i));
+    final pickerFile = File(
+      '${docsDir.path}/image_picker_del.jpg',
+    );
+    await pickerFile.writeAsBytes(imageBytes, flush: true);
+    final message = await harness.service.sendMessage(
+      myUuid: _myUuid,
+      myShortId: 'ME1234',
+      myDisplayName: 'Me',
+      peerUuid: _peerUuid,
+      peerDisplayName: 'Peer',
+      peerShortId: 'PEER12',
+      type: MessageType.image,
+      content: pickerFile.path,
+      myPublicKeyPEM: harness.myPublicKeyPEM,
+      peerPublicKeyPEM: peerKeys['publicKey'],
+    );
+    expect(File(message.content).existsSync(), isTrue);
+    final convId = MessageStore.conversationId(_myUuid, _peerUuid);
+
+    final chatProvider = ChatProvider(
+      harness.service,
+      harness.convStore,
+      harness.msgStore,
+      harness.transport,
+    );
+    await chatProvider.deleteConversation(convId);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(File(message.content).existsSync(), isFalse,
+        reason: 'conversation media is removed with the conversation (L-1)');
+    expect(harness.msgStore.loadMessages(convId), isEmpty);
   });
 }
 

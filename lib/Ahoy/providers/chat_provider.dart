@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
@@ -149,11 +151,29 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> deleteConversation(String conversationId) async {
+    // Collect owned media before the store entry disappears so the files can
+    // be swept with the conversation (audit L-1).
+    final mediaPaths = _chatService.mediaPathsFor(conversationId);
     await _convStore.softDelete(conversationId);
     await _msgStore.deleteConversationMessages(conversationId);
     _messages.remove(conversationId);
     _conversations = _convStore.loadAll();
     notifyListeners();
+    unawaited(_deleteOwnedMedia(mediaPaths));
+  }
+
+  Future<void> _deleteOwnedMedia(List<String> paths) async {
+    for (final path in paths) {
+      final name = path.split('/').last;
+      // Only files this app created are ever removed.
+      if (!name.startsWith('ahoy_media_')) continue;
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {}
+    }
   }
 
   void clearError() {

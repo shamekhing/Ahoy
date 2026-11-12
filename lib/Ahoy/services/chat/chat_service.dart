@@ -626,6 +626,15 @@ class ChatService {
     }
   }
 
+  /// Owned media paths referenced by [conversationId]'s messages. Collected
+  /// before the message store entry is removed (audit L-1).
+  List<String> mediaPathsFor(String conversationId) => _msgStore
+      .loadMessages(conversationId)
+      .where((m) => m.type != MessageType.text)
+      .map((m) => m.content)
+      .where((path) => path.isNotEmpty)
+      .toList();
+
   /// Called when an inbound packet arrives. Returns null if the message should be dropped.
   Future<Message?> onInboundPacket({
     required String rawPayload,
