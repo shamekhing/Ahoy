@@ -197,8 +197,12 @@ class ChatProvider extends ChangeNotifier {
   /// Returns false when a different key was already known for the peer: the
   /// first key wins and the conflict is surfaced instead of applied
   /// (audit H-2).
-  bool registerVerifiedPeerKey(String uuid, String pem) =>
-      _chatService.registerVerifiedPeerKey(uuid, pem);
+  bool registerVerifiedPeerKey(String uuid, String pem) {
+    final accepted = _chatService.registerVerifiedPeerKey(uuid, pem);
+    // A new key or a new pendingKey changes what the profile screen shows.
+    notifyListeners();
+    return accepted;
+  }
 
   /// Trust record for [uuid], or null when the peer is unknown this session.
   PeerTrust? peerTrust(String uuid) => _chatService.peerTrust(uuid);

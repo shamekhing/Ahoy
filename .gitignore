@@ -52,3 +52,5 @@ build/
 /android/*.keystore
 /android/app/*.jks
 /android/app/*.keystore
+
+.nyc_output/
