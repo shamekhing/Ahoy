@@ -1,16 +1,31 @@
-MIT License
-
+Ahoy Non-Commercial License
 Copyright (c) 2026 Shamekh Al-Suwi
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to use, copy,
+modify, and distribute the Software and modified versions of the Software
+solely for Non-Commercial Use, subject to the conditions below.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+"Non-Commercial Use" means use that is not intended for or directed toward
+commercial advantage or monetary compensation. Personal, educational,
+research, and non-commercial open-source use are permitted.
+
+The following uses are not permitted without a separate written license from
+the copyright holder:
+
+1. selling, licensing, or sublicensing the Software or a derivative work;
+2. incorporating the Software into a product or service offered for payment;
+3. using the Software to provide paid services or for a commercial advantage;
+4. using the Software on behalf of a commercial organization.
+5. displaying, inserting, or serving advertisements, sponsored content,
+   promotional messaging, or other commercial solicitations in or alongside
+   the Software, its user interface, user experience, notifications, or
+   related services.
+
+The copyright notice, this license, and the Non-Commercial Use restriction
+must be included in all copies or substantial portions of the Software.
+Derivative works must retain this license unless the copyright holder grants
+separate written permission.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

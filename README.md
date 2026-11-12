@@ -1587,4 +1587,8 @@ flutter build apk --release
 
 ## License
 
-GPL v3 see `LICENSE`. Commercial licensing available.
+Ahoy is available free of charge for non-commercial use under the
+[Ahoy Non-Commercial License](LICENSE). Commercial use requires separate
+written permission from the copyright holder. Advertising, sponsored
+content, and promotional or commercial messaging in or alongside Ahoy are
+not permitted.
