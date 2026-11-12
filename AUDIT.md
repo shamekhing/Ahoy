@@ -430,16 +430,27 @@ are recorded at the end as open work.
 | 4 | Pull-to-refresh kills active WiFi Direct chats: `DiscoveryProvider.refreshPeers` toggled each transport off and on, and toggling WiFi Direct off calls `stopAdvertising`, which invokes the Kotlin `disconnect` → `removeGroup` (the mechanism is one layer deeper than the review stated: `stopScanning` alone is safe) | New `TransportManager.restartScanning` restarts discovery only and re-announces on the connectionless transports; the settings toggle keeps its destructive semantics on purpose. Spy-transport tests assert restart never stops advertising |
 | 5 | Sign-out was mislabeled and duplicated: the Profile app-bar icon said "Sign Out" but erased everything, Profile had a second destructive button, and the Settings dialog omitted "cannot be undone"; no non-destructive lock existed | One destructive action remains (Settings, dialog title now matches the tile and carries the irreversible-erasure warning); Profile's app bar and list action are now a real `Lock` (`AuthProvider.lock`: transports stop, UI returns to sign-in, storage untouched; unlock is the normal password/biometric flow, asserted by test) |
 
+## Batch 2 fixed (same review, follow-up commit)
+
+Four P1 items from the suggested order were fixed next, each verified
+against the source first:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 6 | Permission denial was invisible: `_requestPermissions` ignored results, so a denied Bluetooth/location permission looked like "no peers nearby" forever | A one-time rationale dialog precedes the first system prompt; after each cold-start request the denials are pushed into `DiscoveryProvider.setPermissionProblems` and rendered on Discover as per-problem banners with an "Open settings" action |
+| 7 | No onboarding: nothing explained the offline model | A one-time "How Ahoy works" dialog after the first sign-in covers no-servers, nearby-only delivery with queueing, foreground-only discovery, and end-to-end encryption with safety numbers |
+| 10 | Peer reachability was unclear, and an offline send was rejected outright | Text messages to an unreachable peer are now queued (stored, shown as failed, auto-retried when the peer returns) instead of thrown away; media still requires LAN/WiFi Direct; the chat header shows "Not nearby" and the composer hint explains the queueing |
+| 16 | No encryption indicator inside the chat | An empty conversation shows the end-to-end-encryption promise with a pointer to safety numbers, and the app bar carries a lock that opens the peer's profile (the trust surface) |
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
-silently dropped: permission rationale and per-transport status, offline
-model onboarding, `ListView(reverse: true)` and scroll hardening,
-per-conversation error scoping, reachability in the chat header,
-queued/failed message affordances, BLE media-button handling, blocked-thread
-unblock path, voice recorder UX, fullscreen image viewing, encryption-state
-visibility, safety-number UX, sign-up hardening copy, dropping the gender
-field, dark-mode contrast, minimum text sizes, avatar unification, message
-and conversation-list actions, navigation consolidation, settings copy,
-startup error recovery, tooltips and semantics, color independence,
-localization, and layout constraints.
+silently dropped: offline-model onboarding (done in batch 2), scroll
+hardening, per-conversation error scoping, queued/failed message
+affordances (queueing done in batch 2; tap-to-retry still open), BLE
+media-button handling, blocked-thread unblock path, voice recorder UX,
+fullscreen image viewing, safety-number UX, sign-up hardening copy,
+dropping the gender field, dark-mode contrast, minimum text sizes, avatar
+unification, message and conversation-list actions, navigation
+consolidation, settings copy, startup error recovery, tooltips and
+semantics, color independence, localization, and layout constraints.
