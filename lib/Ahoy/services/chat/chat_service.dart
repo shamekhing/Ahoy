@@ -9,6 +9,7 @@ import '../../core/enums.dart';
 import '../../core/errors.dart';
 import '../../core/logging.dart';
 import '../../core/constants.dart';
+import '../../core/message_labels.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
 import '../crypto/crypto_service.dart';
@@ -1022,9 +1023,7 @@ class ChatService {
       return conversation.copyWith(
         lastTransport: msg.transport,
         lastMessageAt: msg.timestamp,
-        lastMessagePreview: msg.type == MessageType.text
-            ? msg.content
-            : '[${msg.type.name}]',
+        lastMessagePreview: MessageLabels.forMessage(msg),
         peerShortId: peerShortId.isNotEmpty ? peerShortId : null,
         peerPublicKeyPEM: peerPublicKeyPEM,
       );
@@ -1058,9 +1057,7 @@ class ChatService {
       return conversation.copyWith(
         lastTransport: transport,
         lastMessageAt: msg.timestamp,
-        lastMessagePreview: msg.type == MessageType.text
-            ? msg.content
-            : '[${msg.type.name}]',
+        lastMessagePreview: MessageLabels.forMessage(msg),
         unreadCount: conversation.unreadCount + 1,
         // Update peer identity fields if we now have better data.
         peerShortId: peerShortId.isNotEmpty ? peerShortId : null,

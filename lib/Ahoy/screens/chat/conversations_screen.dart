@@ -91,13 +91,13 @@ class _ConversationTile extends StatelessWidget {
           TransportBadge(mode: conv.lastTransport),
         ],
       ),
-      subtitle: conv.lastMessagePreview != null
-          ? Text(
-              conv.isBlocked ? '[Blocked]' : conv.lastMessagePreview!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            )
-          : null,
+      subtitle: Text(
+        conv.isBlocked
+            ? '[Blocked]'
+            : (conv.lastMessagePreview ?? 'No messages yet'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       trailing: conv.lastMessageAt != null
           ? Text(
               _formatDate(conv.lastMessageAt!),

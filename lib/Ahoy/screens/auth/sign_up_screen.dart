@@ -21,6 +21,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
   final _bioCtrl = TextEditingController();
   final List<String> _interests = [];
   bool _loading = false;
@@ -42,6 +43,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   void dispose() {
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
+    _confirmCtrl.dispose();
     _bioCtrl.dispose();
     super.dispose();
   }
@@ -150,6 +152,44 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 controller: _passwordCtrl,
                 textInputAction: TextInputAction.next,
               ),
+              const SizedBox(height: 8),
+              // There is no server and no reset flow: the password unlocks
+              // the keys, so losing it means losing the identity (UI review
+              // #19). Said once, plainly, before any key exists.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Your password unlocks your encryption keys on this '
+                      'device. If you forget it, this identity and its '
+                      'conversations cannot be recovered.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm password',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    v != _passwordCtrl.text ? 'Passwords do not match' : null,
+                textInputAction: TextInputAction.next,
+              ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _bioCtrl,
@@ -194,13 +234,22 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 child: FilledButton(
                   onPressed: _loading ? null : _signUp,
                   child: _loading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                      ? const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            // Key generation is a real, slow step (KDF +
+                            // RSA): say what the wait is (UI review #19).
+                            Text('Generating keys…'),
+                          ],
                         )
                       : const Text('Create Account'),
                 ),

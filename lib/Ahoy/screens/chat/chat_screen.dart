@@ -357,7 +357,13 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(conv.peerDisplayName),
+            // Long peer names must not push the app bar off-center (UI
+            // review #24).
+            Text(
+              conv.peerDisplayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             if (peerNearby)
               TransportBadges(transports: livePeer.transports)
             else

@@ -46,7 +46,11 @@ class PeerProfileScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(peer.displayName),
+        title: Text(
+          peer.displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           PopupMenuButton<String>(
             onSelected: (action) => _handleAction(context, action, discovery),

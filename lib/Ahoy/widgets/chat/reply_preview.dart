@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/enums.dart';
+import '../../core/message_labels.dart';
 import '../../models/message.dart';
 
 class ReplyPreview extends StatelessWidget {
@@ -13,17 +13,7 @@ class ReplyPreview extends StatelessWidget {
   /// and render in the reply bar. Media content is a local file path that
   /// must never leave the device (UI review #1), so media replies quote a
   /// neutral label instead.
-  static String labelFor(Message message) {
-    switch (message.type) {
-      case MessageType.image:
-        return '[Photo]';
-      case MessageType.voice:
-        return '[Voice message]';
-      case MessageType.text:
-        final content = message.content;
-        return content.length > 80 ? '${content.substring(0, 80)}…' : content;
-    }
-  }
+  static String labelFor(Message message) => MessageLabels.forMessage(message);
 
   /// Inbound reply previews are chosen by the peer's client. If an older or
   /// modified client quoted a local file path, render a neutral label
