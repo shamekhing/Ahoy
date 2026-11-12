@@ -6,7 +6,7 @@ import 'package:ahoy/Ahoy/widgets/chat/message_bubble.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Ninth-review follow-up, batch 3: UI items 21 and 22 — theme-aware
+/// Ninth-review follow-up, batch 3: UI items 21 and 22 theme-aware
 /// semantic colors instead of hardcoded pale tints and raw reds, and no
 /// text smaller than 12px anywhere in the app.
 void main() {

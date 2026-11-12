@@ -780,7 +780,7 @@ class ChatService {
       final convId = MessageStore.conversationId(myUuid, peerUuid);
       // A soft-deleted conversation stays deleted: inbound messages —
       // including replays that survive the freshness window after a
-      // restart — must neither resurrect it nor accumulate behind the
+      // restart must neither resurrect it nor accumulate behind the
       // tombstone (round 7, external review A#3 residual).
       if (_convStore.isSoftDeleted(convId)) {
         ahoyLog(
@@ -1085,7 +1085,7 @@ class ChatService {
   /// No-op when the peer was never known under a temporary id. The retry
   /// outbox is rekeyed first so the identity reply that follows unblocks the
   /// queued messages; the conversation and its messages follow so the wire
-  /// convId — which both sides derive from the real UUIDs — matches the
+  /// convId which both sides derive from the real UUIDs matches the
   /// stored thread (ninth review N-1).
   Future<void> _migrateTempIdentityPeering(
     String peerUuid,
@@ -1184,7 +1184,7 @@ class ChatService {
 
   /// Signature material for sealed (v3) inner payloads. Domain-separated
   /// (sixth review, finding 3) so a signature for one message kind can never
-  /// verify against another. Frozen field set — changing it breaks
+  /// verify against another. Frozen field set changing it breaks
   /// verification of previously sent messages.
   String _signatureMaterialV3(Map<String, dynamic> payload) {
     return 'ahoy-chat-v3:${jsonEncode({

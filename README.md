@@ -860,7 +860,7 @@ ChatProvider._inboundSub.listen(packet)
        ├─ outer = jsonDecode(rawPayload)
        ├─ if peerUuid in blockedUuids: return null
        ├─ if outer['msgType'] != 'identity' && outer['v'] != 3: return null
-       │    [sealed v3 only — the legacy flat fallback was removed (audit L-2)]
+       │    [sealed v3 only the legacy flat fallback was removed (audit L-2)]
        ├─ if outer['msgType'] == 'identity': handle the signed identity, return null
        ├─ plain = CryptoService.decryptFromPeer(outer['ct'])
        │    json = jsonDecode(plain)     ← metadata lives inside the blob

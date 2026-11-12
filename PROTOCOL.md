@@ -260,7 +260,7 @@ signature      base64(RSA-PKCS1v1.5-SHA256("ahoy-identity-v1:" + JSON({msgType, 
 
 An accepted identity registers the key as `unverified`. It is answered once with the local identity, and the reply is not answered in turn. It may also release queued messages.
 
-**Throttling:** identity messages from one peer are processed at most once every 2 seconds. Identity replies are rate-limited per peer, at most once every 10 seconds. In addition, identity processing runs under a **global budget** of 20 messages per 10-second window, applied after the per-peer throttle but before verification and replies: rotating UUIDs cannot purchase more RSA work than the budget allows — every fresh UUID passes the per-peer throttle and charges the budget — while a flood from a single identity is stopped by the throttle without charging it, so one peer cannot starve the rest. Excess identities are dropped (§6.5).
+**Throttling:** identity messages from one peer are processed at most once every 2 seconds. Identity replies are rate-limited per peer, at most once every 10 seconds. In addition, identity processing runs under a **global budget** of 20 messages per 10-second window, applied after the per-peer throttle but before verification and replies: rotating UUIDs cannot purchase more RSA work than the budget allows every fresh UUID passes the per-peer throttle and charges the budget while a flood from a single identity is stopped by the throttle without charging it, so one peer cannot starve the rest. Excess identities are dropped (§6.5).
 
 ### 6.2 Receive Off
 
@@ -275,7 +275,7 @@ A peer seen only over BLE has no key. A sender with no verified recipient key do
 
 Content never leaves the device without a verified recipient key.
 
-**Rebinding to the canonical identity.** The first contact is keyed by the temporary transport id (the Bluetooth MAC). When a signed payload — the peer's identity or first sealed message — proves the canonical UUID, the transport binds the temporary id to it (§8) and the conversation, its messages and the outbox entries are re-keyed to the canonical UUID, so replies, acknowledgments and retries agree with the wire `convId` both sides derive from the real UUIDs.
+**Rebinding to the canonical identity.** The first contact is keyed by the temporary transport id (the Bluetooth MAC). When a signed payload the peer's identity or first sealed message proves the canonical UUID, the transport binds the temporary id to it (§8) and the conversation, its messages and the outbox entries are re-keyed to the canonical UUID, so replies, acknowledgments and retries agree with the wire `convId` both sides derive from the real UUIDs.
 
 ### 6.4 Pinning on first message
 
@@ -404,7 +404,7 @@ Each item needs a decision before the protocol is frozen.
 
 | Date | Change | Reason |
 |---|---|---|
-| — | Initial draft derived from implementation | Establish a single reference |
+| | Initial draft derived from implementation | Establish a single reference |
 | 2026-11-12 | §3.1 rules 7–8 added: LAN route pinning and the bounded `(uuid, signature)` announcement replay cache | Round-7 review: a same-key announcement replayed from a neighbouring address repointed the routing of a live peer |
 | 2026-11-12 | §4 rule 6 refined: eviction prefers unverified, then pinned; safety-number-verified records evicted last | Round-7 review: flood pressure could silently drop an out-of-band verification |
 | 2026-11-12 | §8.1: absolute connection lifetime (60 s) and aggregate inbound buffer budget (64 MiB) added to the LAN framing rules and Appendix A | Round-7 review: the idle timeout alone is attacker defeatable; 32 × 16 MiB of unterminated buffers was allocatable |
@@ -414,10 +414,10 @@ Each item needs a decision before the protocol is frozen.
 | 2026-11-12 | §14: replay-after-eviction, WiFi-Direct teardown binding, and sealed-envelope `from` swap now covered by tests | Release gate item 4 |
 | 2026-11-12 | §10: `ProfileService` at-rest crypto is now a required constructor parameter; the latent plaintext profile/avatar write paths are removed | External review: the `crypto == null` branches would silently activate on a wiring change |
 | 2026-11-12 | §6.1: identity processing is capped by a global budget (20 per 10 s) applied before verification and replies | External review: UUID rotation defeats per-peer throttles and buys unlimited RSA work |
-| 2026-11-12 | §7: replays that survive the seen-set are state-neutral — the store dedup gates the unread counter and last-message fields | External review: a replayed message re-incremented `unreadCount` |
-| 2026-11-12 | §8: routing tables split — verified UUIDs capped at 512, temporary transport ids capped at 128 in their own table | External review: ambient BLE devices could churn real peers out of the single shared table |
+| 2026-11-12 | §7: replays that survive the seen-set are state-neutral the store dedup gates the unread counter and last-message fields | External review: a replayed message re-incremented `unreadCount` |
+| 2026-11-12 | §8: routing tables split verified UUIDs capped at 512, temporary transport ids capped at 128 in their own table | External review: ambient BLE devices could churn real peers out of the single shared table |
 | 2026-11-12 | §3.1 rule 9 and §8: per-address UDP announcement rate limit (20 per 10 s) and bounded per-transport route/key maps (512 each); BLE scan cache capped at 256 | Ninth review: the LAN route and key maps and the WiFi Direct key map grew without bound under unique valid announcements, and UDP announcements had no rate limit |
-| 2026-11-12 | §6.3 and §8: alias binding at packet receipt — sends, retry triggers and first-contact conversations rebind to the canonical UUID once a signed payload binds the temporary transport id to it; the BLE transport resolves the canonical UUID to the device address on send | Ninth review: a pure BLE first contact could never complete — the responder's sends and the initiator's retry were keyed under ids the BLE transport could not resolve |
+| 2026-11-12 | §6.3 and §8: alias binding at packet receipt sends, retry triggers and first-contact conversations rebind to the canonical UUID once a signed payload binds the temporary transport id to it; the BLE transport resolves the canonical UUID to the device address on send | Ninth review: a pure BLE first contact could never complete the responder's sends and the initiator's retry were keyed under ids the BLE transport could not resolve |
 | 2026-11-12 | §6.1: the global identity budget is charged only by identities that pass the per-peer throttle | Ninth review: a single identity flooding identity packets consumed the whole budget and starved every other peer's handshake |
 | 2026-11-12 | §10: at-rest crypto is now a required constructor parameter for `ChatService`, `MessageStore`, `ConversationStore` and `MediaService`; the remaining latent plaintext write paths (outbox persist, media write, store saves) are removed | Ninth review: the same latent-write hazard the round-8 review removed from `ProfileService` existed in the chat and media layers |
 | 2026-11-12 | §8.2: WiFi Direct inbound connections capped at 16 concurrent (sockets beyond the cap are closed, not queued) | Ninth review: the LAN side capped connections and buffers in round 7; the Kotlin WiFi Direct server queued unbounded sockets, each allocating up to 10 MiB |
@@ -430,9 +430,9 @@ Record every future change here, with the finding or decision that motivated it.
 
 Every normative rule in this document must have at least one test. The existing suite covers most of them. The previously listed gaps are closed:
 
-- Replay after seen-set eviction within the freshness window (§7) — `chat_replay_resilience_test.dart`, documents the known limit pending OPEN decision #3.
-- WiFi Direct key binding after group teardown, which the code preserves (§8.2) — `wifi_direct_binding_test.dart`.
-- Sealed-envelope `from` swap, which fails the inner `senderUuid` check (§5.1) — `chat_replay_resilience_test.dart`.
+- Replay after seen-set eviction within the freshness window (§7) `chat_replay_resilience_test.dart`, documents the known limit pending OPEN decision #3.
+- WiFi Direct key binding after group teardown, which the code preserves (§8.2) `wifi_direct_binding_test.dart`.
+- Sealed-envelope `from` swap, which fails the inner `senderUuid` check (§5.1) `chat_replay_resilience_test.dart`.
 
 Appendix A is asserted against the code by `protocol_constants_parity_test.dart`; Appendix B vectors are asserted by `protocol_golden_vectors_test.dart`.
 
@@ -514,13 +514,13 @@ Each signed material and each safety-number function must have a fixed input and
 | conversationId | uuid A, uuid B | `90b3f6e0fe9888c051f30305c43f6b8a` |
 | fingerprint | fixture public PEM | `01872 14387 02303 53318 24168 06683 13314 11704 13391 30096 93208 88467` |
 | safety number (A, B) | fixture PEMs A and B | `24079 69395 30751 35902 30767 71844 93019 76170 17801 72928 93986 82379` |
-| announce material | fixed field set, timestamp above | `ahoy-announce-v1:{...}` — see `golden_vectors.json` |
+| announce material | fixed field set, timestamp above | `ahoy-announce-v1:{...}` see `golden_vectors.json` |
 | announce signature | fixture key over the material above | see `golden_vectors.json` |
-| chat v3 material | fixed inner payload | `ahoy-chat-v3:{...}` — see `golden_vectors.json` |
+| chat v3 material | fixed inner payload | `ahoy-chat-v3:{...}` see `golden_vectors.json` |
 | chat v3 signature | fixture key over the material above | see `golden_vectors.json` |
-| ack material | fixed ack payload | `ahoy-ack-v1:{...}` — see `golden_vectors.json` |
+| ack material | fixed ack payload | `ahoy-ack-v1:{...}` see `golden_vectors.json` |
 | ack signature | fixture key over the material above | see `golden_vectors.json` |
-| identity material | fixed identity payload | `ahoy-identity-v1:{...}` — see `golden_vectors.json` |
+| identity material | fixed identity payload | `ahoy-identity-v1:{...}` see `golden_vectors.json` |
 | identity signature | fixture key over the material above | see `golden_vectors.json` |
 
 **Fixed test key.** Use one 2048-bit RSA key pair generated once and stored under `test/fixtures/`. Never use a production key.

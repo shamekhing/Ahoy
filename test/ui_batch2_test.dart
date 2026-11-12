@@ -206,7 +206,7 @@ void main() {
     testWidgets('explains queueing when the peer is not nearby', (tester) async {
       await pumpBar(tester, peerNearby: false, canSendMedia: true);
       expect(
-        find.text('Peer not nearby — messages queue until they return'),
+        find.text('Peer not nearby messages queue until they return'),
         findsOneWidget,
       );
     });
@@ -247,7 +247,7 @@ void main() {
       // tests run in fake async and forbid pending timers).
       discovery.debugStopCleanupTimer();
       discovery.setPermissionProblems([
-        'Bluetooth scanning is blocked — nearby discovery over BLE cannot run.',
+        'Bluetooth scanning is blocked nearby discovery over BLE cannot run.',
       ]);
 
       final chat = ChatProvider(

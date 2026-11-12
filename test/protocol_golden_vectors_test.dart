@@ -6,7 +6,7 @@ import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Appendix B golden vectors (PROTOCOL.md). The fixture key is a dedicated
-/// 2048-bit RSA test key under test/fixtures/ — never a production key.
+/// 2048-bit RSA test key under test/fixtures/ never a production key.
 /// RSA PKCS#1 v1.5 signatures are deterministic, so these vectors are
 /// reproducible by any conforming implementation.
 void main() {

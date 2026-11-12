@@ -32,7 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Ninth-review follow-up, batch 6: states and copy — items 11 (queued/
+/// Ninth-review follow-up, batch 6: states and copy items 11 (queued/
 /// failed affordances), 13 (blocked chat UX), 28 (settings copy), 29
 /// (startup recovery) and 30 (dash-less copy) of the external UI/UX review.
 final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
@@ -424,28 +424,28 @@ void main() {
       final discover = File(
         'lib/Ahoy/screens/discover/discover_screen.dart',
       ).readAsStringSync();
-      expect(discover, contains('Off the Grid — you are invisible to others'));
+      expect(discover, contains('Off the Grid you are invisible to others'));
       expect(
         discover,
-        contains('Receive Off — new chat requests are blocked'),
+        contains('Receive Off new chat requests are blocked'),
       );
       final myProfile = File(
         'lib/Ahoy/screens/profile/my_profile_screen.dart',
       ).readAsStringSync();
       expect(
         myProfile,
-        contains('This is your key fingerprint — peers see the same number'),
+        contains('This is your key fingerprint peers see the same number'),
       );
       final peerProfile = File(
         'lib/Ahoy/screens/profile/peer_profile_screen.dart',
       ).readAsStringSync();
       expect(
         peerProfile,
-        contains('short ID is display only — compare the safety number'),
+        contains('short ID is display only compare the safety number'),
       );
       expect(
         peerProfile,
-        contains('Read this number aloud with your peer — it is identical'),
+        contains('Read this number aloud with your peer it is identical'),
       );
     });
   });

@@ -181,7 +181,7 @@ class MessageBubble extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(
-                isPlaying ? 'Playing — tap to stop' : 'Voice message',
+                isPlaying ? 'Playing tap to stop' : 'Voice message',
                 style: TextStyle(color: textColor),
               ),
             ],
@@ -234,10 +234,10 @@ class MessageBubble extends StatelessWidget {
   }
 
   String get _statusTooltip => switch (message.status) {
-    MessageStatus.sending => 'Queued — waiting for the peer',
+    MessageStatus.sending => 'Queued waiting for the peer',
     MessageStatus.sent => 'Sent',
     MessageStatus.delivered => 'Delivered',
-    MessageStatus.failed => 'Failed — tap to retry',
+    MessageStatus.failed => 'Failed tap to retry',
   };
 
   String _formatTime(DateTime dt) {

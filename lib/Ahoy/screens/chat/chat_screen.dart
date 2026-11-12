@@ -380,7 +380,7 @@ class _ChatScreenState extends State<ChatScreen> {
           // (UI review #16).
           IconButton(
             icon: const Icon(Icons.lock_outline),
-            tooltip: 'End-to-end encrypted — open peer profile',
+            tooltip: 'End-to-end encrypted open peer profile',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => PeerProfileScreen(peer: livePeer)),

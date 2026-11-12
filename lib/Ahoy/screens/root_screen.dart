@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -124,19 +125,29 @@ class _RootScreenState extends State<RootScreen> {
   /// (UI review #6).
   Future<void> _requestPermissions() async {
     if (!Platform.isAndroid) return;
-    const needed = [
-      Permission.locationWhenInUse,
+    final prefs = context.read<PrefsStore>();
+    // From Android 13 (SDK 33) discovery needs no location at all: BLE runs
+    // on neverForLocation BLUETOOTH_SCAN and Wi-Fi Direct on
+    // neverForLocation NEARBY_WIFI_DEVICES, and the manifest caps location
+    // at SDK 32 (audit M-7). Asking for location above that yields a silent
+    // permanent denial and a phantom "location blocked" banner.
+    int? sdkInt;
+    if (Platform.isAndroid) {
+      sdkInt = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+    }
+    final needsLocation = sdkInt == null || sdkInt < 33;
+    final toRequest = <Permission>[
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.bluetoothAdvertise,
       Permission.nearbyWifiDevices,
+      if (needsLocation) Permission.locationWhenInUse,
     ];
 
     // Explain why before the first prompt: Android ties nearby-device
-    // discovery to location permissions, which is not self-evident for a
-    // messenger that never tracks location.
-    final prefs = context.read<PrefsStore>();
-    final statuses = {for (final p in needed) p: await p.status};
+    // discovery to location permissions on older versions, which is not
+    // self-evident for a messenger that never tracks location.
+    final statuses = {for (final p in toRequest) p: await p.status};
     final needsRationale = statuses.values.any(
       (s) => s == PermissionStatus.denied || s == PermissionStatus.restricted,
     );
@@ -144,16 +155,19 @@ class _RootScreenState extends State<RootScreen> {
         !prefs.getBool(AhoyConstants.prefPermissionRationaleSeen)) {
       await prefs.setBool(AhoyConstants.prefPermissionRationaleSeen, value: true);
       if (!mounted) return;
+      final permissionNoun = needsLocation
+          ? 'location and nearby-devices'
+          : 'nearby-devices';
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Finding nearby peers'),
-          content: const Text(
-            'Ahoy talks directly to nearby devices over Bluetooth and Wi-Fi — '
-            'there is no server. Android requires the location and '
-            'nearby-devices permissions for this kind of discovery, even '
-            'though Ahoy never learns or shares your location. Nothing leaves '
-            'your immediate surroundings.',
+          content: Text(
+            'Ahoy talks directly to nearby devices over Bluetooth and Wi-Fi '
+            'there is no server. Android requires the $permissionNoun '
+            'permissions for this kind of discovery, even though Ahoy never '
+            'learns or shares your location. Nothing leaves your immediate '
+            'surroundings.',
           ),
           actions: [
             FilledButton(
@@ -166,13 +180,7 @@ class _RootScreenState extends State<RootScreen> {
       if (!mounted) return;
     }
 
-    final results = await [
-      Permission.locationWhenInUse,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.bluetoothAdvertise,
-      Permission.nearbyWifiDevices,
-    ].request();
+    final results = await toRequest.request();
 
     bool granted(Permission p) =>
         results[p] == PermissionStatus.granted ||
@@ -180,22 +188,22 @@ class _RootScreenState extends State<RootScreen> {
     final problems = <String>[];
     if (!granted(Permission.bluetoothScan)) {
       problems.add(
-        'Bluetooth scanning is blocked — nearby discovery over BLE cannot run.',
+        'Bluetooth scanning is blocked nearby discovery over BLE cannot run.',
       );
     }
     if (!granted(Permission.bluetoothConnect)) {
       problems.add(
-        'Bluetooth connect is blocked — BLE chats cannot open.',
+        'Bluetooth connect is blocked BLE chats cannot open.',
       );
     }
     if (!granted(Permission.nearbyWifiDevices)) {
       problems.add(
-        'Nearby devices permission is blocked — WiFi Direct cannot run.',
+        'Nearby devices permission is blocked WiFi Direct cannot run.',
       );
     }
-    if (!granted(Permission.locationWhenInUse)) {
+    if (needsLocation && !granted(Permission.locationWhenInUse)) {
       problems.add(
-        'Location permission is blocked — Android requires it for nearby '
+        'Location permission is blocked Android requires it for nearby '
         'discovery on this Android version.',
       );
     }
@@ -257,7 +265,7 @@ class _RootScreenState extends State<RootScreen> {
   }
 
   /// One-time explanation of the offline model (UI review #7): the app only
-  /// works nearby and while it is in the foreground — there is no server,
+  /// works nearby and while it is in the foreground there is no server,
   /// no push, and no delivery to a peer who has walked away.
   Future<void> _maybeShowOnboarding() async {
     final prefs = context.read<PrefsStore>();
@@ -286,7 +294,7 @@ class _RootScreenState extends State<RootScreen> {
               SizedBox(height: 8),
               Text(
                 '• Foreground only. Discovery and delivery run while the app '
-                'is open — there is no background delivery or notification.',
+                'is open there is no background delivery or notification.',
               ),
               SizedBox(height: 8),
               Text(

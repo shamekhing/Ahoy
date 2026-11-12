@@ -5,7 +5,7 @@ import '../../services/crypto/local_data_crypto.dart';
 
 /// Avatar with a photo-first fallback chain (UI review #23): encrypted file,
 /// base64, then initials on a color derived deterministically from the
-/// peer's shortId — so peers keep a stable, non-guessable-into-identity
+/// peer's shortId so peers keep a stable, non-guessable-into-identity
 /// color across restarts without storing anything.
 class PeerAvatar extends StatelessWidget {
   final String? avatarPath;

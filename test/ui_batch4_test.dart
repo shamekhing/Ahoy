@@ -32,7 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Ninth-review follow-up, batch 4: chat polish — items 8 (bottom-anchored
+/// Ninth-review follow-up, batch 4: chat polish items 8 (bottom-anchored
 /// scrolling), 9 (per-conversation errors), 14 (voice recording/playback
 /// UX) and 15 (fullscreen images) of the external UI/UX review.
 final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));

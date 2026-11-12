@@ -85,7 +85,7 @@ class LanTransport implements TransportInterface {
 
   /// (uuid, signature) pairs of announcements already processed this session
   /// (round 7). A signature covers a fresh timestamp, so the same pair
-  /// arriving again — from any address — is a replayed capture. Checked
+  /// arriving again from any address is a replayed capture. Checked
   /// before RSA verification so replay floods never reach the crypto layer.
   final Set<String> _seenAnnouncements = {};
   static const int _maxSeenAnnouncements = 1024;
@@ -353,7 +353,7 @@ class LanTransport implements TransportInterface {
 
       // Same-key replay guard (round 7): the signature covers a fresh
       // timestamp, so an identical (uuid, signature) pair arriving again —
-      // even from a different address — is a replayed capture. Dropping it
+      // even from a different address is a replayed capture. Dropping it
       // before RSA verification keeps replay floods off the crypto layer.
       final announcementKey = '$uuid|$signature';
       if (_seenAnnouncements.contains(announcementKey)) {

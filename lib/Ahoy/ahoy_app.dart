@@ -153,7 +153,7 @@ class _AhoyAppState extends State<AhoyApp> {
   }
 
   /// Best-effort wipe of local data (prefs + secure storage) followed by a
-  /// fresh retry — the last-resort path when ordinary startup cannot
+  /// fresh retry the last-resort path when ordinary startup cannot
   /// recover (UI review #29). [dialogContext] must live under the error
   /// screen's Navigator so the confirm dialog can be shown.
   Future<void> _resetAndRetry(BuildContext dialogContext) async {

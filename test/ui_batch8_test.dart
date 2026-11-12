@@ -30,7 +30,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Ninth-review follow-up, batch 8: message actions and accessibility
-/// surface — items 25 (copy/delete + date chips), 31 (icon-button
+/// surface items 25 (copy/delete + date chips), 31 (icon-button
 /// tooltips), 34 (bounded auth forms) of the external UI/UX review.
 final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));
 

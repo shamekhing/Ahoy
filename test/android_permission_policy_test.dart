@@ -35,6 +35,22 @@ void main() {
     expect(fineEntry!.group(0), contains('android:maxSdkVersion="32"'));
   });
 
+  test('location is not requested on Android 13+ (neverForLocation covers it)', () {
+    final root = File(
+      'lib/Ahoy/screens/root_screen.dart',
+    ).readAsStringSync();
+    expect(
+      root,
+      contains('sdkInt < 33'),
+      reason: 'the request list must gate location below Android 13',
+    );
+    expect(
+      root,
+      contains('needsLocation && !granted'),
+      reason: 'the banner must not fire for an undeclared permission',
+    );
+  });
+
   test('release builds block screenshots and recents (audit L-16)', () {
     final activity = File(
       'android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt',

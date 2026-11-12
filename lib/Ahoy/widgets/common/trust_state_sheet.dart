@@ -15,7 +15,7 @@ Future<void> showTrustStateSheet(
     PeerTrustState.unverified => (
       'Identity not verified yet',
       '$peerName announced this key itself. Messages are end-to-end '
-          'encrypted, but anyone nearby can announce any identity — compare '
+          'encrypted, but anyone nearby can announce any identity compare '
           'the safety number on the peer profile to be sure you are talking '
           'to the right person.',
       Icons.help_outline,

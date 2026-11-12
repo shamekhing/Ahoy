@@ -76,7 +76,7 @@ class AuthService {
       // conversations reference a keypair that no longer exists, their
       // encrypted content is unreadable under the fresh at-rest key, and no
       // file of the old account may survive into the new identity (ninth
-      // review N-6 — the same sweep signOut performs).
+      // review N-6 the same sweep signOut performs).
       await _prefsStore.clearAll();
       await _localDataCrypto.reset();
       await _deleteLocalMedia();

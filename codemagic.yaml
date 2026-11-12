@@ -1,4 +1,4 @@
-# Codemagic CI/CD configuration for Ahoy — https://codemagic.io
+# Codemagic CI/CD configuration for Ahoy https://codemagic.io
 #
 # Workflow `ios-release` builds a signed App Store IPA of the Flutter app
 # (bundle id com.ahoy.app) and publishes it as an artifact.

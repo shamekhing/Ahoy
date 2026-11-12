@@ -304,7 +304,7 @@ permissions the manifest deliberately omits (audit M-7).
 
 ## Validation
 
-`flutter analyze` clean; every one of the 42 test files passes — the prior 139 tests plus the 26 new tests added with the fixes above (165 total) on Flutter 3.47.9 / Dart 3.13.7.
+`flutter analyze` clean; every one of the 42 test files passes the prior 139 tests plus the 26 new tests added with the fixes above (165 total) on Flutter 3.47.9 / Dart 3.13.7.
 
 ---
 
@@ -322,14 +322,14 @@ accepted as recorded limitations.
 | 1 | Med | `ProfileService` carried a latent plaintext write path: `updateAvatar` and `saveProfile` stored unencrypted bytes when the at-rest crypto was null. Production wiring always passes it, but the branch would silently activate on a wiring change, contradicting spec §10 | The `LocalDataCrypto` constructor parameter is now required (all 12 construction sites already pass it) and every `crypto == null` branch is gone. Legacy plaintext rows remain readable only through the documented migration path |
 | 2 | Med-High | Per-peer throttles are rotation-defeatable: an attacker rotating UUIDs bypasses the 2-second identity throttle, buying unbounded RSA verify work and one signed reply per fresh UUID | Identity processing now runs under a global budget (20 per 10-second window, `AhoyConstants`), applied before verification, replies, and the per-peer throttle maps. Excess identities are dropped per §6.5. Test: `identity_budget_test.dart` (50 rotated UUIDs → exactly one window processed) |
 | 3 | Med | A replay that survived the seen-set (eviction or restart) re-incremented `unreadCount` and moved `lastMessage*`, even though the store deduplicated the row | `MessageStore.addMessage` now returns whether the row was newly added; the conversation update runs only for genuinely new messages. A replay is now state-neutral: the residual cost is one redundant verification plus an idempotent ack. The replay-resilience test asserts the counter no longer moves. Spec §7 updated; OPEN #3 now covers only the redundant work |
-| 4 | Med | BLE scan responses feed MAC-keyed announcements through `TransportManager._acceptAnnouncement` into `_peerTransports`, whose single 512-entry FIFO could be churned by ambient BLE devices — evicting real peers' routing entries (no attacker required; `putIfAbsent` does not refresh insertion order) | Routing tables split: verified-UUID entries keep the 512 cap; temporary transport ids live in their own 128-entry table. Alias registration merges temp entries into the real table; `currentModeFor` consults both. Tests: `transport_table_bounds_test.dart` |
+| 4 | Med | BLE scan responses feed MAC-keyed announcements through `TransportManager._acceptAnnouncement` into `_peerTransports`, whose single 512-entry FIFO could be churned by ambient BLE devices evicting real peers' routing entries (no attacker required; `putIfAbsent` does not refresh insertion order) | Routing tables split: verified-UUID entries keep the 512 cap; temporary transport ids live in their own 128-entry table. Alias registration merges temp entries into the real table; `currentModeFor` consults both. Tests: `transport_table_bounds_test.dart` |
 | 5 | Low | The attached blocked set and the per-call inbound set are two handles to the same live set; drift was possible if a future caller forgot `attachBlockedPeers` | `onInboundPacket` now checks both. No behavior change; drift closed |
 
 ## Refuted with evidence
 
 - None of the reviewer's remaining claims survived: finding 5 (announcement
   dedup flush) requires a valid signing key and, even after a flush, route
-  pinning (§3.1 rule 7) blocks same-window takeover — the residual is
+  pinning (§3.1 rule 7) blocks same-window takeover the residual is
   discovery presence refresh, already recorded in round 7. Finding 7 was
   self-refuted by the reviewer: the subnet prefix check appends a dot and
   fails closed on a malformed group-owner address.
@@ -359,12 +359,12 @@ clean. One commit per fix, spec §13 updated in the same commits.
 
 | # | Sev | Finding | Fix |
 |---|-----|---------|-----|
-| 1 | High | Pure BLE first contact could never complete. `TransportManager` rewrites the peer id to the canonical UUID before dispatching, but `BleTransport` caches devices by Bluetooth MAC and never learned aliases — the responder's identity reply and every later send failed device lookup, and the initiator's retry outbox (keyed by the MAC) could never find the key learned under the real UUID; replies that did arrive created a duplicate conversation | Inbound packets now carry the transport-level id; the manager binds it to the canonical UUID the signed payload proves, `BleTransport` learns canonical-UUID → device-address from assembled payloads and resolves it on send, and the conversation, its messages and the outbox are re-keyed to the canonical UUID so replies, acks and retries agree with the wire `convId` (spec §6.3, §8). A simulated pure-BLE first contact completes a full round trip. Tests: `ble_route_resolution_test.dart` |
+| 1 | High | Pure BLE first contact could never complete. `TransportManager` rewrites the peer id to the canonical UUID before dispatching, but `BleTransport` caches devices by Bluetooth MAC and never learned aliases the responder's identity reply and every later send failed device lookup, and the initiator's retry outbox (keyed by the MAC) could never find the key learned under the real UUID; replies that did arrive created a duplicate conversation | Inbound packets now carry the transport-level id; the manager binds it to the canonical UUID the signed payload proves, `BleTransport` learns canonical-UUID → device-address from assembled payloads and resolves it on send, and the conversation, its messages and the outbox are re-keyed to the canonical UUID so replies, acks and retries agree with the wire `convId` (spec §6.3, §8). A simulated pure-BLE first contact completes a full round trip. Tests: `ble_route_resolution_test.dart` |
 | 2 | Med | `LanTransport._peerConns` and `_uuidKeys` and `WiFiDirectTransport._uuidKeys` grew without bound on every valid signed announcement, and UDP announcements had no rate limit: a flood of unique self-generated keypairs bought unbounded memory and RSA verification work | Route and key maps capped at 512 entries (expired routes drop first, then the oldest), a per-address 20-per-10 s announcement window checked before parsing and verification (loopback exempt, matching TCP), and the BLE scan cache capped at 256 devices (spec §3.1 rule 9, §8). Tests: `transport_state_bounds_test.dart` |
 | 3 | Med-Low | The global identity budget was charged before the per-peer throttle: one UUID flooding identity packets consumed the whole 20-per-10 s budget and starved every other peer's handshake | The budget is charged only by identities that pass the per-peer throttle; UUID rotation still cannot exceed it (spec §6.1). Test: `identity_budget_test.dart`, confirmed red before the fix |
 | 4 | Med | The round-8 decision that made `ProfileService`'s at-rest crypto required left the same latent plaintext write paths in `ChatService` (outbox persist, media write), `MessageStore`, `ConversationStore` and `MediaService`: a wiring change would have silently stored plaintext | The constructor parameters are required and every `crypto == null` write branch is gone; legacy plaintext rows remain readable only through the documented migration path (spec §10). Seventeen test files updated; the outbox row is asserted encrypted in `at_rest_encryption_test.dart` |
-| 5 | Med-Low | The Kotlin WiFi Direct server queued unbounded inbound sockets (fixed pool of four, unbounded executor queue), each allocating up to 10 MiB for one frame — the LAN side capped both connections and buffers in round 7 | A 16-permit gate closes sockets beyond the cap instead of queueing them (spec §8.2, Appendix A). Source-text test in `android_permission_policy_test.dart`; no Kotlin harness, inspection-validated like earlier platform rounds |
-| 6 | Low | The confirmed erase-and-replace sign-up cleared prefs but left the old account's encrypted media files on disk and did not rotate the at-rest key — a partial clean slate | The replacement path now resets the at-rest key and runs the same owned-media sweep sign-out performs. Test: `media_cleanup_test.dart` |
+| 5 | Med-Low | The Kotlin WiFi Direct server queued unbounded inbound sockets (fixed pool of four, unbounded executor queue), each allocating up to 10 MiB for one frame the LAN side capped both connections and buffers in round 7 | A 16-permit gate closes sockets beyond the cap instead of queueing them (spec §8.2, Appendix A). Source-text test in `android_permission_policy_test.dart`; no Kotlin harness, inspection-validated like earlier platform rounds |
+| 6 | Low | The confirmed erase-and-replace sign-up cleared prefs but left the old account's encrypted media files on disk and did not rotate the at-rest key a partial clean slate | The replacement path now resets the at-rest key and runs the same owned-media sweep sign-out performs. Test: `media_cleanup_test.dart` |
 
 ## Verified clean
 
@@ -398,8 +398,8 @@ consistent with every earlier platform round.
 ## Post-review fix (device install)
 
 Installing the debug build on a physical device surfaced one more finding,
-outside the code the review examined: `assets/app_icon.svg` — the logo
-rendered by both auth screens — was not an SVG at all but a misnamed PNG
+outside the code the review examined: `assets/app_icon.svg` the logo
+rendered by both auth screens was not an SVG at all but a misnamed PNG
 carrying a C2PA content-credential block, so `SvgPicture.asset` threw an
 unhandled `XmlParserException` on every launch. The asset is now
 `assets/auth_logo.png` (named for what it is), rendered with `Image.asset`;
@@ -424,7 +424,7 @@ are recorded at the end as open work.
 
 | # | Finding | Fix |
 |---|---------|-----|
-| 1 | The reply preview leaks a local file path: composing a reply to a photo or voice message quotes `_replyTo!.content` — the stored `…/ahoy_media_x.jpg.ahoyenc` path — both in the reply bar and inside the sealed payload sent to the peer | `ReplyPreview.labelFor` quotes `[Photo]` / `[Voice message]` for media and truncates text; inbound reply headers pass through `ReplyPreview.sanitize`, so a path-shaped preview from any client renders as `[Media]` |
+| 1 | The reply preview leaks a local file path: composing a reply to a photo or voice message quotes `_replyTo!.content` the stored `…/ahoy_media_x.jpg.ahoyenc` path both in the reply bar and inside the sealed payload sent to the peer | `ReplyPreview.labelFor` quotes `[Photo]` / `[Voice message]` for media and truncates text; inbound reply headers pass through `ReplyPreview.sanitize`, so a path-shaped preview from any client renders as `[Media]` |
 | 2 | A failed send discards the user's text: `MessageInputBar._send` cleared the field before `sendMessage` resolved, so an unreachable or blocked peer swallowed the message | `onSendText` now returns `Future<bool>`; the field and the reply context are cleared only on success, and the send button shows progress and is disabled while sending |
 | 3 | Double biometric prompt on cold start: `RootScreen._bootstrap` attempts biometric sign-in, then `SignInScreen.initState` attempts again the moment the first prompt is cancelled | `SignInScreen` takes `autoPromptBiometric`; RootScreen suppresses the second automatic prompt (bootstrap already tried) while the manual "Use Biometric" button stays |
 | 4 | Pull-to-refresh kills active WiFi Direct chats: `DiscoveryProvider.refreshPeers` toggled each transport off and on, and toggling WiFi Direct off calls `stopAdvertising`, which invokes the Kotlin `disconnect` → `removeGroup` (the mechanism is one layer deeper than the review stated: `stopScanning` alone is safe) | New `TransportManager.restartScanning` restarts discovery only and re-announces on the connectionless transports; the settings toggle keeps its destructive semantics on purpose. Spy-transport tests assert restart never stops advertising |
@@ -442,14 +442,22 @@ against the source first:
 | 10 | Peer reachability was unclear, and an offline send was rejected outright | Text messages to an unreachable peer are now queued (stored, shown as failed, auto-retried when the peer returns) instead of thrown away; media still requires LAN/WiFi Direct; the chat header shows "Not nearby" and the composer hint explains the queueing |
 | 16 | No encryption indicator inside the chat | An empty conversation shows the end-to-end-encryption promise with a pointer to safety numbers, and the app bar carries a lock that opens the peer's profile (the trust surface) |
 
+**Follow-up (device testing):** on Android 13+ the permission flow still
+asked for location, which the manifest no longer declares above SDK 32 — the
+OS silently denied it and Discover showed a phantom "Location permission is
+blocked" banner. The request list is now gated on the device SDK level
+(`device_info_plus`): location is only requested below Android 13, the
+rationale copy now matches what is actually asked, and a policy test pins
+the gate.
+
 ## Batch 3 fixed (same review, follow-up commit)
 
-The contrast and legibility pair — the review's "fast win":
+The contrast and legibility pair the review's "fast win":
 
 | # | Finding | Fix |
 |---|---------|-----|
 | 21 | Dark-mode contrast: `PeerProfileScreen` painted the safety-number panel on `Colors.orange.shade50` and the blocked panel on `Colors.red.shade50` with default (near-white) text, and ~15 sites hardcoded `Colors.red` for destructive semantics | Semantic theme colors everywhere: the safety-number panel uses `tertiaryContainer`/`onTertiaryContainer`, the blocked panels and destructive actions use `errorContainer`/`error`/`onErrorContainer`, and the conversation-list avatars use theme surfaces instead of `shade100` tints |
-| 22 | Tiny text: timestamps at 10px/60% alpha, badge and hint labels at 11px — all below legibility and contrast floors | No text below 12px anywhere in `lib/`; the message footer keeps its bubble's text color at 0.85 alpha instead of 0.6; enforced by `ui_batch3_test.dart`, which scans `lib/` for `Colors.red`, pale `shade50/100` tints and sub-12px font sizes, and asserts the message footer in both light and dark themes |
+| 22 | Tiny text: timestamps at 10px/60% alpha, badge and hint labels at 11px all below legibility and contrast floors | No text below 12px anywhere in `lib/`; the message footer keeps its bubble's text color at 0.85 alpha instead of 0.6; enforced by `ui_batch3_test.dart`, which scans `lib/` for `Colors.red`, pale `shade50/100` tints and sub-12px font sizes, and asserts the message footer in both light and dark themes |
 
 ## Batch 4 fixed (same review, follow-up commit)
 
@@ -468,17 +476,17 @@ Trust UX and the privacy-data drop:
 
 | # | Finding | Fix |
 |---|---------|-----|
-| 17 | The unverified marker was a Tooltip on a tiny icon — undiscoverable on mobile, and everyone is unverified by default, causing warning fatigue | The markers on peer cards and the trust chip on the peer profile are tappable and open a bottom sheet (`showTrustStateSheet`) explaining the current state in plain words: unverified (anyone nearby can announce any identity), pinned, verified by safety number, or no key yet — with a pointer to the safety number |
+| 17 | The unverified marker was a Tooltip on a tiny icon undiscoverable on mobile, and everyone is unverified by default, causing warning fatigue | The markers on peer cards and the trust chip on the peer profile are tappable and open a bottom sheet (`showTrustStateSheet`) explaining the current state in plain words: unverified (anyone nearby can announce any identity), pinned, verified by safety number, or no key yet with a pointer to the safety number |
 | 18 | The safety number was a raw 60-digit string with no copy, and "Mark as verified" next to a key-change banner was ambiguous about which key it verifies | A copy button (clipboard + snackbar) sits next to the number, and the banner action is reworded to "I verified the current key" |
-| 20 + 23 | The gender field only colored an avatar peers never see — unneeded data for a privacy-first app — and avatars were inconsistent (generic circle in Conversations, gender-colored icons elsewhere) | The `Gender` enum and the field are gone from `LocalUser`, sign-up, the profile editor, and the stored JSON (legacy `gender` keys in existing profiles are ignored on load, no migration needed); README drift fixed. `PeerAvatar` now shows **initials on a color derived deterministically from the shortId** — stable across restarts, nothing stored — and Conversations/PeerCard/PeerProfile/MyProfile all use it |
+| 20 + 23 | The gender field only colored an avatar peers never see unneeded data for a privacy-first app and avatars were inconsistent (generic circle in Conversations, gender-colored icons elsewhere) | The `Gender` enum and the field are gone from `LocalUser`, sign-up, the profile editor, and the stored JSON (legacy `gender` keys in existing profiles are ignored on load, no migration needed); README drift fixed. `PeerAvatar` now shows **initials on a color derived deterministically from the shortId** stable across restarts, nothing stored and Conversations/PeerCard/PeerProfile/MyProfile all use it |
 
 ## Batch 6 fixed (same review, follow-up commit)
 
-States and copy — what the app says when something cannot proceed:
+States and copy what the app says when something cannot proceed:
 
 | # | Finding | Fix |
 |---|---------|-----|
-| 11 | The queued "Sending" clock was unexplained (it can mean "waiting for the peer's key"), and a failed message had no recovery path | The status glyph is wrapped in a `Tooltip` ("Queued — waiting for the peer" / "Sent" / "Delivered" / "Failed — tap to retry"), and tapping a failed bubble retries the queue for that peer via the new `ChatProvider.retryFor(peerUuid)`; healthy bubbles do not steal taps |
+| 11 | The queued "Sending" clock was unexplained (it can mean "waiting for the peer's key"), and a failed message had no recovery path | The status glyph is wrapped in a `Tooltip` ("Queued waiting for the peer" / "Sent" / "Delivered" / "Failed tap to retry"), and tapping a failed bubble retries the queue for that peer via the new `ChatProvider.retryFor(peerUuid)`; healthy bubbles do not steal taps |
 | 13 | A blocked thread was a dead end (unblock only reachable from the ⋮ menu) and blocking fired instantly with no confirmation | The blocked body carries its own **Unblock** button next to the explanation, and ⋮ → Block now asks "Block peer?" with the peer's name and an explicit note that messages from them are ignored until unblocked (error-colored confirm, Cancel default path asserted) |
 | 28 | Settings copy was vague: Off the Grid didn't say scanning stays on, Receive Off didn't say existing chats survive, the biometric tile vanished silently on unsupported devices, and there was no About | Reworded both subtitles to state what the toggle does **not** do; the unavailable biometric renders as a disabled tile reading "Not available on this device"; an About tile (version + non-commercial license note) closes the list |
 | 29 | A startup exception rendered a raw dump with no way forward | Startup now builds all services into locals and commits only on full success (a partial init rolls back transports/recorders); the error screen says "Ahoy could not start. Your data is intact." with **Retry**, a confirmed **Erase local data and retry** last resort, and the raw exception tucked into a Details expander |
@@ -490,7 +498,7 @@ Form and list correctness:
 
 | # | Finding | Fix |
 |---|---------|-----|
-| 19 | Sign-up had no password confirmation, no warning that a forgotten password means a lost identity, and a silent wait while keys were generated | A "Confirm password" field (mismatch blocks submission), a plain-spoken warning under the password field ("If you forget it, this identity and its conversations cannot be recovered" — there is no server-side reset), and the submit button now reads **"Generating keys…"** with its spinner while the KDF + RSA run |
+| 19 | Sign-up had no password confirmation, no warning that a forgotten password means a lost identity, and a silent wait while keys were generated | A "Confirm password" field (mismatch blocks submission), a plain-spoken warning under the password field ("If you forget it, this identity and its conversations cannot be recovered" there is no server-side reset), and the submit button now reads **"Generating keys…"** with its spinner while the KDF + RSA run |
 | 24 | Long peer names overflowed the chat and peer-profile app bars | `maxLines: 1, overflow: ellipsis` on both dynamic titles; a 120-character name pumps without any RenderFlex exception |
 | 26 | Conversation-list media previews showed the raw enum name (`[image]`, `[voice]`), and the `[Blocked]` description vanished whenever the thread had no messages (so a blocked thread with no messages showed nothing) | A shared `MessageLabels.forMessage` (now also backing `ReplyPreview.labelFor`) yields `[Photo]` / `[Voice message]`; the tile subtitle is always present: `[Blocked]`, the preview, or "No messages yet" |
 
@@ -500,11 +508,11 @@ Message actions and the accessibility surface:
 
 | # | Finding | Fix |
 |---|---------|-----|
-| 25 | Long-press only triggered reply: no way to copy text or delete a mistake, and the transcript had no day grouping | Long-press now opens an action sheet — **Reply**, **Copy text** (text messages, via the clipboard with a confirmation snackbar) and **Delete** (own messages only; the row is removed and the conversation preview recomputed so the list never advertises a deleted message). The reverse-anchored transcript also renders centered date chips (Today / Yesterday / d/M) at every day boundary |
+| 25 | Long-press only triggered reply: no way to copy text or delete a mistake, and the transcript had no day grouping | Long-press now opens an action sheet **Reply**, **Copy text** (text messages, via the clipboard with a confirmation snackbar) and **Delete** (own messages only; the row is removed and the conversation preview recomputed so the list never advertises a deleted message). The reverse-anchored transcript also renders centered date chips (Today / Yesterday / d/M) at every day boundary |
 | 31 | Icon-only buttons lacked tooltips/labels | The remaining gaps are closed: the chat ⋮ menu (“Conversation options”) and the composer send button (“Send”); the gallery, camera, voice, cancel and stop-and-send buttons already carried tooltips from batch 4, asserted by test |
 | 34 (partial) | Forms stretched edge-to-edge on tablets/landscape | Sign-in and sign-up are centered with a 480dp max width; the chat bubbles were already width-capped, the discover grid wraps, and full adaptive layouts remain accepted below |
 
-Also resolved or explicitly accepted from the same review: **27** (navigation duplication) was settled by batch 5 — one destructive action remains, in Settings, and Profile offers only Lock; **32** (color-only cues) was audited and found already mitigated — status glyphs are shape-based (clock/check/double-check/cross), the unread badge carries a number, blocked state is a text chip, and trust states are tappable sheets; **26 remnants** (swipe-to-delete, list search) and **33** (localization) are feature-level work, accepted as backlog rather than polish; the rest of **34** (full tablet layouts) is likewise accepted. This closes the UI/UX review: every item is either fixed or explicitly accepted with its reason.
+Also resolved or explicitly accepted from the same review: **27** (navigation duplication) was settled by batch 5 one destructive action remains, in Settings, and Profile offers only Lock; **32** (color-only cues) was audited and found already mitigated status glyphs are shape-based (clock/check/double-check/cross), the unread badge carries a number, blocked state is a text chip, and trust states are tappable sheets; **26 remnants** (swipe-to-delete, list search) and **33** (localization) are feature-level work, accepted as backlog rather than polish; the rest of **34** (full tablet layouts) is likewise accepted. This closes the UI/UX review: every item is either fixed or explicitly accepted with its reason.
 
 ## Recorded, open (P1/P2)
 

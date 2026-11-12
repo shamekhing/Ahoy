@@ -134,7 +134,7 @@ class _MessageInputBarState extends State<MessageInputBar> {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'Recording $_recordingLabel — send or cancel',
+                      'Recording $_recordingLabel send or cancel',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ),
@@ -173,7 +173,7 @@ class _MessageInputBarState extends State<MessageInputBar> {
                       textInputAction: TextInputAction.newline,
                       decoration: InputDecoration(
                         hintText: !widget.peerNearby
-                            ? 'Peer not nearby — messages queue until they return'
+                            ? 'Peer not nearby messages queue until they return'
                             : widget.canSendMedia
                                 ? 'Message…'
                                 : 'Text only (BLE mode)',

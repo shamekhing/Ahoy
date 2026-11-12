@@ -31,7 +31,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Ninth-review follow-up, batch 7: form and list correctness — items 19
+/// Ninth-review follow-up, batch 7: form and list correctness items 19
 /// (sign-up hardening), 24 (app bar title overflow) and 26 (conversation
 /// list previews) of the external UI/UX review.
 final _localCrypto = LocalDataCrypto.withKeyForTesting(Uint8List(32));

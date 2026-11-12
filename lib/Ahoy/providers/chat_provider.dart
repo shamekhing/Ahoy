@@ -284,7 +284,7 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Retries every queued message for [peerUuid] — wired to tapping a
+  /// Retries every queued message for [peerUuid] wired to tapping a
   /// failed bubble (UI review #11).
   Future<void> retryFor(String peerUuid) =>
       _retryPending(_transport.canonicalUuid(peerUuid));
