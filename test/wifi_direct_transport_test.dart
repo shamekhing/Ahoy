@@ -242,6 +242,63 @@ void main() {
     expect(transport.debugUuidToAddress['peer-1'], '10.0.0.3');
   });
 
+  test('the WiFi Direct route key binding survives a teardown (sixth review)',
+      () async {
+    final crypto = CryptoService();
+    final peerKeys = await crypto.generateKeyPair();
+    crypto.activate(peerKeys['privateKey']!, peerKeys['publicKey']!);
+    final attacker = CryptoService();
+    final attackerKeys = await attacker.generateKeyPair();
+    attacker.activate(attackerKeys['privateKey']!, attackerKeys['publicKey']!);
+
+    final transport = WiFiDirectTransport(maxPayloadBytes: 4096, crypto: crypto);
+    final announcements = <PeerAnnouncement>[];
+    final sub = transport.announcementStream.listen(announcements.add);
+    addTearDown(sub.cancel);
+
+    transport.debugHandleConnectionEstablished({
+      'isGroupOwner': true,
+      'address': '',
+    });
+    _deliverIdentity(
+      transport,
+      crypto,
+      uuid: 'peer-1',
+      shortId: 'ABC123',
+      displayName: 'Peer',
+      key: peerKeys['publicKey']!,
+      senderIP: '10.0.0.2',
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(transport.debugUuidKeys['peer-1'], peerKeys['publicKey']);
+
+    // Group teardown used to clear _uuidKeys, re-opening the hijack window
+    // for the first identity of the next session.
+    await transport.stopAdvertising();
+    transport.debugHandleConnectionEstablished({
+      'isGroupOwner': true,
+      'address': '',
+    });
+
+    _deliverIdentity(
+      transport,
+      attacker,
+      uuid: 'peer-1',
+      shortId: 'ABC123',
+      displayName: 'Peer',
+      key: attackerKeys['publicKey']!,
+      senderIP: '10.0.0.9',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.debugUuidKeys['peer-1'], peerKeys['publicKey'],
+        reason: 'the teardown must not reset the first-key binding');
+    // The stale route from the previous session may linger on platforms
+    // where stopAdvertising clears nothing (desktop VM), but the attacker's
+    // IP must never become the route.
+    expect(transport.debugUuidToAddress['peer-1'], isNot('10.0.0.9'));
+  });
+
   test('auto-connect gives up on devices that never speak Ahoy (audit M-4)',
       () async {
     final calls = <MethodCall>[];

@@ -136,7 +136,10 @@ class WiFiDirectTransport implements TransportInterface {
       _connectingAttempts.clear();
       _addressToUuid.clear();
       _uuidToAddress.clear();
-      _uuidKeys.clear();
+      // _uuidKeys deliberately survives teardown: the first-key binding is
+      // what stops a post-teardown identity with a different key from
+      // re-opening the route-hijack window (sixth review, test gap note).
+      // It clears only on dispose or sign-out.
     }
   }
 
