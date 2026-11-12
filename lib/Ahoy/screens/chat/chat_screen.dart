@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
@@ -387,6 +388,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.more_vert),
+            tooltip: 'Conversation options',
             onPressed: _showOptions,
           ),
         ],
@@ -444,27 +446,41 @@ class _ChatScreenState extends State<ChatScreen> {
                           itemCount: messages.length,
                           itemBuilder: (ctx, i) {
                             final msg = messages[messages.length - 1 - i];
-                            return MessageBubble(
-                              message: msg,
-                              isMine: msg.senderId == myUuid,
-                              onReply: () => setState(() => _replyTo = msg),
-                              onRetry: msg.status == MessageStatus.failed
-                                  ? () => chat.retryFor(conv.peerUuid)
-                                  : null,
-                              onPlayAudio: msg.type == MessageType.voice
-                                  ? () => _togglePlay(msg)
-                                  : null,
-                              onStopAudio: msg.type == MessageType.voice
-                                  ? () => _togglePlay(msg)
-                                  : null,
-                              isPlaying: _playingMessageId == msg.id,
-                              playbackProgress:
-                                  _duration.inMilliseconds > 0
-                                  ? (_position.inMilliseconds /
-                                            _duration.inMilliseconds)
-                                        .clamp(0.0, 1.0)
-                                  : null,
-                              localDataCrypto: localDataCrypto,
+                            // Day boundary: in this reverse list index i+1
+                            // is the visually-above (older) message. When
+                            // the day changes there, a date chip belongs
+                            // above this bubble (UI review #25).
+                            final older = i + 1 < messages.length
+                                ? messages[messages.length - 2 - i]
+                                : null;
+                            final dayBoundary = older == null ||
+                                !_sameDay(older.timestamp, msg.timestamp);
+                            return Column(
+                              children: [
+                                if (dayBoundary) _DayChip(day: msg.timestamp),
+                                MessageBubble(
+                                  message: msg,
+                                  isMine: msg.senderId == myUuid,
+                                  onReply: () => _showMessageActions(msg),
+                                  onRetry: msg.status == MessageStatus.failed
+                                      ? () => chat.retryFor(conv.peerUuid)
+                                      : null,
+                                  onPlayAudio: msg.type == MessageType.voice
+                                      ? () => _togglePlay(msg)
+                                      : null,
+                                  onStopAudio: msg.type == MessageType.voice
+                                      ? () => _togglePlay(msg)
+                                      : null,
+                                  isPlaying: _playingMessageId == msg.id,
+                                  playbackProgress:
+                                      _duration.inMilliseconds > 0
+                                      ? (_position.inMilliseconds /
+                                                _duration.inMilliseconds)
+                                            .clamp(0.0, 1.0)
+                                      : null,
+                                  localDataCrypto: localDataCrypto,
+                                ),
+                              ],
                             );
                           },
                         ),
@@ -495,6 +511,103 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  /// Long-press actions for a message (UI review #25): reply, copy the text,
+  /// and delete own messages. Replaces the reply-only long-press.
+  void _showMessageActions(Message msg) {
+    final myUuid = context.read<ChatProvider>().myUuid;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.reply),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                setState(() => _replyTo = msg);
+              },
+            ),
+            if (msg.type == MessageType.text)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy text'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  Clipboard.setData(ClipboardData(text: msg.content));
+                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                    const SnackBar(content: Text('Copied to clipboard')),
+                  );
+                },
+              ),
+            if (msg.senderId == myUuid)
+              ListTile(
+                leading: Icon(
+                  Icons.delete_outline,
+                  color: Theme.of(sheetContext).colorScheme.error,
+                ),
+                title: Text(
+                  'Delete',
+                  style: TextStyle(
+                    color: Theme.of(sheetContext).colorScheme.error,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  context.read<ChatProvider>().deleteMessage(
+                        _convId,
+                        msg.id,
+                      );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+/// A centered date label between day blocks in the transcript (UI review
+/// #25).
+class _DayChip extends StatelessWidget {
+  final DateTime day;
+  const _DayChip({required this.day});
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(day.year, day.month, day.day);
+    final diff = today.difference(d).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    return '${day.day}/${day.month}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          _label(),
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSecondaryContainer,
+          ),
+        ),
+      ),
     );
   }
 }

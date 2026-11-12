@@ -125,6 +125,18 @@ class MessageStore {
     });
   }
 
+  /// Removes [messageId] from [conversationId] (UI review #25: a long-press
+  /// delete for own messages). Returns whether a row was removed.
+  Future<bool> deleteMessage(String conversationId, String messageId) async {
+    return _withLock(conversationId, () async {
+      final all = loadMessages(conversationId);
+      final remaining = all.where((m) => m.id != messageId).toList();
+      if (remaining.length == all.length) return false;
+      await _saveMessages(conversationId, remaining);
+      return true;
+    });
+  }
+
   Future<void> deleteConversationMessages(String conversationId) async {
     await _prefs.remove(_key(conversationId));
   }

@@ -73,7 +73,11 @@ class _SignInScreenState extends State<SignInScreen> {
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
+          // Max width keeps the form readable on tablets and landscape
+          // (UI review #34).
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Form(
               key: _formKey,
@@ -138,6 +142,7 @@ class _SignInScreenState extends State<SignInScreen> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

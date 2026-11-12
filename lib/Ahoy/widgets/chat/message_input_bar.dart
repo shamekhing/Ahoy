@@ -197,6 +197,7 @@ class _MessageInputBarState extends State<MessageInputBar> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.send),
+                    tooltip: 'Send',
                     onPressed: (_hasText && !_sending) ? _send : null,
                     color: Theme.of(context).colorScheme.primary,
                   ),

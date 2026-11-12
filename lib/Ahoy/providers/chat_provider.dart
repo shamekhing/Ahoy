@@ -6,6 +6,7 @@ import '../models/conversation.dart';
 import '../models/message.dart';
 import '../core/enums.dart';
 import '../core/logging.dart';
+import '../core/message_labels.dart';
 import '../services/chat/chat_service.dart';
 import '../services/chat/conversation_store.dart';
 import '../services/chat/message_store.dart';
@@ -35,6 +36,11 @@ class ChatProvider extends ChangeNotifier {
   // on profile rename so outgoing payloads never carry a stale name
   // (audit L-7).
   String? _myUuid;
+
+  /// The signed-in uuid this provider was initialized with (UI review #25:
+  /// the message action sheet derives ownership from it).
+  String? get myUuid => _myUuid;
+
   String? _myShortId;
   String? _myDisplayName;
   String? _myPublicKeyPEM;
@@ -247,6 +253,34 @@ class ChatProvider extends ChangeNotifier {
     _conversations = [];
     _chatService.reset();
     _errors.clear();
+    notifyListeners();
+  }
+
+  /// Deletes a message row (UI review #25) and refreshes the thread. If the
+  /// deleted row was the newest, the conversation preview is recomputed from
+  /// what remains so the list never advertises a message that is gone.
+  Future<void> deleteMessage(String conversationId, String messageId) async {
+    await _msgStore.deleteMessage(conversationId, messageId);
+    final remaining = _msgStore.loadMessages(conversationId);
+    final all = _convStore.loadAll();
+    final idx = all.indexWhere((c) => c.id == conversationId);
+    if (idx >= 0) {
+      final conv = all[idx];
+      if (remaining.isEmpty) {
+        await _convStore.upsert(
+          conv.copyWith(lastMessagePreview: null),
+        );
+      } else {
+        final newest = remaining.last;
+        await _convStore.upsert(
+          conv.copyWith(
+            lastMessagePreview: MessageLabels.forMessage(newest),
+          ),
+        );
+      }
+    }
+    _messages.remove(conversationId);
+    _conversations = _convStore.loadAll();
     notifyListeners();
   }
 

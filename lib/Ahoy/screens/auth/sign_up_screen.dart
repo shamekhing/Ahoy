@@ -112,7 +112,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create Account')),
-      body: SingleChildScrollView(
+      // Centered with a max width so the form stays readable on tablets and
+      // landscape (UI review #34).
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
@@ -267,6 +272,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
             ],
           ),
         ),
+        ),
+      ),
       ),
     );
   }
