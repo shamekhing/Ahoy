@@ -4,6 +4,10 @@ class MessageInputBar extends StatefulWidget {
   final bool canSendMedia;
   final bool isRecording;
 
+  /// Whether the peer currently has a live transport. When false the hint
+  /// explains that messages queue until the peer returns (UI review #10).
+  final bool peerNearby;
+
   /// Returns whether the message was accepted (stored, sent or queued).
   /// The field is only cleared when this resolves to true, so a failed send
   /// never discards the user's text (UI review #2).
@@ -20,6 +24,7 @@ class MessageInputBar extends StatefulWidget {
     required this.onPickImage,
     required this.onCapturePhoto,
     required this.onToggleRecord,
+    this.peerNearby = true,
   });
 
   @override
@@ -103,9 +108,11 @@ class _MessageInputBarState extends State<MessageInputBar> {
                 maxLines: 4,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
-                  hintText: widget.canSendMedia
-                      ? 'Message…'
-                      : 'Text only (BLE mode)',
+                  hintText: !widget.peerNearby
+                      ? 'Peer not nearby — messages queue until they return'
+                      : widget.canSendMedia
+                          ? 'Message…'
+                          : 'Text only (BLE mode)',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                   ),

@@ -112,4 +112,14 @@ class AhoyConstants {
   // Set when undecryptable local data was quarantined, consumed once by the
   // startup notice (audit M-1).
   static const String prefQuarantineNotice = 'ahoy_quarantine_notice';
+
+  // Shown once after the first sign-in: explains the offline, nearby-only,
+  // foreground-only model (UI review #7).
+  static const String prefOnboardingSeen = 'ahoy_onboarding_seen';
+
+  // The permission rationale dialog shows once before the first system
+  // prompt; after that the Discover screen carries per-transport banners
+  // (UI review #6).
+  static const String prefPermissionRationaleSeen =
+      'ahoy_permission_rationale_seen';
 }

@@ -14,6 +14,8 @@ import '../../widgets/common/transport_badge.dart'; // TransportBadge + Transpor
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/message_input_bar.dart';
 import '../../widgets/chat/reply_preview.dart';
+import '../profile/peer_profile_screen.dart';
+import '../../widgets/chat/encrypted_chat_intro.dart';
 
 class ChatScreen extends StatefulWidget {
   final Conversation conversation;
@@ -247,6 +249,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final conv = _currentConv(chat);
     final messages = chat.messagesFor(conv.id);
     final canMedia = transport.canSendMedia(conv.peerUuid);
+    // Reachability comes from the routing tables (the truth sends use), not
+    // from the discovery list (UI review #10).
+    final peerNearby = transport.modeFor(conv.peerUuid) != TransportMode.none;
 
     // Use live discovery data if the peer is currently visible, so transport
     // badges update in real-time as new transports are discovered.
@@ -261,10 +266,27 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(conv.peerDisplayName),
-            TransportBadges(transports: livePeer.transports),
+            if (peerNearby)
+              TransportBadges(transports: livePeer.transports)
+            else
+              const Text(
+                'Not nearby',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
           ],
         ),
         actions: [
+          // The encryption promise is visible in the chat, and the lock leads
+          // to the trust surface: the peer's profile with its safety number
+          // (UI review #16).
+          IconButton(
+            icon: const Icon(Icons.lock_outline),
+            tooltip: 'End-to-end encrypted — open peer profile',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => PeerProfileScreen(peer: livePeer)),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.more_vert),
             onPressed: _showOptions,
@@ -295,23 +317,25 @@ class _ChatScreenState extends State<ChatScreen> {
                     ],
                   ),
                 Expanded(
-                  child: ListView.builder(
-                    controller: _scrollCtrl,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: messages.length,
-                    itemBuilder: (ctx, i) {
-                      final msg = messages[i];
-                      return MessageBubble(
-                        message: msg,
-                        isMine: msg.senderId == myUuid,
-                        onReply: () => setState(() => _replyTo = msg),
-                        onPlayAudio: msg.type == MessageType.voice
-                            ? () => media.playAudio(msg.content)
-                            : null,
-                        localDataCrypto: localDataCrypto,
-                      );
-                    },
-                  ),
+                  child: messages.isEmpty
+                      ? EncryptedChatIntro(peerName: conv.peerDisplayName)
+                      : ListView.builder(
+                          controller: _scrollCtrl,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: messages.length,
+                          itemBuilder: (ctx, i) {
+                            final msg = messages[i];
+                            return MessageBubble(
+                              message: msg,
+                              isMine: msg.senderId == myUuid,
+                              onReply: () => setState(() => _replyTo = msg),
+                              onPlayAudio: msg.type == MessageType.voice
+                                  ? () => media.playAudio(msg.content)
+                                  : null,
+                              localDataCrypto: localDataCrypto,
+                            );
+                          },
+                        ),
                 ),
                 if (_replyTo != null)
                   ReplyPreview(
@@ -321,6 +345,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 MessageInputBar(
                   canSendMedia: canMedia,
                   isRecording: media.isRecording,
+                  peerNearby: peerNearby,
                   onSendText: _sendText,
                   onPickImage: () async {
                     final path = await media.pickImage();

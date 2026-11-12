@@ -197,9 +197,10 @@ class ChatService {
       }
     }
 
-    if (mode == TransportMode.none) {
-      throw TransportError('Peer is not reachable on any transport');
-    }
+    // A text message to an unreachable peer is queued, not rejected
+    // (UI review #10): the send below fails, the bubble shows as failed, and
+    // the retry outbox delivers it automatically when the peer is
+    // discovered again. Media still requires a real connection.
 
     if (_blockedUuids.contains(peerUuid)) {
       // The UI hides the composer for blocked conversations, but the service

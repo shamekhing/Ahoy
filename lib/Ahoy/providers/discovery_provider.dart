@@ -24,6 +24,24 @@ class DiscoveryProvider extends ChangeNotifier {
   bool _lanEnabled = true;
   bool _wifiDirectEnabled = true;
 
+  /// Human-readable transport problems (missing permissions) found at
+  /// startup, surfaced on the Discover screen with an open-settings action
+  /// (UI review #6). Empty when everything is granted.
+  List<String> _permissionProblems = const [];
+  List<String> get permissionProblems =>
+      List.unmodifiable(_permissionProblems);
+
+  /// Called by the permission flow after each cold-start request.
+  void setPermissionProblems(List<String> problems) {
+    _permissionProblems = List.of(problems);
+    notifyListeners();
+  }
+
+  /// Test-only: cancels the periodic peer-cleanup timer so widget tests that
+  /// build this provider do not leave timers pending (fake async).
+  @visibleForTesting
+  void debugStopCleanupTimer() => _discovery.stopCleanupTimer();
+
   StreamSubscription? _sub;
 
   List<NearbyPeer> get peers => _peers;

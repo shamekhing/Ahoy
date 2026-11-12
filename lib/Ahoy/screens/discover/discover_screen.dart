@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
@@ -34,6 +35,20 @@ class DiscoverScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
+          // Missing permissions are never mistaken for "no peers nearby"
+          // (UI review #6): each problem gets its own banner with a fix.
+          for (final problem in discovery.permissionProblems)
+            _Banner(
+              icon: Icons.privacy_tip_outlined,
+              message: problem,
+              color: Colors.orange.shade700,
+              actionLabel: 'Open settings',
+              onAction: () async {
+                try {
+                  await openAppSettings();
+                } catch (_) {}
+              },
+            ),
           if (discovery.offGrid)
             _Banner(
               icon: Icons.cloud_off,
@@ -113,11 +128,15 @@ class _Banner extends StatelessWidget {
   final IconData icon;
   final String message;
   final Color color;
+  final String? actionLabel;
+  final Future<void> Function()? onAction;
 
   const _Banner({
     required this.icon,
     required this.message,
     required this.color,
+    this.actionLabel,
+    this.onAction,
   });
 
   @override
@@ -136,6 +155,16 @@ class _Banner extends StatelessWidget {
               style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
+          if (actionLabel != null && onAction != null)
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: onAction,
+              child: Text(actionLabel!),
+            ),
         ],
       ),
     );

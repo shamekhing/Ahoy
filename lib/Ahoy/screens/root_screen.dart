@@ -118,22 +118,89 @@ class _RootScreenState extends State<RootScreen> {
     }
   }
 
-  /// Request all runtime permissions the transports need.
-  /// Silently continues if any are denied each transport handles
-  /// its own failure gracefully.
+  /// Request all runtime permissions the transports need, with a rationale
+  /// before the first system prompt, and surface any denials on the Discover
+  /// screen so a missing permission is never mistaken for "no peers nearby"
+  /// (UI review #6).
   Future<void> _requestPermissions() async {
     if (!Platform.isAndroid) return;
-    await [
-      // Location required for BLE scan on Android < 12 and
-      // for WiFi Direct on Android < 13.
+    const needed = [
       Permission.locationWhenInUse,
-      // Android 12+ granular Bluetooth permissions.
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.bluetoothAdvertise,
-      // Android 13+ scoped WiFi permission for WiFi Direct / P2P.
+      Permission.nearbyWifiDevices,
+    ];
+
+    // Explain why before the first prompt: Android ties nearby-device
+    // discovery to location permissions, which is not self-evident for a
+    // messenger that never tracks location.
+    final prefs = context.read<PrefsStore>();
+    final statuses = {for (final p in needed) p: await p.status};
+    final needsRationale = statuses.values.any(
+      (s) => s == PermissionStatus.denied || s == PermissionStatus.restricted,
+    );
+    if (needsRationale &&
+        !prefs.getBool(AhoyConstants.prefPermissionRationaleSeen)) {
+      await prefs.setBool(AhoyConstants.prefPermissionRationaleSeen, value: true);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Finding nearby peers'),
+          content: const Text(
+            'Ahoy talks directly to nearby devices over Bluetooth and Wi-Fi — '
+            'there is no server. Android requires the location and '
+            'nearby-devices permissions for this kind of discovery, even '
+            'though Ahoy never learns or shares your location. Nothing leaves '
+            'your immediate surroundings.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+    }
+
+    final results = await [
+      Permission.locationWhenInUse,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.bluetoothAdvertise,
       Permission.nearbyWifiDevices,
     ].request();
+
+    bool granted(Permission p) =>
+        results[p] == PermissionStatus.granted ||
+        results[p] == PermissionStatus.limited;
+    final problems = <String>[];
+    if (!granted(Permission.bluetoothScan)) {
+      problems.add(
+        'Bluetooth scanning is blocked — nearby discovery over BLE cannot run.',
+      );
+    }
+    if (!granted(Permission.bluetoothConnect)) {
+      problems.add(
+        'Bluetooth connect is blocked — BLE chats cannot open.',
+      );
+    }
+    if (!granted(Permission.nearbyWifiDevices)) {
+      problems.add(
+        'Nearby devices permission is blocked — WiFi Direct cannot run.',
+      );
+    }
+    if (!granted(Permission.locationWhenInUse)) {
+      problems.add(
+        'Location permission is blocked — Android requires it for nearby '
+        'discovery on this Android version.',
+      );
+    }
+    if (!mounted) return;
+    context.read<DiscoveryProvider>().setPermissionProblems(problems);
   }
 
   Future<void> _startTransports(String myUuid) async {
@@ -182,9 +249,61 @@ class _RootScreenState extends State<RootScreen> {
         receiveOff: () => context.read<DiscoveryProvider>().receiveOff,
         blockedUuids: discovery.blockedUuids,
       );
+
+      await _maybeShowOnboarding();
     } catch (e) {
       ahoyLog('[RootScreen] startTransports error', e);
     }
+  }
+
+  /// One-time explanation of the offline model (UI review #7): the app only
+  /// works nearby and while it is in the foreground — there is no server,
+  /// no push, and no delivery to a peer who has walked away.
+  Future<void> _maybeShowOnboarding() async {
+    final prefs = context.read<PrefsStore>();
+    if (prefs.getBool(AhoyConstants.prefOnboardingSeen)) return;
+    await prefs.setBool(AhoyConstants.prefOnboardingSeen, value: true);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('How Ahoy works'),
+        content: const SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '• No servers. Messages travel directly between nearby '
+                'devices over Bluetooth, your Wi-Fi network, or WiFi Direct.',
+              ),
+              SizedBox(height: 8),
+              Text(
+                '• Nearby only. You can only reach people within radio range. '
+                'If a peer walks away, your message waits and is delivered '
+                'when they appear again.',
+              ),
+              SizedBox(height: 8),
+              Text(
+                '• Foreground only. Discovery and delivery run while the app '
+                'is open — there is no background delivery or notification.',
+              ),
+              SizedBox(height: 8),
+              Text(
+                '• End-to-end encrypted. Compare the safety number on a '
+                'peer’s profile to verify the connection out of band.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
