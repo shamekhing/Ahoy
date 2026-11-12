@@ -472,18 +472,30 @@ Trust UX and the privacy-data drop:
 | 18 | The safety number was a raw 60-digit string with no copy, and "Mark as verified" next to a key-change banner was ambiguous about which key it verifies | A copy button (clipboard + snackbar) sits next to the number, and the banner action is reworded to "I verified the current key" |
 | 20 + 23 | The gender field only colored an avatar peers never see — unneeded data for a privacy-first app — and avatars were inconsistent (generic circle in Conversations, gender-colored icons elsewhere) | The `Gender` enum and the field are gone from `LocalUser`, sign-up, the profile editor, and the stored JSON (legacy `gender` keys in existing profiles are ignored on load, no migration needed); README drift fixed. `PeerAvatar` now shows **initials on a color derived deterministically from the shortId** — stable across restarts, nothing stored — and Conversations/PeerCard/PeerProfile/MyProfile all use it |
 
+## Batch 6 fixed (same review, follow-up commit)
+
+States and copy — what the app says when something cannot proceed:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 11 | The queued "Sending" clock was unexplained (it can mean "waiting for the peer's key"), and a failed message had no recovery path | The status glyph is wrapped in a `Tooltip` ("Queued — waiting for the peer" / "Sent" / "Delivered" / "Failed — tap to retry"), and tapping a failed bubble retries the queue for that peer via the new `ChatProvider.retryFor(peerUuid)`; healthy bubbles do not steal taps |
+| 13 | A blocked thread was a dead end (unblock only reachable from the ⋮ menu) and blocking fired instantly with no confirmation | The blocked body carries its own **Unblock** button next to the explanation, and ⋮ → Block now asks "Block peer?" with the peer's name and an explicit note that messages from them are ignored until unblocked (error-colored confirm, Cancel default path asserted) |
+| 28 | Settings copy was vague: Off the Grid didn't say scanning stays on, Receive Off didn't say existing chats survive, the biometric tile vanished silently on unsupported devices, and there was no About | Reworded both subtitles to state what the toggle does **not** do; the unavailable biometric renders as a disabled tile reading "Not available on this device"; an About tile (version + non-commercial license note) closes the list |
+| 29 | A startup exception rendered a raw dump with no way forward | Startup now builds all services into locals and commits only on full success (a partial init rolls back transports/recorders); the error screen says "Ahoy could not start. Your data is intact." with **Retry**, a confirmed **Erase local data and retry** last resort, and the raw exception tucked into a Details expander |
+| 30 | Run-on copy lacked punctuation: "Off the Grid you are invisible to others", "Receive Off new chat requests are blocked", "short ID is display only compare…", "Read this number aloud with your peer it is identical…", "This is your key fingerprint peers see…" | Em-dashes restored in all five strings; a source-scan test asserts each corrected sentence |
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
 silently dropped: offline-model onboarding (done in batch 2), scroll
 hardening (done in batch 4), per-conversation error scoping (done in batch
-4), queued/failed message affordances (queueing done in batch 2;
-tap-to-retry still open), voice recorder UX (done in batch 4), fullscreen
-image viewing (done in batch 4; save-to-gallery still open), BLE
-media-button handling, blocked-thread unblock path, safety-number UX (copy
-and rewording done in batch 5; QR still open), sign-up hardening copy,
-dropping the gender field (done in batch 5), dark-mode contrast and
-text sizes (done in batch 3), avatar unification (done in batch 5),
-message and conversation-list actions, navigation consolidation, settings
-copy, startup error recovery, tooltips and semantics, color independence,
-localization, and layout constraints.
+4), queued/failed message affordances (done in batch 6), voice recorder UX
+(done in batch 4), fullscreen image viewing (done in batch 4; save-to-gallery
+still open), BLE media-button handling, blocked-thread unblock path (done in
+batch 6), safety-number UX (copy and rewording done in batch 5; QR still
+open), sign-up hardening copy, dropping the gender field (done in batch 5),
+dark-mode contrast and text sizes (done in batch 3), avatar unification
+(done in batch 5), message and conversation-list actions, navigation
+consolidation, settings copy (done in batch 6), startup error recovery (done
+in batch 6), tooltips and semantics, color independence, localization, and
+layout constraints.
