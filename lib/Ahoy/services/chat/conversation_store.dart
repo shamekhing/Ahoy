@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../../core/constants.dart';
 import '../../models/conversation.dart';
 import '../crypto/local_data_crypto.dart';
@@ -12,22 +13,41 @@ class ConversationStore {
   ConversationStore(this._prefs, [this._localDataCrypto]);
 
   // Simple async mutex: serialises all read-modify-write operations so
-  // concurrent send + receive can't lose each other's updates.
+  // concurrent send + receive can't lose each other's updates. Lock ownership
+  // is handed to the next queued waiter while _locked stays true, so a caller
+  // that arrives between one release and the waiter's wake-up queues behind
+  // it instead of racing it (audit M-3).
   bool _locked = false;
   final _queue = <Completer<void>>[];
+
+  // Test instrumentation: proves at most one critical section runs at a time.
+  int _activeEntries = 0;
+  int _maxConcurrentEntries = 0;
+
+  @visibleForTesting
+  int get debugMaxConcurrentEntries => _maxConcurrentEntries;
 
   Future<T> _withLock<T>(Future<T> Function() fn) async {
     if (_locked) {
       final gate = Completer<void>();
       _queue.add(gate);
-      await gate.future;
+      await gate.future; // the previous owner handed the lock over
+    } else {
+      _locked = true;
     }
-    _locked = true;
+    _activeEntries++;
+    if (_activeEntries > _maxConcurrentEntries) {
+      _maxConcurrentEntries = _activeEntries;
+    }
     try {
       return await fn();
     } finally {
-      _locked = false;
-      if (_queue.isNotEmpty) {
+      _activeEntries--;
+      if (_queue.isEmpty) {
+        _locked = false;
+      } else {
+        // Hand the lock to the next waiter: _locked stays true so a fresh
+        // caller queues instead of entering concurrently (audit M-3).
         _queue.removeAt(0).complete();
       }
     }
