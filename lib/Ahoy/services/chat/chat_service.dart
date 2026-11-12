@@ -129,11 +129,10 @@ class ChatService {
     final msgId = const Uuid().v4();
     final timestamp = DateTime.now();
 
-    final storedContent = await _storedContentForLocalMessage(
-      type: type,
-      content: content,
-      msgId: msgId,
-    );
+    final media = type == MessageType.text
+        ? null
+        : await _prepareOutgoingMedia(type: type, content: content, msgId: msgId);
+    final storedContent = media?.stored ?? content;
 
     final message = Message(
       id: msgId,
@@ -183,6 +182,7 @@ class ChatService {
             peerShortId: peerShortId,
             type: type,
             content: content,
+            mediaBase64: media?.wire,
             replyToId: replyToId,
             replyToPreview: replyToPreview,
             myUuid: myUuid,
@@ -211,6 +211,7 @@ class ChatService {
       timestamp,
       myPublicKeyPEM,
       trustedPeerPublicKeyPEM,
+      mediaBase64: media?.wire,
     );
 
     final sent = await _transport.send(
@@ -237,6 +238,7 @@ class ChatService {
           peerShortId: peerShortId,
           type: type,
           content: content,
+          mediaBase64: media?.wire,
           replyToId: replyToId,
           replyToPreview: replyToPreview,
           myUuid: myUuid,
@@ -288,6 +290,7 @@ class ChatService {
           DateTime.now(), // fresh signature timestamp for the retry
           item.myPublicKeyPEM,
           peerKey,
+          mediaBase64: item.mediaBase64,
         );
         final sent = await _transport.send(
           item.peerUuid,
@@ -327,11 +330,12 @@ class ChatService {
     String? replyToPreview,
     DateTime timestamp,
     String? myPublicKeyPEM,
-    String? peerPublicKeyPEM,
-  ) {
+    String? peerPublicKeyPEM, {
+    String? mediaBase64,
+  }) {
     final wireContent = type == MessageType.text
         ? content
-        : _encodeMediaContent(content);
+        : (mediaBase64 ?? _encodeMediaContent(content));
 
     final canSeal = peerPublicKeyPEM != null && _crypto.isReady;
     final canSign = myPublicKeyPEM != null && _crypto.isReady;
@@ -368,46 +372,52 @@ class ChatService {
     };
   }
 
+  /// Encodes media for the wire. Only a fallback for retries that carry no
+  /// prepared bytes: a missing source is a hard failure, never an empty
+  /// payload (audit H-1).
   String _encodeMediaContent(String filePath) {
-    try {
-      final file = File(filePath);
-      if (!file.existsSync()) return '';
-      return base64.encode(file.readAsBytesSync());
-    } catch (_) {
-      return '';
+    final file = File(filePath);
+    if (!file.existsSync()) {
+      throw const TransportError('Media source unavailable');
     }
+    return base64.encode(file.readAsBytesSync());
   }
 
-  Future<String> _storedContentForLocalMessage({
+  /// Prepares a media message for sending: reads the source bytes once,
+  /// writes the encrypted-at-rest copy, and returns both the stored path and
+  /// the base64 wire content. The wire bytes are captured before the source
+  /// file is deleted so voice messages never go out empty (audit H-1).
+  /// Throws [TransportError] when the source is missing or empty, which
+  /// surfaces as a visible send error instead of a silent empty message.
+  Future<_PreparedMedia> _prepareOutgoingMedia({
     required MessageType type,
     required String content,
     required String msgId,
   }) async {
-    if (type == MessageType.text ||
-        content.isEmpty ||
-        _localDataCrypto == null) {
-      return content;
+    final source = File(content);
+    if (content.isEmpty || !await source.exists()) {
+      throw const TransportError('Media source unavailable');
+    }
+    final bytes = await source.readAsBytes();
+    if (bytes.isEmpty) {
+      throw const TransportError('Media source unavailable');
+    }
+    final wire = base64.encode(bytes);
+    final stored = await _writeEncryptedMedia(bytes, msgId, type);
+
+    // The voice recorder's temp file is owned by us and is dead weight once
+    // the encrypted copy exists. Images from the picker are cleaned up by the
+    // media lifecycle pass (audit M-5).
+    final fileName = source.uri.pathSegments.isEmpty
+        ? ''
+        : source.uri.pathSegments.last;
+    if (fileName.startsWith('ahoy_voice_')) {
+      try {
+        await source.delete();
+      } catch (_) {}
     }
 
-    try {
-      final source = File(content);
-      if (!await source.exists()) return content;
-      final bytes = await source.readAsBytes();
-      final storedPath = await _writeEncryptedMedia(bytes, msgId, type);
-
-      final fileName = source.uri.pathSegments.isEmpty
-          ? ''
-          : source.uri.pathSegments.last;
-      if (fileName.startsWith('ahoy_voice_')) {
-        try {
-          await source.delete();
-        } catch (_) {}
-      }
-
-      return storedPath;
-    } catch (_) {
-      return content;
-    }
+    return (stored: stored, wire: wire);
   }
 
   /// Called when an inbound packet arrives. Returns null if the message should be dropped.
@@ -572,7 +582,16 @@ class ChatService {
           _nonEmpty(json['senderName'] as String?) ?? peerDisplayName;
 
       if (type == MessageType.image || type == MessageType.voice) {
-        content = await _saveMediaToFile(content, msgId, type);
+        if (content.isEmpty) {
+          ahoyLog('[ChatService] dropping media message with empty content');
+          return null;
+        }
+        final saved = await _saveMediaToFile(content, msgId, type);
+        if (saved == null) {
+          ahoyLog('[ChatService] dropping undecodable media message');
+          return null;
+        }
+        content = saved;
       }
 
       final message = Message(
@@ -613,16 +632,21 @@ class ChatService {
     }
   }
 
-  Future<String> _saveMediaToFile(
+  /// Decodes and stores inbound media. Returns null when the payload is not
+  /// decodable media so the caller drops the message instead of storing a
+  /// zero-byte file (audit H-1).
+  Future<String?> _saveMediaToFile(
     String base64Content,
     String msgId,
     MessageType type,
   ) async {
     try {
       final bytes = base64.decode(base64Content);
+      if (bytes.isEmpty) return null;
       return await _writeEncryptedMedia(bytes, msgId, type);
-    } catch (_) {
-      return '';
+    } catch (e) {
+      ahoyLog('[ChatService] media decode failed', e);
+      return null;
     }
   }
 
@@ -1022,6 +1046,8 @@ class ChatService {
 }
 
 /// A text message queued for retry after a failed transport send (audit M-3).
+/// Media retries carry the prepared wire bytes so they never depend on a
+/// source file that may already have been deleted (audit H-1).
 class _PendingSend {
   final String msgId;
   final String convId;
@@ -1030,6 +1056,7 @@ class _PendingSend {
   final String peerShortId;
   final MessageType type;
   final String content;
+  final String? mediaBase64;
   final String? replyToId;
   final String? replyToPreview;
 
@@ -1051,6 +1078,7 @@ class _PendingSend {
     required this.peerShortId,
     required this.type,
     required this.content,
+    required this.mediaBase64,
     required this.replyToId,
     required this.replyToPreview,
     required this.myUuid,
@@ -1060,3 +1088,7 @@ class _PendingSend {
     required this.peerPublicKeyPEM,
   });
 }
+
+/// Media prepared for one send: the encrypted-at-rest path stored locally and
+/// the base64 content that rides inside the sealed payload.
+typedef _PreparedMedia = ({String stored, String wire});
