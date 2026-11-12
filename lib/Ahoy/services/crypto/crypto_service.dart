@@ -117,6 +117,13 @@ class CryptoService {
   }
 
   // --- RSA key generation (runs in a separate isolate never blocks UI) ---
+  //
+  // Signatures use PKCS#1 v1.5 rather than RSA-PSS. This is a deliberate
+  // accepted trade-off (fifth review L-8): pointycastle's PSS support would
+  // hand-roll salt/length handling on both sides of every peer, and both
+  // sides must agree on the exact encoding to verify anything. v1.5 with
+  // SHA-256 over a frozen field set is interoperable across versions; PSS is
+  // queued as hardening for when both ends can be bumped together.
 
   Future<Map<String, String>> generateKeyPair() async {
     return Isolate.run(_generateKeyPairInIsolate);
@@ -126,6 +133,14 @@ class CryptoService {
   //
   // Envelope (v=2): { v:2, ek:<RSA-OAEP(aesKey) in base64>, iv:<12 bytes in base64>, ct:<AES-GCM ciphertext in base64> }
   // Whole envelope is base64(utf8(jsonEncode(envelope))).
+  //
+  // The GCM computation binds no additional associated data. Accepted
+  // trade-off (fifth review L-8): for sealed v3 chat payloads the entire
+  // inner message, including version, conversation id and identity fields,
+  // sits INSIDE the ciphertext and is separately signed, so AAD would only
+  // duplicate protections the signature already provides. Transport-level
+  // routing fields stay outside on purpose: they must be readable before
+  // decryption to route at all.
   //
   // encryptForPeer requires the peer's public key.
   // decryptFromPeer uses this device's loaded private key.

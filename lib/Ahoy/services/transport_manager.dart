@@ -226,6 +226,13 @@ class TransportManager {
   /// Identity-binding gate for announcements (audit #5): routing state and
   /// discovery updates happen only for announcements that pass verification.
   /// Keyless announcements are legitimate only from BLE scan responses.
+  ///
+  /// LAN and WiFi Direct announcements are each verified twice per cycle:
+  /// once here (routing gate) and once in DiscoveryProvider (discovery gate).
+  /// Accepted trade-off (fifth review L-8): the two layers own different
+  /// state, a single shared verdict would couple their lifetimes, and the
+  /// cost is one RSA-2048 verify per peer per 5 s broadcast, which measures
+  /// well under a millisecond.
   bool _acceptAnnouncement(PeerAnnouncement announcement) {
     final crypto = _crypto;
     if (crypto == null) return false; // fail closed without verification
