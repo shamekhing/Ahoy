@@ -33,6 +33,7 @@ class AuthProvider extends ChangeNotifier {
     required Gender gender,
     List<String> interests = const [],
     String? bio,
+    bool replaceExisting = false,
   }) async {
     _error = null;
     notifyListeners();
@@ -43,6 +44,7 @@ class AuthProvider extends ChangeNotifier {
         gender: gender,
         interests: interests,
         bio: bio,
+        replaceExisting: replaceExisting,
       );
       _state = AuthState.signedIn;
       notifyListeners();

@@ -40,12 +40,22 @@ class AuthService {
     required Gender gender,
     List<String> interests = const [],
     String? bio,
+    bool replaceExisting = false,
   }) async {
     if (username.trim().isEmpty) {
       throw const AuthFailed('Username cannot be empty');
     }
     if (password.length < 8) {
       throw const AuthFailed('Password must be at least 8 characters');
+    }
+
+    // An account on this device is a real identity with its own keypair.
+    // Overwriting it silently would orphan the old conversations and strand
+    // peers pinned to the previous key, so an explicit confirmation is
+    // required (audit M-2).
+    final existingHash = await _secureStore.read(AhoyConstants.keyPasswordHash);
+    if (existingHash != null && !replaceExisting) {
+      throw const AuthFailed('An account already exists on this device');
     }
 
     final id = const Uuid().v4();

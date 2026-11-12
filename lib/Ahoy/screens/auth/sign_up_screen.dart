@@ -51,6 +51,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
+    final ok = await _attemptSignUp(replaceExisting: false);
+    if (ok && mounted) {
+      await widget.onSignedUp();
+    }
+  }
+
+  /// Runs one sign-up attempt. When the device already holds an account the
+  /// service refuses and the user gets an explicit erase-and-replace
+  /// confirmation instead of silently losing their identity (audit M-2).
+  Future<bool> _attemptSignUp({required bool replaceExisting}) async {
     setState(() => _loading = true);
     final auth = context.read<AuthProvider>();
     final ok = await auth.signUp(
@@ -59,11 +69,43 @@ class _SignUpScreenState extends State<SignUpScreen> {
       gender: _gender,
       interests: _interests,
       bio: _bioCtrl.text.trim().isEmpty ? null : _bioCtrl.text.trim(),
+      replaceExisting: replaceExisting,
     );
     if (mounted) setState(() => _loading = false);
-    if (ok && mounted) {
-      await widget.onSignedUp();
+    if (!ok && mounted && (auth.error?.contains('already exists') ?? false)) {
+      final confirmed = await _confirmReplace();
+      if (confirmed == true) {
+        return _attemptSignUp(replaceExisting: true);
+      }
     }
+    return ok;
+  }
+
+  Future<bool?> _confirmReplace() {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Replace existing account?'),
+        content: const Text(
+          'This device already has an Ahoy account. Creating a new one erases '
+          'its keys, profile and conversations. Old conversations cannot be '
+          'recovered.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Erase & Replace',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
