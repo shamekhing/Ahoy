@@ -36,6 +36,15 @@ import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Block screenshots and recents thumbnails for the chat surface
+        // (audit L-16). Debug builds stay screenshotable for development.
+        if (!isDebugBuild) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
     companion object {
         private const val WD_CHANNEL  = "wifi_direct"
         private const val BLE_CHANNEL = "ble_advertiser"

@@ -34,4 +34,13 @@ void main() {
     expect(fineEntry, isNotNull);
     expect(fineEntry!.group(0), contains('android:maxSdkVersion="32"'));
   });
+
+  test('release builds block screenshots and recents (audit L-16)', () {
+    final activity = File(
+      'android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt',
+    ).readAsStringSync();
+    expect(activity, contains('FLAG_SECURE'));
+    expect(activity, contains('!isDebugBuild'),
+        reason: 'debug builds stay screenshotable for development');
+  });
 }

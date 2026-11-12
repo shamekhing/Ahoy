@@ -160,7 +160,9 @@ class _BiometricTileState extends State<_BiometricTile> {
       value: _enabled,
       onChanged: (v) async {
         if (v) {
-          await widget.auth.enableBiometric();
+          final ok = await widget.auth.enableBiometric();
+          if (mounted) setState(() => _enabled = ok);
+          return;
         } else {
           await widget.auth.disableBiometric();
         }

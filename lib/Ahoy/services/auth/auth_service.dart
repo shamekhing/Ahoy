@@ -155,8 +155,29 @@ class AuthService {
     return _profileService.loadProfile();
   }
 
-  Future<void> enableBiometric() async {
+  /// Overridable device-credential check. Defaults to local_auth; injectable
+  /// for tests (audit L-14).
+  Future<bool> Function()? deviceCredentialVerifier;
+
+  /// Requires a successful device-credential authentication before the
+  /// biometric flag is stored: whoever holds the unlocked phone must confirm
+  /// they intend to hand over sign-in (audit L-14). Returns whether the
+  /// flag was set.
+  Future<bool> enableBiometric() async {
+    final verify = deviceCredentialVerifier ?? _defaultCredentialVerify;
+    if (!await verify()) return false;
     await _secureStore.write(AhoyConstants.keyBiometricEnabled, 'true');
+    return true;
+  }
+
+  Future<bool> _defaultCredentialVerify() async {
+    final canAuth = await _localAuth.canCheckBiometrics ||
+        await _localAuth.isDeviceSupported();
+    if (!canAuth) return false;
+    return _localAuth.authenticate(
+      localizedReason: 'Confirm to enable biometric sign in',
+      options: const AuthenticationOptions(biometricOnly: false),
+    );
   }
 
   Future<void> disableBiometric() async {

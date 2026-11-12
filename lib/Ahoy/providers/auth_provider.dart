@@ -99,9 +99,7 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> get isBiometricAvailable => _authService.isBiometricAvailable;
   Future<bool> get isBiometricEnabled => _authService.isBiometricEnabled;
 
-  Future<void> enableBiometric() async {
-    await _authService.enableBiometric();
-  }
+  Future<bool> enableBiometric() => _authService.enableBiometric();
 
   Future<void> disableBiometric() async {
     await _authService.disableBiometric();
