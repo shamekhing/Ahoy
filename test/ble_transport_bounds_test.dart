@@ -153,6 +153,26 @@ void main() {
     expect(uuids, {'peer-A', 'peer-B'},
         reason: 'each device reassembles its own payload');
   });
+
+  test('BLE display names are UTF-8 truncated without corruption (audit L-9)', () {
+    // ASCII fits fully.
+    expect(utf8.decode(BleTransport.bleNameBytes('Hello')), 'Hello');
+    // Six bytes of two-character e-accents survive intact.
+    expect(utf8.decode(BleTransport.bleNameBytes('\u00e9\u00e9\u00e9')), '\u00e9\u00e9\u00e9');
+    // A seventh byte would split a multibyte character: dropped entirely.
+    final truncated = utf8.decode(BleTransport.bleNameBytes('\u00e9\u00e9\u00e9\u00e9'));
+    expect(truncated, '\u00e9\u00e9\u00e9');
+    expect(truncated.codeUnits, isNot(contains(0xFFFD)),
+        reason: 'no replacement characters may appear');
+  });
+
+  test('idle GATT connections are released after the threshold (audit L-9)', () {
+    final now = DateTime.now();
+    expect(BleTransport.isIdleConnection(now.subtract(const Duration(minutes: 6)), now, const Duration(minutes: 5)), isTrue);
+    expect(BleTransport.isIdleConnection(now.subtract(const Duration(minutes: 1)), now, const Duration(minutes: 5)), isFalse);
+    expect(BleTransport.isIdleConnection(null, now, const Duration(minutes: 5)), isTrue,
+        reason: 'a connection with no recorded use is releasable');
+  });
 }
 
 String _chunk({
@@ -168,4 +188,5 @@ String _chunk({
     'data': base64.encode(utf8.encode(payload)),
   });
 }
+
 

@@ -48,6 +48,11 @@ class BleTransport implements TransportInterface {
   final Map<String, BluetoothDevice> _connectedDevices = {};
   // One subscription per connected device cancelled on disconnect or dispose.
   final Map<String, StreamSubscription> _connStateSubs = {};
+  // Last send time per remoteId, feeding the idle-connection janitor
+  // (audit L-9).
+  final Map<String, DateTime> _lastDeviceUse = {};
+  static const Duration _idleConnectionThreshold = Duration(minutes: 5);
+  Timer? _idleJanitorTimer;
 
   // Used to filter out our own device from BLE scan results.
   String? _myShortId;
@@ -68,6 +73,37 @@ class BleTransport implements TransportInterface {
   @visibleForTesting
   void debugReceiveChunk(String rawChunk, String deviceAddress) {
     _receiveChunk(rawChunk, deviceAddress);
+  }
+
+  /// Encodes the display name into the 13-byte scan-response budget as
+  /// UTF-8, truncating on a character boundary so no broken multibyte
+  /// sequence reaches the receiver (audit L-9). Returns at most 6 bytes.
+  @visibleForTesting
+  static Uint8List bleNameBytes(String displayName) {
+    var bytes = utf8.encode(displayName);
+    if (bytes.length > 6) bytes = bytes.sublist(0, 6);
+    // Drop bytes until the remainder is valid UTF-8, so a truncated
+    // multibyte sequence never reaches the receiver.
+    while (bytes.isNotEmpty) {
+      try {
+        utf8.decode(bytes);
+        break;
+      } catch (_) {
+        bytes = bytes.sublist(0, bytes.length - 1);
+      }
+    }
+    return Uint8List.fromList(bytes);
+  }
+
+  /// True when a connection has not been used for [threshold] (audit L-9).
+  @visibleForTesting
+  static bool isIdleConnection(
+    DateTime? lastUsed,
+    DateTime now,
+    Duration threshold,
+  ) {
+    if (lastUsed == null) return true;
+    return now.difference(lastUsed) > threshold;
   }
 
   @override
@@ -91,7 +127,7 @@ class BleTransport implements TransportInterface {
     // Payload goes in the BLE scan response alongside the service UUID.
     // Scan response budget: 31 bytes - 2 (field overhead) - 16 (128-bit UUID) = 13 bytes.
     // Format: shortId (6 bytes) + 0x00 + displayName (up to 6 bytes) = 13 bytes max.
-    final nameBytes = displayName.codeUnits.take(6).toList();
+    final nameBytes = bleNameBytes(displayName);
     final payload = Uint8List.fromList([
       ...shortId.codeUnits.take(6),
       0x00,
@@ -153,6 +189,10 @@ class BleTransport implements TransportInterface {
     _chunkCleanupTimer ??= Timer.periodic(
       const Duration(seconds: 30),
       (_) => _evictStaleChunks(),
+    );
+    _idleJanitorTimer ??= Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _sweepIdleConnections(_idleConnectionThreshold),
     );
     _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
       // Only react to the scan stopping when the PREVIOUS start actually
@@ -272,6 +312,7 @@ class BleTransport implements TransportInterface {
     try {
       final device = await _getOrConnect(peerUuid);
       if (device == null) return false;
+      _lastDeviceUse[peerUuid] = DateTime.now();
       final services = await device.discoverServices();
       final service = services.firstWhere(
         (s) => s.uuid == Guid(AhoyConstants.bleServiceUuid),
@@ -308,6 +349,7 @@ class BleTransport implements TransportInterface {
     try {
       await device.connect(timeout: const Duration(seconds: 10));
       _connectedDevices[peerUuid] = device;
+      _lastDeviceUse[peerUuid] = DateTime.now();
       // Cancel any previous subscription before attaching a new one so we
       // never accumulate multiple listeners on the same device stream.
       await _connStateSubs[peerUuid]?.cancel();
@@ -429,6 +471,18 @@ class BleTransport implements TransportInterface {
       }
     } catch (e) {
       ahoyLog('[BLE] chunk parse error', e);
+    }
+  }
+
+  /// Disconnects GATT connections unused for [threshold] so a send does not
+  /// hold a radio connection forever (audit L-9).
+  void _sweepIdleConnections(Duration threshold) {
+    final now = DateTime.now();
+    for (final entry in _connectedDevices.keys.toList()) {
+      if (!isIdleConnection(_lastDeviceUse[entry], now, threshold)) continue;
+      _connStateSubs.remove(entry)?.cancel();
+      unawaited(_connectedDevices.remove(entry)?.disconnect());
+      _lastDeviceUse.remove(entry);
     }
   }
 
