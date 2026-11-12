@@ -105,6 +105,11 @@ class ChatService {
   final _identityRepliedTo = <String>{};
   static const int _maxIdentityPeers = 256;
 
+  /// Global identity-processing budget window state (round 8, spec §6.1):
+  /// applied before verification, replies, and the per-peer throttle maps.
+  DateTime? _identityBudgetStart;
+  int _identityBudgetUsed = 0;
+
   void _cappedIdentityPut(Map<String, DateTime> map, String uuid, DateTime at) {
     map[uuid] = at;
     while (map.length > _maxIdentityPeers) {
@@ -148,6 +153,8 @@ class ChatService {
     _identitySentAt.clear();
     _identityReceivedAt.clear();
     _identityRepliedTo.clear();
+    _identityBudgetStart = null;
+    _identityBudgetUsed = 0;
     _seenMessageIds.clear();
     _blockedUuids = const {};
   }
@@ -674,7 +681,12 @@ class ChatService {
         return null;
       }
 
-      if (blockedUuids.contains(peerUuid)) return null;
+      if (blockedUuids.contains(peerUuid) || _blockedUuids.contains(peerUuid)) {
+        // The live discovery-owned set is attached via attachBlockedPeers
+        // and also passed per call; checking both keeps inbound isolation
+        // intact even if a future caller forgets to attach (round 8).
+        return null;
+      }
 
       if (outer['msgType'] == 'identity') {
         // Receive Off also covers the identity handshake: a stranger cannot
@@ -683,6 +695,25 @@ class ChatService {
         // (audit M-4).
         if (receiveOff && !_conversationExists(myUuid, peerUuid)) {
           ahoyLog('[ChatService] receive off: dropping identity probe');
+          return null;
+        }
+        // Global budget (round 8): UUID rotation defeats per-peer
+        // throttles, so identity processing (verify + possible reply) is
+        // capped across all peers before any expensive work.
+        final budgetNow = DateTime.now();
+        final budgetStart = _identityBudgetStart;
+        if (budgetStart == null ||
+            budgetNow.difference(budgetStart) >=
+                const Duration(
+                  seconds: AhoyConstants.identityBudgetWindowSeconds,
+                )) {
+          _identityBudgetStart = budgetNow;
+          _identityBudgetUsed = 0;
+        }
+        _identityBudgetUsed++;
+        if (_identityBudgetUsed >
+            AhoyConstants.maxIdentityProcessedPerWindow) {
+          ahoyLog('[ChatService] identity budget exhausted; dropping probe');
           return null;
         }
         final now = DateTime.now();
@@ -866,16 +897,23 @@ class ChatService {
         isEncrypted: isEncrypted,
       );
 
-      await _msgStore.addMessage(message);
-      await _updateConversationOnReceive(
-        convId,
-        peerUuid,
-        senderShortId,
-        senderName,
-        trustedPeerPublicKeyPEM,
-        message,
-        transport,
-      );
+      // A replay that survived the seen-set (eviction or restart) is
+      // state-neutral: the store dedups the row, so the conversation's
+      // unread counter and last-message fields move only for messages that
+      // were actually added (round 8, spec §7). The ack is still sent; the
+      // sender treats it as idempotent.
+      final added = await _msgStore.addMessage(message);
+      if (added) {
+        await _updateConversationOnReceive(
+          convId,
+          peerUuid,
+          senderShortId,
+          senderName,
+          trustedPeerPublicKeyPEM,
+          message,
+          transport,
+        );
+      }
       await _sendAck(
         convId: convId,
         ackFor: msgId,

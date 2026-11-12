@@ -256,7 +256,7 @@ signature      base64(RSA-PKCS1v1.5-SHA256("ahoy-identity-v1:" + JSON({msgType, 
 
 An accepted identity registers the key as `unverified`. It is answered once with the local identity, and the reply is not answered in turn. It may also release queued messages.
 
-**Throttling:** identity messages from one peer are processed at most once every 2 seconds. Identity replies are rate-limited per peer, at most once every 10 seconds.
+**Throttling:** identity messages from one peer are processed at most once every 2 seconds. Identity replies are rate-limited per peer, at most once every 10 seconds. In addition, identity processing runs under a **global budget** of 20 messages per 10-second window, applied before verification, replies, and the per-peer throttle maps: rotating UUIDs cannot purchase more RSA work than the budget allows, and excess identities are dropped (§6.5).
 
 ### 6.2 Receive Off
 
@@ -296,13 +296,15 @@ A first message from an impostor who presents a different key fails the second c
 
 Within the window, replay is blocked by a bounded seen-set of `msgId` values (512 entries, FIFO). Only authenticated messages enter the set, so unauthenticated garbage cannot evict real entries.
 
-**Known limit:** a replay within the window is dropped only if the message ID is still in the seen-set. An old message replayed after the set has evicted it is still rejected by the timestamp check, but a message replayed within the window after eviction would be accepted. Enlarging the set or keying it by `(convId, msgId)` closes this. **OPEN** (see §12).
+**Known limit:** a replay within the window is dropped only if the message ID is still in the seen-set. A replay after eviction (or after a restart, which clears the set) still costs one signature verification, one decryption, and an idempotent re-ack, but it changes no persistent state: the store deduplicates by message id, and the conversation's unread counter and last-message fields move only for messages that were actually added. Persisting the set keyed by `(convId, msgId)` remains open (**OPEN** §12) to save the redundant work itself.
 
 Clock skew of more than 15 minutes between devices causes rejections. There is no time synchronization. This is a known usability cost.
 
 ---
 
 ## 8. Transport framing
+
+**Routing tables.** Verified Ahoy-UUID routing entries are capped at 512. Temporary transport identifiers (Bluetooth MACs, WiFi Direct addresses) are capped at 128 in their own table, so ambient discoverable devices cannot churn real peers out of the verified-UUID table. Alias registration merges a temporary entry into the verified table.
 
 ### 8.1 LAN (TCP, port 45679)
 
@@ -403,6 +405,10 @@ Each item needs a decision before the protocol is frozen.
 | 2026-11-12 | §8.2 CODE MISMATCH accepted: WiFi Direct key bindings are cleared on sign-out only, not on group teardown | Binding must survive group reformations within a session; asserted by `wifi_direct_binding_test.dart` |
 | 2026-11-12 | Appendix B vectors generated from the reference implementation with the fixed fixture key `test/fixtures/ahoy_test_key.pem` | Release gate item 3 |
 | 2026-11-12 | §14: replay-after-eviction, WiFi-Direct teardown binding, and sealed-envelope `from` swap now covered by tests | Release gate item 4 |
+| 2026-11-12 | §10: `ProfileService` at-rest crypto is now a required constructor parameter; the latent plaintext profile/avatar write paths are removed | External review: the `crypto == null` branches would silently activate on a wiring change |
+| 2026-11-12 | §6.1: identity processing is capped by a global budget (20 per 10 s) applied before verification and replies | External review: UUID rotation defeats per-peer throttles and buys unlimited RSA work |
+| 2026-11-12 | §7: replays that survive the seen-set are state-neutral — the store dedup gates the unread counter and last-message fields | External review: a replayed message re-incremented `unreadCount` |
+| 2026-11-12 | §8: routing tables split — verified UUIDs capped at 512, temporary transport ids capped at 128 in their own table | External review: ambient BLE devices could churn real peers out of the single shared table |
 
 Record every future change here, with the finding or decision that motivated it. A change to a signed field set must update §5, §6, or §3 as relevant, and must bump the prefix.
 
@@ -458,6 +464,9 @@ Every limit in this specification. The code must match these values. Changing on
 | BLE max concurrent reassembly buffers | 16 | §8.3 |
 | BLE reassembly eviction | 60 s | §8.3 |
 | BLE idle GATT disconnect | 5 min | §8.3 |
+| Routing table entries (verified UUIDs) | 512 | §8 |
+| Routing table entries (temporary ids) | 128 | §8 |
+| Identity processing budget (global) | 20 per 10 s | §6.1 |
 | Message ID max length | 64 | §5.3 |
 | Preview length (reply) | 80 characters | §5.3 |
 | Media file max | 5 MiB | §5.3 |

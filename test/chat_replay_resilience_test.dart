@@ -59,12 +59,14 @@ void main() {
 
     // msg1 was evicted from the seen-set by msg2/msg3 (cap 2).
     final replayed = await inbound('aaaaaaaa-0000-4000-8000-000000000001');
-    // The replay passes the seen-set gate again: the store dedups the row,
-    // but the conversation counter still moves — the documented cost that
-    // OPEN decision #3 (persisted, conversation-keyed replay set) closes.
+    // The replay passes the seen-set gate again, but it is state-neutral
+    // (round 8, spec §7): the store dedups the row and the conversation's
+    // unread counter does not move. The residual cost is one redundant
+    // verification and an idempotent ack (OPEN decision #3 remains open to
+    // save even that).
     expect(replayed, isNotNull);
     final conversation = harness.convStore.loadAll().single;
-    expect(conversation.unreadCount, 4);
+    expect(conversation.unreadCount, 3);
     expect(
       harness.msgStore.loadMessages(convId).map((m) => m.id),
       hasLength(3),

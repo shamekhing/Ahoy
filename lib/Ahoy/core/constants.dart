@@ -86,6 +86,17 @@ class AhoyConstants {
   // were wiped while the Keychain survived (iOS reinstall, audit M-1).
   static const String prefAccountMarker = 'ahoy_account_marker';
 
+  // Round-8: identities are processed under a global budget so UUID
+  // rotation cannot purchase unlimited RSA work (per-peer throttles are
+  // rotation-defeatable).
+  static const int maxIdentityProcessedPerWindow = 20;
+  static const int identityBudgetWindowSeconds = 10;
+
+  // Round-8: temporary transport identifiers (MAC addresses) live in their
+  // own bounded routing table so ambient BLE devices cannot churn real
+  // peers out of the verified-UUID table (spec §8).
+  static const int maxTempPeerEntries = 128;
+
   // Set once the local data migrator has run; later launches skip it
   // instead of decrypting everything again (audit L-10).
   static const String prefLocalDataMigrated = 'ahoy_local_data_migrated';

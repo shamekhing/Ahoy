@@ -305,3 +305,42 @@ permissions the manifest deliberately omits (audit M-7).
 ## Validation
 
 `flutter analyze` clean; every one of the 42 test files passes — the prior 139 tests plus the 26 new tests added with the fixes above (165 total) on Flutter 3.47.9 / Dart 3.13.7.
+
+---
+
+# Eighth Review (external reconciliation)
+
+Input: an external review of the round-7 tree. Each finding was verified
+against the source; severity was re-graded where the reviewer lacked code
+context. Four findings were real and are fixed; two were refuted; two were
+accepted as recorded limitations.
+
+## Fixed
+
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| 1 | Med | `ProfileService` carried a latent plaintext write path: `updateAvatar` and `saveProfile` stored unencrypted bytes when the at-rest crypto was null. Production wiring always passes it, but the branch would silently activate on a wiring change, contradicting spec §10 | The `LocalDataCrypto` constructor parameter is now required (all 12 construction sites already pass it) and every `crypto == null` branch is gone. Legacy plaintext rows remain readable only through the documented migration path |
+| 2 | Med-High | Per-peer throttles are rotation-defeatable: an attacker rotating UUIDs bypasses the 2-second identity throttle, buying unbounded RSA verify work and one signed reply per fresh UUID | Identity processing now runs under a global budget (20 per 10-second window, `AhoyConstants`), applied before verification, replies, and the per-peer throttle maps. Excess identities are dropped per §6.5. Test: `identity_budget_test.dart` (50 rotated UUIDs → exactly one window processed) |
+| 3 | Med | A replay that survived the seen-set (eviction or restart) re-incremented `unreadCount` and moved `lastMessage*`, even though the store deduplicated the row | `MessageStore.addMessage` now returns whether the row was newly added; the conversation update runs only for genuinely new messages. A replay is now state-neutral: the residual cost is one redundant verification plus an idempotent ack. The replay-resilience test asserts the counter no longer moves. Spec §7 updated; OPEN #3 now covers only the redundant work |
+| 4 | Med | BLE scan responses feed MAC-keyed announcements through `TransportManager._acceptAnnouncement` into `_peerTransports`, whose single 512-entry FIFO could be churned by ambient BLE devices — evicting real peers' routing entries (no attacker required; `putIfAbsent` does not refresh insertion order) | Routing tables split: verified-UUID entries keep the 512 cap; temporary transport ids live in their own 128-entry table. Alias registration merges temp entries into the real table; `currentModeFor` consults both. Tests: `transport_table_bounds_test.dart` |
+| 5 | Low | The attached blocked set and the per-call inbound set are two handles to the same live set; drift was possible if a future caller forgot `attachBlockedPeers` | `onInboundPacket` now checks both. No behavior change; drift closed |
+
+## Refuted with evidence
+
+- None of the reviewer's remaining claims survived: finding 5 (announcement
+  dedup flush) requires a valid signing key and, even after a flush, route
+  pinning (§3.1 rule 7) blocks same-window takeover — the residual is
+  discovery presence refresh, already recorded in round 7. Finding 7 was
+  self-refuted by the reviewer: the subnet prefix check appends a dot and
+  fails closed on a malformed group-owner address.
+
+## Accepted, recorded
+
+- Replay after seen-set eviction remains possible (spec §7 known limit,
+  OPEN #3) but is now state-neutral; the persisted, conversation-keyed
+  replay set stays a user decision.
+
+## Validation
+
+`flutter analyze` clean; all affected and new tests green (see the run log
+for the count).

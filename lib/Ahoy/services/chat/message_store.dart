@@ -83,12 +83,17 @@ class MessageStore {
       );
   }
 
-  Future<void> addMessage(Message message) async {
-    await _withLock(message.conversationId, () async {
+  /// Adds [message] unless a row with the same id already exists. Returns
+  /// whether the row was newly added: callers gate state changes (unread
+  /// counters, last-message fields) on this so a replay that survived the
+  /// in-memory seen-set is state-neutral (round 8, spec §7).
+  Future<bool> addMessage(Message message) async {
+    return _withLock(message.conversationId, () async {
       final all = loadMessages(message.conversationId);
-      if (all.any((m) => m.id == message.id)) return;
+      if (all.any((m) => m.id == message.id)) return false;
       all.add(message);
       await _saveMessages(message.conversationId, all);
+      return true;
     });
   }
 

@@ -11,12 +11,16 @@ import '../storage/prefs_store.dart';
 
 class ProfileService {
   final PrefsStore _prefsStore;
-  final LocalDataCrypto? _localDataCrypto;
+
+  /// Required since the round-8 review: a plaintext write path for profile
+  /// data and avatars must not exist, even latently (spec §10). Every
+  /// construction site already passes the at-rest crypto.
+  final LocalDataCrypto _localDataCrypto;
   final Future<Directory> Function() _documentsDirectoryProvider;
 
   ProfileService(
-    this._prefsStore, [
-    this._localDataCrypto,
+    this._prefsStore,
+    this._localDataCrypto, [
     Future<Directory> Function()? documentsDirectoryProvider,
   ]) : _documentsDirectoryProvider =
            documentsDirectoryProvider ?? getApplicationDocumentsDirectory;
@@ -25,10 +29,9 @@ class ProfileService {
     final raw = _prefsStore.getString(AhoyConstants.prefProfile);
     if (raw == null) return null;
 
-    final crypto = _localDataCrypto;
-    if (crypto != null && crypto.isEncryptedValue(raw)) {
+    if (_localDataCrypto.isEncryptedValue(raw)) {
       try {
-        final plaintext = crypto.decryptString(raw);
+        final plaintext = _localDataCrypto.decryptString(raw);
         return LocalUser.fromJson(jsonDecode(plaintext) as Map<String, dynamic>);
       } catch (_) {
         // The at-rest key was rotated or lost (reinstall, keystore
@@ -41,28 +44,23 @@ class ProfileService {
         return null;
       }
     }
+    // Legacy plaintext row from before at-rest encryption: still readable so
+    // the migrator can rewrite it encrypted (audit L-10).
     return LocalUser.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
   Future<void> saveProfile(LocalUser user) async {
-    final plaintext = jsonEncode(user.toJson());
-    final crypto = _localDataCrypto;
-    if (crypto == null) {
-      await _prefsStore.setString(AhoyConstants.prefProfile, plaintext);
-      return;
-    }
     await _prefsStore.setString(
       AhoyConstants.prefProfile,
-      crypto.encryptString(plaintext),
+      _localDataCrypto.encryptString(jsonEncode(user.toJson())),
     );
   }
 
   Future<void> migrateLegacyProfile() async {
     final raw = _prefsStore.getString(AhoyConstants.prefProfile);
-    final crypto = _localDataCrypto;
-    if (raw == null || crypto == null) return;
+    if (raw == null) return;
 
-    final wasPlaintext = !crypto.isEncryptedValue(raw);
+    final wasPlaintext = !_localDataCrypto.isEncryptedValue(raw);
     var user = loadProfile();
     if (user == null) return;
 
@@ -113,19 +111,13 @@ class ProfileService {
     if (picked == null) return current;
 
     final appDir = await _documentsDirectoryProvider();
-    final crypto = _localDataCrypto;
-    final destPath = crypto == null
-        ? '${appDir.path}/avatar_${current.id}.jpg'
-        : '${appDir.path}/avatar_${current.id}.jpg${LocalDataCrypto.encryptedFileExtension}';
+    final destPath =
+        '${appDir.path}/avatar_${current.id}.jpg${LocalDataCrypto.encryptedFileExtension}';
     final source = File(picked.path);
-    if (crypto == null) {
-      await source.copy(destPath);
-    } else {
-      await crypto.writeEncryptedFile(
-        File(destPath),
-        await source.readAsBytes(),
-      );
-    }
+    await _localDataCrypto.writeEncryptedFile(
+      File(destPath),
+      await source.readAsBytes(),
+    );
 
     final updated = current.copyWith(avatarPath: destPath);
     await saveProfile(updated);
@@ -137,10 +129,8 @@ class ProfileService {
 
   Future<String?> _migrateAvatarPath(LocalUser user) async {
     final avatarPath = user.avatarPath;
-    final crypto = _localDataCrypto;
     if (avatarPath == null ||
-        crypto == null ||
-        crypto.isEncryptedFilePath(avatarPath)) {
+        _localDataCrypto.isEncryptedFilePath(avatarPath)) {
       return avatarPath;
     }
 
@@ -150,7 +140,10 @@ class ProfileService {
     final appDir = await _documentsDirectoryProvider();
     final destPath =
         '${appDir.path}/avatar_${user.id}.jpg${LocalDataCrypto.encryptedFileExtension}';
-    await crypto.writeEncryptedFile(File(destPath), await source.readAsBytes());
+    await _localDataCrypto.writeEncryptedFile(
+      File(destPath),
+      await source.readAsBytes(),
+    );
     if (destPath != avatarPath) {
       await _deleteOwnedAvatar(avatarPath, user.id);
     }

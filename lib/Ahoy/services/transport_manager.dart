@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import '../core/constants.dart';
 import '../core/enums.dart';
 import '../core/logging.dart';
 import 'crypto/crypto_service.dart';
@@ -39,6 +40,16 @@ class TransportManager {
   @visibleForTesting
   int debugAdvertiseCount = 0;
 
+  @visibleForTesting
+  void debugRecordTransport(String uuid, TransportMode mode) =>
+      _recordTransport(uuid, mode);
+
+  @visibleForTesting
+  int get debugRealTransportEntries => _peerTransports.length;
+
+  @visibleForTesting
+  int get debugTempTransportEntries => _tempPeerTransports.length;
+
   bool get offGrid => _offGrid;
 
   /// Updates the Off the Grid flag. Turning it on stops all advertising
@@ -64,6 +75,11 @@ class TransportManager {
   /// forged announcement floods (audit M-8).
   final Map<String, Set<TransportMode>> _peerTransports = {};
   static const int _maxPeerEntries = 512;
+
+  /// Temporary transport identifiers (BT MACs, WFD addresses) live in their
+  /// own bounded table (round 8, spec §8): ambient BLE devices must not
+  /// churn real peers out of the verified-UUID table above.
+  final Map<String, Set<TransportMode>> _tempPeerTransports = {};
 
   /// tempId → canonicalId alias table.
   /// When a BT MAC or WFD address is resolved to a real Ahoy UUID, we record
@@ -368,11 +384,20 @@ class TransportManager {
   }
 
   void _recordTransport(String uuid, TransportMode mode) {
-    _peerTransports.putIfAbsent(uuid, () => {}).add(mode);
-    while (_peerTransports.length > _maxPeerEntries) {
-      final oldest = _peerTransports.keys.first;
-      _peerTransports.remove(oldest);
-      _peerAliases.removeWhere((alias, canonical) => canonical == oldest);
+    final isTempId = !CryptoService.isRealAhoyUuid(uuid);
+    final table = isTempId ? _tempPeerTransports : _peerTransports;
+    final cap = isTempId
+        ? AhoyConstants.maxTempPeerEntries
+        : _maxPeerEntries;
+    table.putIfAbsent(uuid, () => {}).add(mode);
+    while (table.length > cap) {
+      final oldest = table.keys.first;
+      table.remove(oldest);
+      if (isTempId) {
+        _peerAliases.remove(oldest);
+      } else {
+        _peerAliases.removeWhere((alias, canonical) => canonical == oldest);
+      }
     }
   }
 
@@ -404,7 +429,8 @@ class TransportManager {
     while (_peerAliases.length > _maxPeerEntries) {
       _peerAliases.remove(_peerAliases.keys.first);
     }
-    final tempTransports = _peerTransports.remove(tempId);
+    final tempTransports =
+        _tempPeerTransports.remove(tempId) ?? _peerTransports.remove(tempId);
     if (tempTransports != null) {
       _peerTransports.putIfAbsent(canonicalId, () => {}).addAll(tempTransports);
     }
@@ -413,6 +439,7 @@ class TransportManager {
   /// Remove a peer that has gone stale, freeing routing state.
   void removePeer(String peerUuid) {
     _peerTransports.remove(peerUuid);
+    _tempPeerTransports.remove(peerUuid);
     // Remove reverse alias entries that pointed to this uuid.
     _peerAliases.removeWhere((_, v) => v == peerUuid);
   }
@@ -420,7 +447,7 @@ class TransportManager {
   /// Returns the best currently available transport for a peer.
   TransportMode currentModeFor(String peerUuid) {
     final canonical = _peerAliases[peerUuid] ?? peerUuid;
-    final modes = _peerTransports[canonical];
+    final modes = _peerTransports[canonical] ?? _tempPeerTransports[canonical];
     if (modes == null || modes.isEmpty) return TransportMode.none;
     if (modes.contains(TransportMode.wifiDirect)) {
       return TransportMode.wifiDirect;
@@ -470,6 +497,7 @@ class TransportManager {
     }
     _subs.clear();
     _peerTransports.clear();
+    _tempPeerTransports.clear();
     _peerAliases.clear();
     _myUuid = null;
     _myShortId = null;
