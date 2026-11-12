@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:ahoy/Ahoy/core/constants.dart';
 import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/providers/chat_provider.dart';
 import 'package:ahoy/Ahoy/services/auth/auth_service.dart';
@@ -112,6 +113,62 @@ void main() {
     expect(playbackTemp.existsSync(), isFalse);
     expect(unrelated.existsSync(), isTrue,
         reason: 'files we do not own are never touched');
+  });
+
+  test('a confirmed replacement sweeps the old account and rotates the key',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({});
+    final secure = SecureStore();
+    final prefs = PrefsStore();
+    await prefs.init();
+    final crypto = CryptoService();
+    final keyStore = KeyStore(secure, crypto);
+    final localDataCrypto = LocalDataCrypto(secure);
+    await localDataCrypto.init();
+    final authService = AuthService(
+      secure,
+      prefs,
+      ProfileService(prefs, localDataCrypto),
+      crypto,
+      keyStore,
+      localDataCrypto,
+    );
+
+    await authService.signUp(
+      username: 'old',
+      password: 'old password',
+      gender: Gender.unspecified,
+    );
+
+    // Files owned by the old account, exactly the shapes sign-out sweeps.
+    final encrypted = File('${docsDir.path}/ahoy_media_old.jpg.ahoyenc');
+    final voiceTemp = File('${docsDir.path}/ahoy_voice_old.aac');
+    final avatar = File('${docsDir.path}/avatar_user.jpg.ahoyenc');
+    for (final f in [encrypted, voiceTemp, avatar]) {
+      await f.writeAsString('x', flush: true);
+    }
+    final keyBefore = await secure.read(AhoyConstants.keyLocalDataKey);
+    final markerBefore = prefs.getString(AhoyConstants.prefAccountMarker);
+
+    await authService.signUp(
+      username: 'new',
+      password: 'new password',
+      gender: Gender.unspecified,
+      replaceExisting: true,
+    );
+
+    expect(encrypted.existsSync(), isFalse,
+        reason: 'the old account media must not survive (ninth review N-6)');
+    expect(voiceTemp.existsSync(), isFalse);
+    expect(avatar.existsSync(), isFalse);
+    final keyAfter = await secure.read(AhoyConstants.keyLocalDataKey);
+    expect(keyAfter, isNot(keyBefore),
+        reason: 'the at-rest key is rotated for the new identity');
+    final markerAfter = prefs.getString(AhoyConstants.prefAccountMarker);
+    expect(markerAfter, isNotNull);
+    expect(markerAfter, isNot(markerBefore),
+        reason: 'the account marker now belongs to the new identity');
   });
 
   test('deleting a conversation sweeps its media files', () async {

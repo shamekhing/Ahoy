@@ -75,9 +75,13 @@ class AuthService {
         throw const AuthFailed('An account already exists on this device');
       }
       // The confirmed replacement starts from a clean slate: the old
-      // conversations reference a keypair that no longer exists, and their
-      // encrypted content is unreadable under the reset at-rest key.
+      // conversations reference a keypair that no longer exists, their
+      // encrypted content is unreadable under the fresh at-rest key, and no
+      // file of the old account may survive into the new identity (ninth
+      // review N-6 — the same sweep signOut performs).
       await _prefsStore.clearAll();
+      await _localDataCrypto.reset();
+      await _deleteLocalMedia();
     }
 
     final id = const Uuid().v4();
