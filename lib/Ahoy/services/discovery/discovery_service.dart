@@ -117,9 +117,10 @@ class DiscoveryService {
           _peers[canonicalUuid] = NearbyPeer(
             uuid: canonicalUuid,
             shortId: announcement.shortId,
-            displayName: announcement.displayName.isNotEmpty
-                ? announcement.displayName
-                : e.value.displayName,
+            displayName: _effectiveDisplayName(
+              announcement: announcement,
+              existing: e.value,
+            ),
             transport: best,
             transports: merged,
             lastSeen: DateTime.now(),
@@ -164,9 +165,10 @@ class DiscoveryService {
       shortId: announcement.shortId.isNotEmpty
           ? announcement.shortId
           : (existing?.shortId ?? ''),
-      displayName: announcement.displayName.isNotEmpty
-          ? announcement.displayName
-          : (existing?.displayName ?? 'Unknown'),
+      displayName: _effectiveDisplayName(
+        announcement: announcement,
+        existing: existing,
+      ),
       transport: bestTransport,
       transports: allTransports,
       lastSeen: DateTime.now(),
@@ -176,6 +178,28 @@ class DiscoveryService {
     );
     _emit();
     return alias;
+  }
+
+  /// A keyless announcement (BLE scan response) must not rename a record
+  /// whose key was verified: anyone nearby can broadcast a shortId over BLE
+  /// and rename a trusted peer in the list (audit L-5). Keyed announcements
+  /// may still rename their own record, because a name change travels inside
+  /// a signed announcement.
+  String _effectiveDisplayName({
+    required PeerAnnouncement announcement,
+    required NearbyPeer? existing,
+  }) {
+    final existingVerified = existing != null &&
+        existing.publicKeyPEM != null &&
+        existing.publicKeyPEM!.isNotEmpty;
+    if (existingVerified &&
+        announcement.publicKeyPEM == null &&
+        announcement.displayName.isNotEmpty) {
+      return existing.displayName;
+    }
+    return announcement.displayName.isNotEmpty
+        ? announcement.displayName
+        : (existing?.displayName ?? 'Unknown');
   }
 
   TransportMode _bestTransport(

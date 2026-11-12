@@ -298,4 +298,37 @@ void main() {
 
     expect(discovery.currentPeers.single.publicKeyPEM, 'KEY_A');
   });
+
+  test('a keyless BLE announcement cannot rename a key-verified peer (audit L-5)', () async {
+    final crypto = CryptoService();
+    final keys = await crypto.generateKeyPair();
+    crypto.activate(keys['privateKey']!, keys['publicKey']!);
+    final provider = await createProvider(crypto);
+
+    provider.onAnnouncement(PeerAnnouncement(
+      uuid: _realUuid,
+      shortId: _correctShortId,
+      displayName: 'Real Name',
+      publicKeyPEM: keys['publicKey'],
+      signature: crypto.signAnnouncement(
+        uuid: _realUuid,
+        shortId: _correctShortId,
+        displayName: 'Real Name',
+        publicKeyPEM: keys['publicKey']!,
+      ),
+      transport: TransportMode.lan,
+    ));
+    expect(provider.peers.single.displayName, 'Real Name');
+
+    // A nearby attacker advertising the same shortId over BLE without a key.
+    provider.onAnnouncement(PeerAnnouncement(
+      uuid: 'AA:BB:CC:DD:EE:FF',
+      shortId: _correctShortId,
+      displayName: 'Spoofed Name',
+      transport: TransportMode.ble,
+    ));
+
+    expect(provider.peers.single.displayName, 'Real Name',
+        reason: 'keyless announcements never rename verified peers');
+  });
 }
