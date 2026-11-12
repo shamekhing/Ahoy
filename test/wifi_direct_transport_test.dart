@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
+import 'package:ahoy/Ahoy/services/transport/transport_interface.dart';
 import 'package:ahoy/Ahoy/services/transport/wifi_direct_transport.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,5 +168,104 @@ void main() {
     // The peer can immediately be attempted again.
     await transport.debugTryConnect('AA:BB:CC:DD:EE:FF');
     expect(transport.debugConnectingAttemptCount, 0);
+  });
+
+  test('the first verified identity fixes the WiFi Direct route key (audit H-2)',
+      () async {
+    final crypto = CryptoService();
+    final peerKeys = await crypto.generateKeyPair();
+    crypto.activate(peerKeys['privateKey']!, peerKeys['publicKey']!);
+    final attacker = CryptoService();
+    final attackerKeys = await attacker.generateKeyPair();
+    attacker.activate(attackerKeys['privateKey']!, attackerKeys['publicKey']!);
+
+    final transport = WiFiDirectTransport(maxPayloadBytes: 4096, crypto: crypto);
+    addTearDown(transport.dispose);
+    final announcements = <PeerAnnouncement>[];
+    final sub = transport.announcementStream.listen(announcements.add);
+    addTearDown(sub.cancel);
+
+    // Group owner: identity routes come from the TCP sender IP.
+    transport.debugHandleConnectionEstablished({
+      'isGroupOwner': true,
+      'address': '',
+    });
+
+    _deliverIdentity(
+      transport,
+      crypto,
+      uuid: 'peer-1',
+      shortId: 'ABC123',
+      displayName: 'Peer',
+      key: peerKeys['publicKey']!,
+      senderIP: '10.0.0.2',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.debugUuidKeys['peer-1'], peerKeys['publicKey']);
+    expect(transport.debugUuidToAddress['peer-1'], '10.0.0.2');
+    expect(announcements, hasLength(1));
+
+    // A forged identity claiming the same UUID with a different key changes
+    // nothing: no announcement, no route rebind.
+    _deliverIdentity(
+      transport,
+      attacker,
+      uuid: 'peer-1',
+      shortId: 'ABC123',
+      displayName: 'Peer',
+      key: attackerKeys['publicKey']!,
+      senderIP: '10.0.0.9',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(announcements, hasLength(1));
+    expect(transport.debugUuidKeys['peer-1'], peerKeys['publicKey']);
+    expect(transport.debugUuidToAddress['peer-1'], '10.0.0.2',
+        reason: 'the forged identity must not repoint the route');
+
+    // The genuine peer rejoining from a new IP may move the route.
+    _deliverIdentity(
+      transport,
+      crypto,
+      uuid: 'peer-1',
+      shortId: 'ABC123',
+      displayName: 'Peer',
+      key: peerKeys['publicKey']!,
+      senderIP: '10.0.0.3',
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(announcements, hasLength(2));
+    expect(transport.debugUuidToAddress['peer-1'], '10.0.0.3');
+  });
+}
+
+void _deliverIdentity(
+  WiFiDirectTransport transport,
+  CryptoService signer, {
+  required String uuid,
+  required String shortId,
+  required String displayName,
+  required String key,
+  required String senderIP,
+}) {
+  final identity = <String, dynamic>{
+    'type': 'wdIdentity',
+    'uuid': uuid,
+    'shortId': shortId,
+    'displayName': displayName,
+    'publicKeyPEM': key,
+    'timestamp': DateTime.now().toIso8601String(),
+  };
+  identity['signature'] = signer.signAnnouncement(
+    uuid: uuid,
+    shortId: shortId,
+    displayName: displayName,
+    publicKeyPEM: key,
+  );
+  transport.debugHandleDataReceived({
+    'data': Uint8List.fromList(utf8.encode(jsonEncode(identity))),
+    'senderIP': senderIP,
   });
 }

@@ -45,6 +45,11 @@ class WiFiDirectTransport implements TransportInterface {
   final Map<String, String> _addressToUuid = {};
   // Ahoy UUID → WD device address, for routing sends.
   final Map<String, String> _uuidToAddress = {};
+  // Ahoy UUID → public key learned from its first verified identity. A later
+  // identity for the same UUID with a different key is refused, so a group
+  // member cannot hijack the route of a peer it merely claims to be
+  // (audit H-2).
+  final Map<String, String> _uuidKeys = {};
 
   bool _initialized = false;
   bool _isGroupOwner = false;
@@ -123,6 +128,7 @@ class WiFiDirectTransport implements TransportInterface {
       _connectingAttempts.clear();
       _addressToUuid.clear();
       _uuidToAddress.clear();
+      _uuidKeys.clear();
     }
   }
 
@@ -283,6 +289,17 @@ class WiFiDirectTransport implements TransportInterface {
             ahoyLog('[WiFiDirect] dropping identity that fails verification');
             return;
           }
+          // The first verified identity for a UUID fixes its key. A later
+          // identity for the same UUID with a different key is refused
+          // before any route state changes, so the most recent self-signed
+          // claim cannot repoint a peer's traffic (audit H-2).
+          final announcedKey = json['publicKeyPEM'] as String? ?? '';
+          final knownKey = _uuidKeys[uuid];
+          if (knownKey != null && !_sameKey(knownKey, announcedKey)) {
+            ahoyLog('[WiFiDirect] dropping identity with a conflicting key');
+            return;
+          }
+          _uuidKeys[uuid] = announcedKey;
           // Group owner: use the actual TCP senderIP to route replies back to client.
           // Client: always route to the group owner's IP.
           final routeIP = _isGroupOwner
@@ -417,6 +434,22 @@ class WiFiDirectTransport implements TransportInterface {
 
   @visibleForTesting
   void debugHandleDataReceived(dynamic raw) => _handleDataReceived(raw);
+
+  @visibleForTesting
+  void debugHandleConnectionEstablished(dynamic raw) =>
+      _handleConnectionEstablished(raw);
+
+  @visibleForTesting
+  Map<String, String> get debugUuidToAddress => Map.unmodifiable(_uuidToAddress);
+
+  @visibleForTesting
+  Map<String, String> get debugUuidKeys => Map.unmodifiable(_uuidKeys);
+
+  /// Whitespace-insensitive PEM comparison, matching the other layers.
+  static bool _sameKey(String a, String b) {
+    final ws = RegExp(r'\s+');
+    return a.replaceAll(ws, '') == b.replaceAll(ws, '');
+  }
 
   @visibleForTesting
   Future<bool> debugSendBytes(List<int> bytes, {String? recipientIP}) {
