@@ -514,6 +514,22 @@ Message actions and the accessibility surface:
 
 Also resolved or explicitly accepted from the same review: **27** (navigation duplication) was settled by batch 5 one destructive action remains, in Settings, and Profile offers only Lock; **32** (color-only cues) was audited and found already mitigated status glyphs are shape-based (clock/check/double-check/cross), the unread badge carries a number, blocked state is a text chip, and trust states are tappable sheets; **26 remnants** (swipe-to-delete, list search) and **33** (localization) are feature-level work, accepted as backlog rather than polish; the rest of **34** (full tablet layouts) is likewise accepted. This closes the UI/UX review: every item is either fixed or explicitly accepted with its reason.
 
+## Discovery dedup fix (device testing)
+
+Pull-to-refresh on Discover flooded the list with copies of the same
+device. Root cause: BLE scan responses carry no identity payload and are
+keyed by whatever MAC the peer's advertiser currently uses; Android rotates
+those MACs, so every scan restart filed the same peer under a fresh key
+until a signed announcement absorbed the temp entries — one at a time,
+and only when the canonical identity was already known. The service now
+derives duplicates by shortId (case-insensitive) and absorbs every
+same-shortId entry into a single record on every announcement: a real Ahoy
+UUID outranks MAC placeholders, among MAC records the oldest key survives
+(so BLE routing stays stable), verified keys are never overwritten by
+keyless data (audit L-5), and transport visibility is unioned. Regression
+tests cover rotating MACs, multi-temp absorption and the post-binding alias
+path.
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not

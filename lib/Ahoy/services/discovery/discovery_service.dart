@@ -85,57 +85,52 @@ class DiscoveryService {
       } else if (CryptoService.isRealAhoyUuid(announcement.uuid)) {
         // This announcement carries the real Ahoy UUID record the mapping.
         _recordShortId(announcement.shortId, announcement.uuid);
+      }
+    }
 
-        // Scan for an existing temp-ID entry with the same shortId and absorb it.
-        final tempEntry = _peers.entries
-            .where(
-              (e) =>
-                  e.value.shortId == announcement.shortId &&
-                  e.key != announcement.uuid,
-            )
-            .toList();
-        for (final e in tempEntry) {
-          alias = PeerAlias(tempId: e.key, canonicalId: announcement.uuid);
-          // Carry forward any transports that were already recorded for the temp id.
-          final merged = <TransportMode>{
-            ...e.value.transports,
-            announcement.transport,
-          };
-          _peers.remove(e.key);
-          // We'll write the merged transports below under the canonical UUID.
-          final existingBest = e.value.transport;
-          final best = _bestTransport(existingBest, announcement.transport);
-          // Never let a different key silently overwrite an existing
-          // verified key (audit #6).
-          final mergedKey = announcement.publicKeyPEM ?? e.value.publicKeyPEM;
-          final effectiveKey =
-              (e.value.publicKeyPEM != null &&
-                  announcement.publicKeyPEM != null &&
-                  !_sameKey(e.value.publicKeyPEM!, announcement.publicKeyPEM!))
-              ? e.value.publicKeyPEM
-              : mergedKey;
-          _peers[canonicalUuid] = NearbyPeer(
-            uuid: canonicalUuid,
-            shortId: announcement.shortId,
-            displayName: _effectiveDisplayName(
-              announcement: announcement,
-              existing: e.value,
-            ),
-            transport: best,
-            transports: merged,
-            lastSeen: DateTime.now(),
-            isBlocked: blockedUuids.contains(canonicalUuid),
-            statusMessage: announcement.statusMessage ?? e.value.statusMessage,
-            publicKeyPEM: effectiveKey,
+    // Entries under a different key but carrying the same shortId are the
+    // same physical device: BLE scan responses are keyed by whatever MAC the
+    // peer's advertiser currently uses, and Android rotates those MACs, so
+    // every scan restart (pull-to-refresh) used to file the same peer under
+    // a fresh key and flood the list with copies of one device. Absorb all
+    // of them into a single record before the upsert.
+    var existing = _peers[canonicalUuid];
+    if (announcement.shortId.isNotEmpty) {
+      final duplicates = _peers.entries
+          .where(
+            (e) =>
+                e.key != canonicalUuid &&
+                e.value.shortId.toUpperCase() ==
+                    announcement.shortId.toUpperCase(),
+          )
+          .toList();
+      if (duplicates.isNotEmpty) {
+        // A real Ahoy UUID outranks MAC placeholders; among MAC records the
+        // oldest entry's key survives so BLE routing stays stable across
+        // MAC rotations.
+        if (CryptoService.isRealAhoyUuid(canonicalUuid)) {
+          if (announcement.uuid != canonicalUuid) {
+            alias ??= PeerAlias(
+              tempId: announcement.uuid,
+              canonicalId: canonicalUuid,
+            );
+          }
+        } else {
+          canonicalUuid = duplicates.first.key;
+          alias = PeerAlias(
+            tempId: announcement.uuid,
+            canonicalId: canonicalUuid,
           );
-          _emit();
-          return alias;
+        }
+        existing = _peers[canonicalUuid];
+        for (final e in duplicates) {
+          final absorbed = _peers.remove(e.key)!;
+          existing = _mergeAbsorbed(existing, absorbed);
         }
       }
     }
 
     // Normal upsert under the canonical UUID.
-    final existing = _peers[canonicalUuid];
     final bestTransport = _bestTransport(
       existing?.transport,
       announcement.transport,
@@ -178,6 +173,33 @@ class DiscoveryService {
     );
     _emit();
     return alias;
+  }
+
+  /// Merges a duplicate record into the surviving entry when deduplicating
+  /// same-shortId peers (rotating BLE MACs). A keyless duplicate must not
+  /// overwrite a verified key or rename a verified record (audit L-5), and
+  /// transport visibility is unioned so nothing is lost by the dedup.
+  NearbyPeer _mergeAbsorbed(NearbyPeer? keep, NearbyPeer absorbed) {
+    if (keep == null) return absorbed;
+    final keepVerified =
+        keep.publicKeyPEM != null && keep.publicKeyPEM!.isNotEmpty;
+    return NearbyPeer(
+      uuid: keep.uuid,
+      shortId: keep.shortId.isNotEmpty ? keep.shortId : absorbed.shortId,
+      displayName: keepVerified
+          ? keep.displayName
+          : (keep.displayName.isNotEmpty
+              ? keep.displayName
+              : absorbed.displayName),
+      transport: _bestTransport(keep.transport, absorbed.transport),
+      transports: {...keep.transports, ...absorbed.transports},
+      lastSeen: keep.lastSeen.isAfter(absorbed.lastSeen)
+          ? keep.lastSeen
+          : absorbed.lastSeen,
+      isBlocked: keep.isBlocked || absorbed.isBlocked,
+      statusMessage: keep.statusMessage ?? absorbed.statusMessage,
+      publicKeyPEM: keepVerified ? keep.publicKeyPEM : absorbed.publicKeyPEM,
+    );
   }
 
   /// A keyless announcement (BLE scan response) must not rename a record
