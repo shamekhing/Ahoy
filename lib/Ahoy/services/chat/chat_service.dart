@@ -365,8 +365,13 @@ class ChatService {
     for (final item in queue) {
       item.attempts += 1;
       try {
+        // Resolve the alias so a message queued under a temporary transport
+        // id retries against the canonical key once the identity is known
+        // (ninth review N-1).
+        final canonicalPeer = _transport.canonicalUuid(item.peerUuid);
         final peerKey =
             _findConversation(item.convId)?.peerPublicKeyPEM ??
+            _trust.get(canonicalPeer)?.key ??
             _trust.get(item.peerUuid)?.key ??
             item.peerPublicKeyPEM;
         final payload = _buildPayload(
@@ -385,7 +390,7 @@ class ChatService {
           mediaBase64: item.mediaBase64,
         );
         final sent = await _transport.send(
-          item.peerUuid,
+          canonicalPeer,
           item.myUuid,
           item.myShortId,
           item.myDisplayName,
@@ -687,6 +692,12 @@ class ChatService {
         // intact even if a future caller forgets to attach (round 8).
         return null;
       }
+
+      // A BLE first contact starts keyed by the transport id (the MAC). Once
+      // any signed payload reveals the peer's canonical UUID, the
+      // conversation, its messages and the retry outbox move to that key so
+      // replies, acks and retries all agree (ninth review N-1).
+      await _migrateTempIdentityPeering(peerUuid, myUuid);
 
       if (outer['msgType'] == 'identity') {
         // Receive Off also covers the identity handshake: a stranger cannot
@@ -1071,6 +1082,48 @@ class ChatService {
     return _convStore.loadAll().any((c) => c.id == convId);
   }
 
+  /// Moves per-peer state keyed by a temporary transport id (a BLE MAC) to
+  /// the canonical UUID once that identity is proven by a signed payload.
+  /// No-op when the peer was never known under a temporary id. The retry
+  /// outbox is rekeyed first so the identity reply that follows unblocks the
+  /// queued messages; the conversation and its messages follow so the wire
+  /// convId — which both sides derive from the real UUIDs — matches the
+  /// stored thread (ninth review N-1).
+  Future<void> _migrateTempIdentityPeering(
+    String peerUuid,
+    String myUuid,
+  ) async {
+    final tempId = _transport.tempIdFor(peerUuid);
+    if (tempId == null || tempId == peerUuid) return;
+    final newConvId = MessageStore.conversationId(myUuid, peerUuid);
+    final oldConvId = MessageStore.conversationId(myUuid, tempId);
+
+    final queue = _outbox.remove(tempId);
+    if (queue != null && queue.isNotEmpty) {
+      final merged = [...?_outbox[peerUuid]];
+      for (final item in queue) {
+        if (!merged.any((p) => p.msgId == item.msgId)) {
+          merged.add(item.rekeyed(peerUuid: peerUuid, convId: newConvId));
+        }
+      }
+      _outbox[peerUuid] = merged;
+      await persistOutbox();
+    }
+
+    if (oldConvId == newConvId) return;
+    final oldConversation = _findConversation(oldConvId);
+    final newConversation = _findConversation(newConvId);
+    if (oldConversation == null && newConversation == null) return;
+    await _msgStore.migrateConversation(oldConvId, newConvId);
+    await _convStore.migrateConversation(
+      oldConvId,
+      newConvId,
+      peerUuid: peerUuid,
+      peerPublicKeyPEM: _trust.get(peerUuid)?.key,
+    );
+    ahoyLog('[ChatService] rebound $tempId to $peerUuid');
+  }
+
   String? _resolvePeerPublicKey({
     required String? pinnedKey,
     required String? candidateKey,
@@ -1423,6 +1476,32 @@ class _PendingSend {
     required this.myPublicKeyPEM,
     required this.peerPublicKeyPEM,
   });
+
+  /// The same pending send re-keyed to the peer's canonical UUID after the
+  /// temporary transport id it was first queued under was bound to that UUID
+  /// (ninth review N-1).
+  _PendingSend rekeyed({
+    required String peerUuid,
+    required String convId,
+  }) {
+    return _PendingSend(
+      msgId: msgId,
+      convId: convId,
+      peerUuid: peerUuid,
+      peerDisplayName: peerDisplayName,
+      peerShortId: peerShortId,
+      type: type,
+      content: content,
+      mediaBase64: mediaBase64,
+      replyToId: replyToId,
+      replyToPreview: replyToPreview,
+      myUuid: myUuid,
+      myShortId: myShortId,
+      myDisplayName: myDisplayName,
+      myPublicKeyPEM: myPublicKeyPEM,
+      peerPublicKeyPEM: peerPublicKeyPEM,
+    )..attempts = attempts;
+  }
 }
 
 /// Media prepared for one send: the encrypted-at-rest path stored locally and

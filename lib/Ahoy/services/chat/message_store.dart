@@ -125,6 +125,41 @@ class MessageStore {
     await _prefs.remove(_key(conversationId));
   }
 
+  /// Moves every message stored under [fromId] to [toId], deduplicating by
+  /// message id, then removes the old key. Used when a peer first known under
+  /// a temporary transport id (a BLE MAC) proves its canonical UUID and the
+  /// conversation must follow (ninth review N-1). Both locks are taken in a
+  /// fixed sorted order so concurrent migrations cannot deadlock.
+  Future<void> migrateConversation(String fromId, String toId) async {
+    if (fromId == toId) return;
+    final first = fromId.compareTo(toId) <= 0 ? fromId : toId;
+    final second = first == fromId ? toId : fromId;
+    await _withLock(first, () {
+      return _withLock(second, () async {
+        final incoming =
+            _loadJsonList(fromId).map(Message.fromJson).toList();
+        if (incoming.isEmpty) {
+          await _prefs.remove(_key(fromId));
+          return;
+        }
+        final kept = <Message>[];
+        final seen = <String>{};
+        for (final message in incoming) {
+          if (seen.add(message.id)) kept.add(message);
+        }
+        final existing =
+            _loadJsonList(toId).map(Message.fromJson).toList();
+        final merged = [...existing];
+        final existingIds = {for (final message in merged) message.id};
+        for (final message in kept) {
+          if (!existingIds.contains(message.id)) merged.add(message);
+        }
+        await _saveMessages(toId, merged);
+        await _prefs.remove(_key(fromId));
+      });
+    });
+  }
+
   static String conversationId(String myUuid, String peerUuid) {
     return CryptoService.conversationId(myUuid, peerUuid);
   }

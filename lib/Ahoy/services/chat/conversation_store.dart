@@ -165,6 +165,63 @@ class ConversationStore {
     });
   }
 
+  /// Re-keys a conversation first stored under a temporary peer id (a BLE
+  /// MAC) to the canonical UUID key, merging into an existing record when
+  /// one is already present (ninth review N-1). Returns the resulting
+  /// record, or null when neither key exists. The id and peerUuid cannot go
+  /// through copyWith, so a new record is built from the old one's fields.
+  Future<Conversation?> migrateConversation(
+    String fromId,
+    String toId, {
+    required String peerUuid,
+    String? peerPublicKeyPEM,
+  }) {
+    return _withLock(() async {
+      final all = _loadAllJson().map(Conversation.fromJson).toList();
+      final fromIdx = all.indexWhere((c) => c.id == fromId);
+      if (fromIdx < 0) return null;
+      final from = all.removeAt(fromIdx);
+      final toIdx = all.indexWhere((c) => c.id == toId);
+      late Conversation migrated;
+      if (toIdx >= 0) {
+        final to = all[toIdx];
+        migrated = Conversation(
+          id: to.id,
+          peerUuid: to.peerUuid,
+          peerDisplayName: to.peerDisplayName,
+          peerShortId: to.peerShortId,
+          peerPublicKeyPEM: peerPublicKeyPEM ?? to.peerPublicKeyPEM,
+          lastTransport: to.lastTransport,
+          isBlocked: to.isBlocked,
+          isDeleted: to.isDeleted,
+          unreadCount: to.unreadCount + from.unreadCount,
+          createdAt: _earlierOf(to.createdAt, from.createdAt),
+          lastMessageAt: _laterOf(to.lastMessageAt, from.lastMessageAt),
+          lastMessagePreview: to.lastMessagePreview ?? from.lastMessagePreview,
+        );
+        all[toIdx] = migrated;
+      } else {
+        migrated = Conversation(
+          id: toId,
+          peerUuid: peerUuid,
+          peerDisplayName: from.peerDisplayName,
+          peerShortId: from.peerShortId,
+          peerPublicKeyPEM: peerPublicKeyPEM ?? from.peerPublicKeyPEM,
+          lastTransport: from.lastTransport,
+          isBlocked: from.isBlocked,
+          isDeleted: from.isDeleted,
+          unreadCount: from.unreadCount,
+          createdAt: from.createdAt,
+          lastMessageAt: from.lastMessageAt,
+          lastMessagePreview: from.lastMessagePreview,
+        );
+        all.insert(fromIdx.clamp(0, all.length), migrated);
+      }
+      await _saveAll(all);
+      return migrated;
+    });
+  }
+
   Future<void> markRead(String conversationId) {
     return _withLock(() async {
       final all = _loadAllJson().map(Conversation.fromJson).toList();
@@ -194,5 +251,14 @@ class ConversationStore {
     }
 
     return _prefs.getJsonList(AhoyConstants.prefConversations);
+  }
+
+  static DateTime _earlierOf(DateTime a, DateTime b) =>
+      a.isBefore(b) ? a : b;
+
+  static DateTime? _laterOf(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
   }
 }

@@ -8,12 +8,20 @@ class InboundPacket {
   final String payload; // JSON string
   final TransportMode transport;
 
+  /// The transport-level identifier the packet physically arrived from, such
+  /// as a Bluetooth MAC on BLE. Null when the transport has no separate link
+  /// id. Lets the manager bind that temporary id to the canonical UUID the
+  /// signed payload carries, so sends and retries work under either key
+  /// (ninth review N-1).
+  final String? transportPeerId;
+
   const InboundPacket({
     required this.peerUuid,
     required this.peerShortId,
     required this.peerDisplayName,
     required this.payload,
     required this.transport,
+    this.transportPeerId,
   });
 }
 

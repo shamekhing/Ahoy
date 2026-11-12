@@ -42,8 +42,18 @@ class BleTransport implements TransportInterface {
   final Map<String, DateTime> _chunkTimestamps = {};
   Timer? _chunkCleanupTimer;
 
-  // Devices seen in scan results keyed by remoteId (BT MAC).
+  // Devices seen in scan results keyed by remoteId (BT MAC). Bounded so an
+  // afternoon in a dense radio environment cannot grow it without bound
+  // (ninth review N-7).
   final Map<String, BluetoothDevice> _scannedDevices = {};
+  static const int _maxScannedDevices = 256;
+
+  // Real Ahoy UUID → device address, learned from the `from` field of
+  // assembled payloads. Sends may arrive keyed by either id: the raw device
+  // address for a pure BLE first contact, or the canonical UUID once the
+  // signed payload revealed the identity (ninth review N-1).
+  final Map<String, String> _uuidToDevice = {};
+  static const int _maxUuidDeviceEntries = 256;
   // Active GATT connections for sending keyed by remoteId.
   final Map<String, BluetoothDevice> _connectedDevices = {};
   // One subscription per connected device cancelled on disconnect or dispose.
@@ -269,7 +279,12 @@ class BleTransport implements TransportInterface {
   void _onScanResult(List<ScanResult> results) {
     for (final result in results) {
       // Cache the device so send() can connect to it later.
-      _scannedDevices[result.device.remoteId.str] = result.device;
+      final id = result.device.remoteId.str;
+      while (!_scannedDevices.containsKey(id) &&
+          _scannedDevices.length >= _maxScannedDevices) {
+        _scannedDevices.remove(_scannedDevices.keys.first);
+      }
+      _scannedDevices[id] = result.device;
       _parseAnnouncement(result);
     }
   }
@@ -312,7 +327,7 @@ class BleTransport implements TransportInterface {
     try {
       final device = await _getOrConnect(peerUuid);
       if (device == null) return false;
-      _lastDeviceUse[peerUuid] = DateTime.now();
+      _lastDeviceUse[device.remoteId.str] = DateTime.now();
       final services = await device.discoverServices();
       final service = services.firstWhere(
         (s) => s.uuid == Guid(AhoyConstants.bleServiceUuid),
@@ -325,20 +340,27 @@ class BleTransport implements TransportInterface {
       return await _sendChunked(char, payload);
     } catch (e) {
       ahoyLog('[BLE] send failed', e);
-      _connectedDevices.remove(peerUuid);
+      _connectedDevices.remove(_resolveDeviceAddress(peerUuid));
       return false;
     }
   }
 
+  /// Resolves a peer key to the physical device address. Peers are cached by
+  /// their Bluetooth MAC, but callers may pass the canonical Ahoy UUID once
+  /// the signed payload revealed it (ninth review N-1).
+  String _resolveDeviceAddress(String peerUuid) =>
+      _uuidToDevice[peerUuid] ?? peerUuid;
+
   Future<BluetoothDevice?> _getOrConnect(String peerUuid) async {
+    final deviceAddress = _resolveDeviceAddress(peerUuid);
     // Return cached connection if still connected.
-    final existing = _connectedDevices[peerUuid];
+    final existing = _connectedDevices[deviceAddress];
     if (existing != null && existing.isConnected) return existing;
 
     // Find device from scan cache or connected system devices.
-    BluetoothDevice? device = _scannedDevices[peerUuid];
+    BluetoothDevice? device = _scannedDevices[deviceAddress];
     device ??= FlutterBluePlus.connectedDevices
-        .where((d) => d.remoteId.str == peerUuid)
+        .where((d) => d.remoteId.str == deviceAddress)
         .firstOrNull;
 
     if (device == null) {
@@ -348,15 +370,15 @@ class BleTransport implements TransportInterface {
 
     try {
       await device.connect(timeout: const Duration(seconds: 10));
-      _connectedDevices[peerUuid] = device;
-      _lastDeviceUse[peerUuid] = DateTime.now();
+      _connectedDevices[deviceAddress] = device;
+      _lastDeviceUse[deviceAddress] = DateTime.now();
       // Cancel any previous subscription before attaching a new one so we
       // never accumulate multiple listeners on the same device stream.
-      await _connStateSubs[peerUuid]?.cancel();
-      _connStateSubs[peerUuid] = device.connectionState.listen((state) {
+      await _connStateSubs[deviceAddress]?.cancel();
+      _connStateSubs[deviceAddress] = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
-          _connectedDevices.remove(peerUuid);
-          _connStateSubs.remove(peerUuid)?.cancel();
+          _connectedDevices.remove(deviceAddress);
+          _connStateSubs.remove(deviceAddress)?.cancel();
         }
       });
       return device;
@@ -457,6 +479,16 @@ class BleTransport implements TransportInterface {
           peerUuid = pJson['from'] as String? ?? deviceAddress;
           peerShortId = pJson['fromShortId'] as String? ?? '';
           peerName = pJson['fromName'] as String? ?? 'Unknown';
+          // Remember which device announced this real UUID so later sends
+          // keyed by the canonical UUID can still find the GATT connection
+          // (ninth review N-1).
+          if (peerUuid != deviceAddress && peerUuid.isNotEmpty) {
+            while (!_uuidToDevice.containsKey(peerUuid) &&
+                _uuidToDevice.length >= _maxUuidDeviceEntries) {
+              _uuidToDevice.remove(_uuidToDevice.keys.first);
+            }
+            _uuidToDevice[peerUuid] = deviceAddress;
+          }
         } catch (_) {}
 
         _packetController.add(
@@ -498,6 +530,18 @@ class BleTransport implements TransportInterface {
   String _assemblyKey(String deviceAddress, String msgId) =>
       '$deviceAddress|$msgId';
 
+  @visibleForTesting
+  Map<String, String> get debugUuidToDevice => Map.unmodifiable(_uuidToDevice);
+
+  /// The device address [peerUuid] resolves to (the identity itself when no
+  /// canonical binding has been learned yet).
+  @visibleForTesting
+  String debugResolvedDeviceAddress(String peerUuid) =>
+      _resolveDeviceAddress(peerUuid);
+
+  @visibleForTesting
+  int get debugScannedDeviceCount => _scannedDevices.length;
+
   void _evictOldestAssembly() {
     if (_chunkTimestamps.isEmpty) return;
     var oldestId = _chunkTimestamps.keys.first;
@@ -524,6 +568,7 @@ class BleTransport implements TransportInterface {
     }
     _connectedDevices.clear();
     _scannedDevices.clear();
+    _uuidToDevice.clear();
     _chunkBuffer.clear();
     _chunkTotal.clear();
     _chunkByteCounts.clear();

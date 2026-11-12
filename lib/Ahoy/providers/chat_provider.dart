@@ -246,8 +246,19 @@ class ChatProvider extends ChangeNotifier {
   }
 
   void maybeRetryFor(String peerUuid) {
-    if (!_chatService.hasPendingFor(peerUuid)) return;
-    unawaited(_retryPending(peerUuid));
+    // Discovery announcements may still carry the temporary transport id
+    // (a BLE MAC) while the conversation and outbox were rebound to the
+    // canonical UUID, so resolve before looking. Both keys are checked so a
+    // trigger arriving before the rekey still finds the queue (ninth review
+    // N-1).
+    final canonical = _transport.canonicalUuid(peerUuid);
+    if (_chatService.hasPendingFor(canonical)) {
+      unawaited(_retryPending(canonical));
+      return;
+    }
+    if (canonical != peerUuid && _chatService.hasPendingFor(peerUuid)) {
+      unawaited(_retryPending(peerUuid));
+    }
   }
 
   Future<void> _retryPending(String peerUuid) async {

@@ -402,6 +402,17 @@ class TransportManager {
   }
 
   void _onPacket(InboundPacket packet) {
+    // Bind the transport-level id (a BLE MAC) to the canonical UUID the
+    // signed payload carries. From here on, routing, sends and discovery
+    // agree on one key for this peer (ninth review N-1).
+    final boundCanonical = _peerAliases[packet.peerUuid] ?? packet.peerUuid;
+    final tempId = packet.transportPeerId;
+    if (tempId != null &&
+        tempId.isNotEmpty &&
+        tempId != boundCanonical &&
+        CryptoService.isRealAhoyUuid(boundCanonical)) {
+      registerAlias(tempId: tempId, canonicalId: boundCanonical);
+    }
     // Resolve any alias so the packet carries the canonical peer UUID.
     final canonical = _peerAliases[packet.peerUuid] ?? packet.peerUuid;
     _recordTransport(canonical, packet.transport);
@@ -415,6 +426,7 @@ class TransportManager {
           peerDisplayName: packet.peerDisplayName,
           payload: packet.payload,
           transport: packet.transport,
+          transportPeerId: packet.transportPeerId,
         ),
       );
     }
@@ -455,6 +467,21 @@ class TransportManager {
     if (modes.contains(TransportMode.lan)) return TransportMode.lan;
     if (modes.contains(TransportMode.ble)) return TransportMode.ble;
     return TransportMode.none;
+  }
+
+  /// The canonical UUID for [uuid], following any learned temp-id alias
+  /// (ninth review N-1). Callers key conversations, trust and the retry
+  /// outbox under the canonical id once it is known.
+  String canonicalUuid(String uuid) => _peerAliases[uuid] ?? uuid;
+
+  /// The temporary transport id (a Bluetooth MAC) bound to [canonicalUuid],
+  /// or null when the peer was never seen under a temporary id. Reverse
+  /// lookup over the bounded alias table (ninth review N-1).
+  String? tempIdFor(String canonicalUuid) {
+    for (final entry in _peerAliases.entries) {
+      if (entry.value == canonicalUuid) return entry.key;
+    }
+    return null;
   }
 
   /// Send payload to peer, selecting the best available transport.
