@@ -318,6 +318,7 @@ void main() {
       ),
       transport: TransportMode.lan,
     ));
+    await pumpEventQueue();
     expect(provider.peers.single.displayName, 'Real Name');
 
     // A nearby attacker advertising the same shortId over BLE without a key.
@@ -327,6 +328,7 @@ void main() {
       displayName: 'Spoofed Name',
       transport: TransportMode.ble,
     ));
+    await pumpEventQueue();
 
     expect(provider.peers.single.displayName, 'Real Name',
         reason: 'keyless announcements never rename verified peers');
