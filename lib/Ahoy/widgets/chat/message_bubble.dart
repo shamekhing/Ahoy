@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../../core/enums.dart';
 import '../../services/crypto/local_data_crypto.dart';
+import 'fullscreen_image_view.dart';
 import 'reply_preview.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -12,6 +13,12 @@ class MessageBubble extends StatelessWidget {
   final bool isMine;
   final VoidCallback? onReply;
   final VoidCallback? onPlayAudio;
+
+  /// While this bubble's voice message is playing: tap stops, and the
+  /// progress bar tracks playback (UI review #14).
+  final VoidCallback? onStopAudio;
+  final bool isPlaying;
+  final double? playbackProgress;
   final LocalDataCrypto? localDataCrypto;
 
   const MessageBubble({
@@ -20,6 +27,9 @@ class MessageBubble extends StatelessWidget {
     required this.isMine,
     this.onReply,
     this.onPlayAudio,
+    this.onStopAudio,
+    this.isPlaying = false,
+    this.playbackProgress,
     this.localDataCrypto,
   });
 
@@ -111,29 +121,73 @@ class MessageBubble extends StatelessWidget {
         file: file,
         crypto: crypto,
         textColor: textColor,
+        onOpen: () => _openFullscreen(context),
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: file.existsSync()
-          ? Image.file(file, width: 200, height: 200, fit: BoxFit.cover)
-          : Text(
-              '[Image missing]',
-              style: TextStyle(color: textColor.withValues(alpha: 0.6)),
-            ),
+    return GestureDetector(
+      onTap: () => _openFullscreen(context),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: file.existsSync()
+            ? Image.file(file, width: 200, height: 200, fit: BoxFit.cover)
+            : Text(
+                '[Image missing]',
+                style: TextStyle(color: textColor.withValues(alpha: 0.6)),
+              ),
+      ),
+    );
+  }
+
+  /// Fullscreen, zoomable view of the photo (UI review #15).
+  void _openFullscreen(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: FullscreenImageView(
+          file: File(message.content),
+          crypto: localDataCrypto,
+        ),
+      ),
     );
   }
 
   Widget _buildVoice(Color textColor) {
     return InkWell(
-      onTap: onPlayAudio,
-      child: Row(
+      onTap: isPlaying ? onStopAudio : onPlayAudio,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.play_circle_outline, color: textColor),
-          const SizedBox(width: 6),
-          Text('Voice message', style: TextStyle(color: textColor)),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isPlaying
+                    ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline,
+                color: textColor,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                isPlaying ? 'Playing — tap to stop' : 'Voice message',
+                style: TextStyle(color: textColor),
+              ),
+            ],
+          ),
+          if (isPlaying) ...[
+            const SizedBox(height: 6),
+            SizedBox(
+              width: 160,
+              child: LinearProgressIndicator(
+                value: playbackProgress,
+                minHeight: 3,
+                color: textColor,
+                backgroundColor: textColor.withValues(alpha: 0.25),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -183,11 +237,13 @@ class _EncryptedImage extends StatefulWidget {
   final File file;
   final LocalDataCrypto crypto;
   final Color textColor;
+  final VoidCallback onOpen;
 
   const _EncryptedImage({
     required this.file,
     required this.crypto,
     required this.textColor,
+    required this.onOpen,
   });
 
   @override
@@ -233,9 +289,12 @@ class _EncryptedImageState extends State<_EncryptedImage> {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Image.memory(bytes, width: 200, height: 200, fit: BoxFit.cover),
+    return GestureDetector(
+      onTap: widget.onOpen,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.memory(bytes, width: 200, height: 200, fit: BoxFit.cover),
+      ),
     );
   }
 }

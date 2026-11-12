@@ -192,6 +192,7 @@ void main() {
               isRecording: false,
               peerNearby: peerNearby,
               onSendText: (_) async => true,
+              onCancelRecording: () {},
               onPickImage: () {},
               onCapturePhoto: () {},
               onToggleRecord: () {},

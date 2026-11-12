@@ -66,6 +66,35 @@ class MediaService {
     return _recorder.stop();
   }
 
+  /// Stops an in-progress recording and discards the temp file: a cancelled
+  /// voice message must leave nothing behind (UI review #14).
+  Future<void> cancelRecording() async {
+    if (!_isRecording) return;
+    _isRecording = false;
+    String? path;
+    try {
+      path = await _recorder.stop();
+    } catch (_) {
+      path = null;
+    }
+    if (path != null) {
+      try {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// Playback position of the current audio, for the voice-bubble progress
+  /// bar (UI review #14).
+  Stream<Duration> get onPositionChanged => _player.onPositionChanged;
+
+  /// Total duration of the current audio, once known.
+  Stream<Duration?> get onDurationChanged => _player.onDurationChanged;
+
+  /// Fires when the current audio finishes playing.
+  Stream<void> get onPlaybackComplete => _player.onPlayerComplete;
+
   bool get isRecording => _isRecording;
 
   Future<void> playAudio(String path) async {

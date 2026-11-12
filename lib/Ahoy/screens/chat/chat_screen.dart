@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -28,12 +30,21 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _scrollCtrl = ScrollController();
   Message? _replyTo;
 
   // Only the ID is stored; the live Conversation is always looked up from the
   // provider so we never hold a stale snapshot.
   late String _convId;
+
+  // Voice playback state (UI review #14): which bubble is playing and its
+  // progress, driven by the MediaService streams.
+  String? _playingMessageId;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration?>? _durationSub;
+  StreamSubscription<void>? _completeSub;
+  MediaService? _mediaRef;
 
   Conversation _currentConv(ChatProvider chat) => chat.conversations.firstWhere(
     (c) => c.id == _convId,
@@ -50,23 +61,66 @@ class _ChatScreenState extends State<ChatScreen> {
     _convId = widget.conversation.id;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ChatProvider>().markRead(_convId);
-      _scrollToBottom();
     });
   }
 
   @override
   void dispose() {
-    _scrollCtrl.dispose();
+    // Leaving the screen mid-recording discards the recording (UI review
+    // #14) and stops playback so the temp file and player are released.
+    final media = _mediaRef;
+    if (media != null) {
+      if (media.isRecording) unawaited(media.cancelRecording());
+      if (_playingMessageId != null) unawaited(media.stopAudio());
+    }
+    _cancelPlaybackSubs();
     super.dispose();
   }
 
-  void _scrollToBottom() {
-    if (_scrollCtrl.hasClients) {
-      _scrollCtrl.animateTo(
-        _scrollCtrl.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+  void _cancelPlaybackSubs() {
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _completeSub?.cancel();
+    _positionSub = null;
+    _durationSub = null;
+    _completeSub = null;
+  }
+
+  /// Plays or stops one bubble's voice message and wires the progress
+  /// streams for its bubble (UI review #14).
+  Future<void> _togglePlay(Message msg) async {
+    final media = _mediaRef;
+    if (media == null) return;
+    if (_playingMessageId == msg.id) {
+      _cancelPlaybackSubs();
+      setState(() => _playingMessageId = null);
+      await media.stopAudio();
+      return;
+    }
+    _cancelPlaybackSubs();
+    _position = Duration.zero;
+    _duration = Duration.zero;
+    _positionSub = media.onPositionChanged.listen((d) {
+      if (mounted) setState(() => _position = d);
+    });
+    _durationSub = media.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d ?? Duration.zero);
+    });
+    _completeSub = media.onPlaybackComplete.listen((_) {
+      if (mounted) {
+        setState(() {
+          _playingMessageId = null;
+          _position = Duration.zero;
+        });
+      }
+      _cancelPlaybackSubs();
+    });
+    setState(() => _playingMessageId = msg.id);
+    try {
+      await media.playAudio(msg.content);
+    } catch (_) {
+      _cancelPlaybackSubs();
+      if (mounted) setState(() => _playingMessageId = null);
     }
   }
 
@@ -101,7 +155,6 @@ class _ChatScreenState extends State<ChatScreen> {
       return false;
     }
     setState(() => _replyTo = null);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     return true;
   }
 
@@ -126,11 +179,10 @@ class _ChatScreenState extends State<ChatScreen> {
       myPublicKeyPEM: auth.user!.publicKeyPEM,
       peerPublicKeyPEM: _peerPublicKeyFor(conv, livePeer),
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   Future<void> _toggleRecord() async {
-    final media = context.read<MediaService>();
+    final media = _mediaRef!;
     if (media.isRecording) {
       final path = await media.stopRecording();
       if (!mounted) return;
@@ -157,7 +209,17 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     } else {
-      await media.startRecording();
+      final started = await media.startRecording();
+      if (!started && mounted) {
+        // A denied microphone must not fail silently (UI review #14).
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Microphone permission is needed to record voice messages.',
+            ),
+          ),
+        );
+      }
     }
     if (mounted) setState(() {});
   }
@@ -249,6 +311,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final conv = _currentConv(chat);
     final messages = chat.messagesFor(conv.id);
     final canMedia = transport.canSendMedia(conv.peerUuid);
+    _mediaRef ??= media;
+    final sendError = chat.errorFor(conv.id);
     // Reachability comes from the routing tables (the truth sends use), not
     // from the discovery list (UI review #10).
     final peerNearby = transport.modeFor(conv.peerUuid) != TransportMode.none;
@@ -306,12 +370,12 @@ class _ChatScreenState extends State<ChatScreen> {
             )
           : Column(
               children: [
-                if (chat.error != null)
+                if (sendError != null)
                   MaterialBanner(
-                    content: Text(chat.error!),
+                    content: Text(sendError),
                     actions: [
                       TextButton(
-                        onPressed: chat.clearError,
+                        onPressed: () => chat.clearError(conv.id),
                         child: const Text('Dismiss'),
                       ),
                     ],
@@ -320,17 +384,31 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: messages.isEmpty
                       ? EncryptedChatIntro(peerName: conv.peerDisplayName)
                       : ListView.builder(
-                          controller: _scrollCtrl,
                           padding: const EdgeInsets.symmetric(vertical: 8),
+                          // Bottom-anchored list (UI review #8): index 0 is
+                          // the newest message, the keyboard pushes content
+                          // up, and incoming messages appear in place
+                          // without scroll jumps.
+                          reverse: true,
                           itemCount: messages.length,
                           itemBuilder: (ctx, i) {
-                            final msg = messages[i];
+                            final msg = messages[messages.length - 1 - i];
                             return MessageBubble(
                               message: msg,
                               isMine: msg.senderId == myUuid,
                               onReply: () => setState(() => _replyTo = msg),
                               onPlayAudio: msg.type == MessageType.voice
-                                  ? () => media.playAudio(msg.content)
+                                  ? () => _togglePlay(msg)
+                                  : null,
+                              onStopAudio: msg.type == MessageType.voice
+                                  ? () => _togglePlay(msg)
+                                  : null,
+                              isPlaying: _playingMessageId == msg.id,
+                              playbackProgress:
+                                  _duration.inMilliseconds > 0
+                                  ? (_position.inMilliseconds /
+                                            _duration.inMilliseconds)
+                                        .clamp(0.0, 1.0)
                                   : null,
                               localDataCrypto: localDataCrypto,
                             );
@@ -347,6 +425,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   isRecording: media.isRecording,
                   peerNearby: peerNearby,
                   onSendText: _sendText,
+                  onCancelRecording: () async {
+                    await media.cancelRecording();
+                    if (mounted) setState(() {});
+                  },
                   onPickImage: () async {
                     final path = await media.pickImage();
                     if (path != null) _sendImage(path);

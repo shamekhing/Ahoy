@@ -20,7 +20,16 @@ class ChatProvider extends ChangeNotifier {
 
   List<Conversation> _conversations = [];
   final Map<String, List<Message>> _messages = {};
-  String? _error;
+
+  /// Send errors scoped per conversation (UI review #9): a failure in one
+  /// thread must not surface in another. Keyed by conversation id.
+  final Map<String, String> _errors = {};
+  String? errorFor(String conversationId) => _errors[conversationId];
+
+  /// Clears the error shown for one conversation.
+  void clearError(String conversationId) {
+    if (_errors.remove(conversationId) != null) notifyListeners();
+  }
 
   // Sender identity for inbound handling and identity replies. Refreshable
   // on profile rename so outgoing payloads never carry a stale name
@@ -33,7 +42,6 @@ class ChatProvider extends ChangeNotifier {
   StreamSubscription? _inboundSub;
 
   List<Conversation> get conversations => _conversations;
-  String? get error => _error;
 
   int get totalUnreadCount =>
       _conversations.fold(0, (sum, conv) => sum + conv.unreadCount);
@@ -117,7 +125,8 @@ class ChatProvider extends ChangeNotifier {
     String? replyToId,
     String? replyToPreview,
   }) async {
-    _error = null;
+    final convId = MessageStore.conversationId(myUuid, peerUuid);
+    _errors.remove(convId);
     try {
       final sentMsg = await _chatService.sendMessage(
         myUuid: myUuid,
@@ -138,7 +147,8 @@ class ChatProvider extends ChangeNotifier {
       notifyListeners();
       return sentMsg;
     } catch (e) {
-      _error = e.toString().replaceFirst('TransportError: ', '');
+      // Scoped to this conversation only (UI review #9).
+      _errors[convId] = e.toString().replaceFirst('TransportError: ', '');
       notifyListeners();
       return null;
     }
@@ -186,11 +196,6 @@ class ChatProvider extends ChangeNotifier {
         }
       } catch (_) {}
     }
-  }
-
-  void clearError() {
-    _error = null;
-    notifyListeners();
   }
 
   /// Records a discovery-verified key for first-contact pinning (audit #7).
@@ -241,7 +246,7 @@ class ChatProvider extends ChangeNotifier {
     _messages.clear();
     _conversations = [];
     _chatService.reset();
-    _error = null;
+    _errors.clear();
     notifyListeners();
   }
 

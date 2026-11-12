@@ -85,6 +85,7 @@ void main() {
                   calls++;
                   return succeed;
                 },
+                onCancelRecording: () {},
                 onPickImage: () {},
                 onCapturePhoto: () {},
                 onToggleRecord: () {},

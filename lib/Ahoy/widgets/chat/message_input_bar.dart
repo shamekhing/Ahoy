@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 class MessageInputBar extends StatefulWidget {
@@ -14,7 +16,12 @@ class MessageInputBar extends StatefulWidget {
   final Future<bool> Function(String text) onSendText;
   final VoidCallback onPickImage;
   final VoidCallback onCapturePhoto;
+
+  /// Stops and sends the in-progress recording (the stop action).
   final VoidCallback onToggleRecord;
+
+  /// Cancels the in-progress recording, discarding it (UI review #14).
+  final VoidCallback onCancelRecording;
 
   const MessageInputBar({
     super.key,
@@ -24,6 +31,7 @@ class MessageInputBar extends StatefulWidget {
     required this.onPickImage,
     required this.onCapturePhoto,
     required this.onToggleRecord,
+    required this.onCancelRecording,
     this.peerNearby = true,
   });
 
@@ -35,6 +43,8 @@ class _MessageInputBarState extends State<MessageInputBar> {
   final _controller = TextEditingController();
   bool _hasText = false;
   bool _sending = false;
+  Timer? _recordTick;
+  int _recordSeconds = 0;
 
   @override
   void initState() {
@@ -43,10 +53,41 @@ class _MessageInputBarState extends State<MessageInputBar> {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
     });
+    if (widget.isRecording) _startRecordTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant MessageInputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isRecording && !oldWidget.isRecording) {
+      _startRecordTicker();
+    } else if (!widget.isRecording && oldWidget.isRecording) {
+      _stopRecordTicker();
+    }
+  }
+
+  void _startRecordTicker() {
+    _recordSeconds = 0;
+    _recordTick?.cancel();
+    _recordTick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _recordSeconds++);
+    });
+  }
+
+  void _stopRecordTicker() {
+    _recordTick?.cancel();
+    _recordTick = null;
+  }
+
+  String get _recordingLabel {
+    final m = (_recordSeconds ~/ 60).toString().padLeft(2, '0');
+    final s = (_recordSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   @override
   void dispose() {
+    _recordTick?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -77,67 +118,90 @@ class _MessageInputBarState extends State<MessageInputBar> {
             top: BorderSide(color: Theme.of(context).dividerColor),
           ),
         ),
-        child: Row(
-          children: [
-            if (widget.canSendMedia) ...[
-              IconButton(
-                icon: const Icon(Icons.photo_library_outlined),
-                tooltip: 'Photo from gallery',
-                onPressed: widget.onPickImage,
-              ),
-              IconButton(
-                icon: const Icon(Icons.camera_alt_outlined),
-                tooltip: 'Capture photo',
-                onPressed: widget.onCapturePhoto,
-              ),
-              IconButton(
-                icon: Icon(
-                  widget.isRecording ? Icons.stop_circle : Icons.mic_outlined,
-                  color: widget.isRecording ? Colors.red : null,
-                ),
-                tooltip: widget.isRecording
-                    ? 'Stop recording'
-                    : 'Voice message',
-                onPressed: widget.onToggleRecord,
-              ),
-            ],
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.newline,
-                decoration: InputDecoration(
-                  hintText: !widget.peerNearby
-                      ? 'Peer not nearby — messages queue until they return'
-                      : widget.canSendMedia
-                          ? 'Message…'
-                          : 'Text only (BLE mode)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
+        child: widget.isRecording
+            ? Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Cancel recording',
+                    onPressed: widget.onCancelRecording,
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+                  const Icon(
+                    Icons.fiber_manual_record,
+                    color: Colors.red,
+                    size: 14,
                   ),
-                  isDense: true,
-                ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Recording $_recordingLabel — send or cancel',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.stop_circle, size: 32),
+                    color: Theme.of(context).colorScheme.error,
+                    tooltip: 'Stop and send',
+                    onPressed: widget.onToggleRecord,
+                  ),
+                ],
+              )
+            : Row(
+                children: [
+                  if (widget.canSendMedia) ...[
+                    IconButton(
+                      icon: const Icon(Icons.photo_library_outlined),
+                      tooltip: 'Photo from gallery',
+                      onPressed: widget.onPickImage,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      tooltip: 'Capture photo',
+                      onPressed: widget.onCapturePhoto,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.mic_outlined),
+                      tooltip: 'Voice message',
+                      onPressed: widget.onToggleRecord,
+                    ),
+                  ],
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.newline,
+                      decoration: InputDecoration(
+                        hintText: !widget.peerNearby
+                            ? 'Peer not nearby — messages queue until they return'
+                            : widget.canSendMedia
+                                ? 'Message…'
+                                : 'Text only (BLE mode)',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
+                    onPressed: (_hasText && !_sending) ? _send : null,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 4),
-            IconButton(
-              icon: _sending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-              onPressed: (_hasText && !_sending) ? _send : null,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ],
-        ),
       ),
     );
   }
