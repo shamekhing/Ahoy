@@ -4,15 +4,21 @@
     <!-- Legacy APIs for Android ≤ 11 (API 30) -->
     <uses-permission android:name="android.permission.BLUETOOTH"       android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <!-- Android 12+ (API 31+) fine-grained BLE permissions -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"      />
+    <!-- Android 12+ (API 31+) fine-grained BLE permissions.
+         neverForLocation: beacons are Ahoy peers, not location sources, so
+         scanning must not require or imply location on Android 12+
+         (audit M-7). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"   />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
-    <!-- ── Location (required for BLE scanning on Android ≤ 11) ─────────── -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"   />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Location is required for BLE scanning and WiFi Direct on Android 11
+         and below only; Android 12+ uses the granular permissions above and
+         NEARBY_WIFI_DEVICES (audit M-7). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"   android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="32" />
 
     <!-- ── Camera / image picker ─────────────────────────────────────────── -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -35,12 +41,9 @@
     <!-- ── Biometric authentication ──────────────────────────────────────── -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"   />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
-
-    <!-- ── Media read (image_picker / audioplayers) ──────────────────────── -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"  />
-    <!-- Android ≤ 12 fallback -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Media read permissions are intentionally absent: image_picker uses
+         the system photo picker and audio is recorded into app-private
+         storage, so no media permission is needed (audit M-7). -->
 
     <application
         android:label="Ahoy"
