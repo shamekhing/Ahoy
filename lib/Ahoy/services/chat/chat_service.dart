@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -416,16 +417,24 @@ class ChatService {
     if (bytes.isEmpty) {
       throw const TransportError('Media source unavailable');
     }
-    final wire = base64.encode(bytes);
+    final wire = await Isolate.run(() => base64.encode(bytes));
     final stored = await _writeEncryptedMedia(bytes, msgId, type);
 
-    // The voice recorder's temp file is owned by us and is dead weight once
-    // the encrypted copy exists. Images from the picker are cleaned up by the
-    // media lifecycle pass (audit M-5).
+    // Media consumed into encrypted storage must not leave plaintext copies
+    // behind (audit M-5). Recorder temps and image_picker cache files both
+    // live in the temp directory; gallery paths are only deleted when we own
+    // the file.
     final fileName = source.uri.pathSegments.isEmpty
         ? ''
         : source.uri.pathSegments.last;
-    if (fileName.startsWith('ahoy_voice_')) {
+    var owned = fileName.startsWith('ahoy_voice_');
+    if (!owned) {
+      try {
+        final tempDir = await getTemporaryDirectory();
+        owned = source.path.startsWith('${tempDir.path}/');
+      } catch (_) {}
+    }
+    if (owned) {
       try {
         await source.delete();
       } catch (_) {}
@@ -669,7 +678,8 @@ class ChatService {
     MessageType type,
   ) async {
     try {
-      final bytes = base64.decode(base64Content);
+      // Decoding up to a 16 MB LAN frame off the UI thread (audit M-5).
+      final bytes = await Isolate.run(() => base64.decode(base64Content));
       if (bytes.isEmpty) return null;
       return await _writeEncryptedMedia(bytes, msgId, type);
     } catch (e) {

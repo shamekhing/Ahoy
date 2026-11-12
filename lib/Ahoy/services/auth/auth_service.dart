@@ -156,19 +156,39 @@ class AuthService {
   }
 
   /// Removes media files and avatars owned by the signed-out account.
+  /// Covers both the documents directory (encrypted media, avatars) and the
+  /// temp directory (voice recorder temps, image_picker cache copies that a
+  /// crashed send may have left behind) so no plaintext survives sign-out
+  /// (audit M-5).
   Future<void> _deleteLocalMedia() async {
+    final dirs = <Directory>[];
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      await for (final entity in dir.list()) {
-        if (entity is! File) continue;
-        final name = entity.uri.pathSegments.last;
-        if (name.startsWith('ahoy_media_') || name.startsWith('avatar_')) {
+      dirs.add(await getApplicationDocumentsDirectory());
+    } catch (_) {}
+    try {
+      dirs.add(await getTemporaryDirectory());
+    } catch (_) {}
+    for (final dir in dirs) {
+      try {
+        await for (final entity
+            in dir.list(recursive: true, followLinks: false)) {
+          if (entity is! File) continue;
+          final name = entity.uri.pathSegments.isEmpty
+              ? ''
+              : entity.uri.pathSegments.last;
+          final owned = name.startsWith('ahoy_media_') ||
+              name.startsWith('ahoy_voice_') ||
+              name.startsWith('ahoy_audio_') ||
+              name.startsWith('avatar_') ||
+              name.startsWith('image_picker') ||
+              name.startsWith('camera_picker');
+          if (!owned) continue;
           try {
             await entity.delete();
           } catch (_) {}
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
   }
 
   Future<bool> get isBiometricEnabled async {
