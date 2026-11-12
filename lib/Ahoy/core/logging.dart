@@ -5,6 +5,8 @@ void ahoyLog(String message, [Object? error]) {
   if (error == null) {
     debugPrint(message);
   } else {
-    debugPrint('$message (${error.runtimeType})');
+    // Full toString: PlatformException codes/messages are the difference
+    // between a diagnosis and a dead end in the field.
+    debugPrint('$message\n  $error');
   }
 }

@@ -356,7 +356,14 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             override fun onFailure(reason: Int) {
-                logError("WiFi Direct discovery failed")
+                if (reason == WifiP2pManager.BUSY) {
+                    // A discovery session is already running — harmless for
+                    // the periodic re-discovery cycle.
+                    logDebug("WiFi Direct discovery busy; session continues")
+                    result.success(null)
+                    return
+                }
+                logError("WiFi Direct discovery failed reason=$reason")
                 result.error("DISCOVERY_FAILED", "reason=$reason", null)
             }
         })

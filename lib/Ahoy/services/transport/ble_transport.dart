@@ -210,6 +210,9 @@ class BleTransport implements TransportInterface {
       // scheduled a backoff retry reacting here would create a second timer.
       if (!active && _scanning && _lastStartSucceeded) {
         _lastStartSucceeded = false;
+        ahoyLog(
+          '[BLE] scan stopped by platform; restart in ${_backoffSeconds}s',
+        );
         _scheduleScanRestart();
       }
     });
@@ -225,9 +228,13 @@ class BleTransport implements TransportInterface {
 
   Future<void> _restartScan() async {
     try {
-      await FlutterBluePlus.startScan(
-        withServices: [Guid(AhoyConstants.bleServiceUuid)],
-      );
+      // No hardware service filter: Ahoy's identity rides in service DATA
+      // and Android's 128-bit UUID hardware filters are unreliable across
+      // chipsets — on some stacks the scan stops outright or never matches
+      // (device-tested on a Galaxy A15: the filtered scan looped every 8s
+      // and never delivered a peer). Scan unfiltered; _parseAnnouncement
+      // drops every advertisement without Ahoy service data.
+      await FlutterBluePlus.startScan();
       // Success reset backoff so the next natural restart uses the minimum.
       _lastStartSucceeded = true;
       _backoffSeconds = 8;
