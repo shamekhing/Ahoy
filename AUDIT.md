@@ -451,15 +451,28 @@ The contrast and legibility pair — the review's "fast win":
 | 21 | Dark-mode contrast: `PeerProfileScreen` painted the safety-number panel on `Colors.orange.shade50` and the blocked panel on `Colors.red.shade50` with default (near-white) text, and ~15 sites hardcoded `Colors.red` for destructive semantics | Semantic theme colors everywhere: the safety-number panel uses `tertiaryContainer`/`onTertiaryContainer`, the blocked panels and destructive actions use `errorContainer`/`error`/`onErrorContainer`, and the conversation-list avatars use theme surfaces instead of `shade100` tints |
 | 22 | Tiny text: timestamps at 10px/60% alpha, badge and hint labels at 11px — all below legibility and contrast floors | No text below 12px anywhere in `lib/`; the message footer keeps its bubble's text color at 0.85 alpha instead of 0.6; enforced by `ui_batch3_test.dart`, which scans `lib/` for `Colors.red`, pale `shade50/100` tints and sub-12px font sizes, and asserts the message footer in both light and dark themes |
 
+## Batch 4 fixed (same review, follow-up commit)
+
+The chat-polish quartet:
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 8 | Chat scroll was fragile: `maxScrollExtent` jumps were inaccurate, incoming messages did not auto-scroll, and the keyboard did not push content | The list is now bottom-anchored (`reverse: true`, newest at index 0): the keyboard pushes content naturally, incoming messages appear in place with no scroll jumps, and the manual `maxScrollExtent` animation is gone. Widget test asserts scroll offset stays 0 across 40 seeded messages and a new offline send |
+| 9 | Global `chat.error` bled across threads: an error from one conversation showed in another until dismissed | Errors are scoped per conversation (`ChatProvider.errorFor`/`clearError` keyed by conversation id); the banner in a thread shows and clears only that thread's failure |
+| 14 | Voice messages were minimal: no timer, no cancel, silent mic-denial, bare playback, and leaving the screen mid-recording leaked the session | The input bar switches to a recording row with a ticking timer, a cancel action (stops and deletes the temp file via the new `MediaService.cancelRecording`) and a stop-and-send action; a denied microphone shows a snackbar; the playing bubble shows a progress bar driven by the player's position/duration streams with tap-to-stop; leaving the screen mid-recording cancels and stops playback in `dispose` |
+| 15 | Images were a fixed 200×200 crop with no viewer | Tapping a photo opens a fullscreen `Dialog.fullscreen` with an `InteractiveViewer` (pinch-zoom up to 8×), decrypting at rest off the build path with loading and unavailable states; the loader is injectable so widget tests avoid real file IO inside fake async. (Save-to-gallery remains deferred: it needs a platform channel.) |
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
 silently dropped: offline-model onboarding (done in batch 2), scroll
-hardening, per-conversation error scoping, queued/failed message
-affordances (queueing done in batch 2; tap-to-retry still open), BLE
-media-button handling, blocked-thread unblock path, voice recorder UX,
-fullscreen image viewing, safety-number UX, sign-up hardening copy,
-dropping the gender field, dark-mode contrast and text sizes (done in
-batch 3), avatar unification, message and conversation-list actions,
-navigation consolidation, settings copy, startup error recovery, tooltips
-and semantics, color independence, localization, and layout constraints.
+hardening (done in batch 4), per-conversation error scoping (done in batch
+4), queued/failed message affordances (queueing done in batch 2;
+tap-to-retry still open), voice recorder UX (done in batch 4), fullscreen
+image viewing (done in batch 4; save-to-gallery still open), BLE
+media-button handling, blocked-thread unblock path, safety-number UX,
+sign-up hardening copy, dropping the gender field, dark-mode contrast and
+text sizes (done in batch 3), avatar unification, message and
+conversation-list actions, navigation consolidation, settings copy,
+startup error recovery, tooltips and semantics, color independence,
+localization, and layout constraints.
