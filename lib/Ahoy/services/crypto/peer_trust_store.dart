@@ -103,12 +103,20 @@ class PeerTrustStore {
     _peers[uuid] = record.copyWith(state: PeerTrustState.pinned);
   }
 
-  /// The user compared safety numbers out of band.
+  /// The user compared safety numbers out of band for the known key. The
+  /// pending conflict is considered investigated and is cleared.
   void markSafetyNumberVerified(String uuid) {
     final record = _peers[uuid];
     if (record == null) return;
-    if (record.state == PeerTrustState.verifiedBySafetyNumber) return;
-    _peers[uuid] = record.copyWith(state: PeerTrustState.verifiedBySafetyNumber);
+    if (record.state == PeerTrustState.verifiedBySafetyNumber &&
+        record.pendingKey == null) {
+      return;
+    }
+    _peers[uuid] = PeerTrust(
+      uuid: uuid,
+      key: record.key,
+      state: PeerTrustState.verifiedBySafetyNumber,
+    );
   }
 
   void clear() => _peers.clear();

@@ -7,6 +7,7 @@ import '../core/logging.dart';
 import '../services/chat/chat_service.dart';
 import '../services/chat/conversation_store.dart';
 import '../services/chat/message_store.dart';
+import '../services/crypto/peer_trust_store.dart';
 import '../services/transport_manager.dart';
 
 class ChatProvider extends ChangeNotifier {
@@ -161,6 +162,16 @@ class ChatProvider extends ChangeNotifier {
   /// (audit H-2).
   bool registerVerifiedPeerKey(String uuid, String pem) =>
       _chatService.registerVerifiedPeerKey(uuid, pem);
+
+  /// Trust record for [uuid], or null when the peer is unknown this session.
+  PeerTrust? peerTrust(String uuid) => _chatService.peerTrust(uuid);
+
+  /// The user compared safety numbers out of band (audit H-2). Notifies so
+  /// open profile screens drop the key-change banner immediately.
+  void promotePeerBySafetyNumber(String uuid) {
+    _chatService.promotePeerBySafetyNumber(uuid);
+    notifyListeners();
+  }
 
   /// Clears all per-session chat state (called on sign-out, audit #3).
   void reset() {

@@ -16,6 +16,7 @@ class DiscoverScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final discovery = context.watch<DiscoveryProvider>();
+    final chat = context.watch<ChatProvider>();
     final peers = discovery.peers.where((p) => !p.isBlocked).toList();
 
     return Scaffold(
@@ -62,6 +63,7 @@ class DiscoverScreen extends StatelessWidget {
                         peer: peers[i],
                         onConnect: () => _openChat(ctx, peers[i]),
                         onViewProfile: () => _viewProfile(ctx, peers[i]),
+                        trustState: chat.peerTrust(peers[i].uuid)?.state,
                       ),
                     ),
             ),

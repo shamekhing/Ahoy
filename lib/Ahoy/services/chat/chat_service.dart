@@ -68,6 +68,14 @@ class ChatService {
     return before == null || _samePublicKey(before.key, pem);
   }
 
+  /// Trust record for [uuid], or null when the peer is unknown this session.
+  PeerTrust? peerTrust(String uuid) => _trust.get(uuid);
+
+  /// The user compared safety numbers out of band, so the announced key is
+  /// promoted to verified (audit H-2).
+  void promotePeerBySafetyNumber(String uuid) =>
+      _trust.markSafetyNumberVerified(uuid);
+
   /// Clears all per-session state (called on sign-out, audit #3).
   void reset() {
     _outbox.clear();
