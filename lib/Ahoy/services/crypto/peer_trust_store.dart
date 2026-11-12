@@ -119,6 +119,20 @@ class PeerTrustStore {
     );
   }
 
+  /// The user reviewed the announced key change and rejected it: the pending
+  /// key is discarded and the known key keeps protecting the conversation
+  /// (sixth review, finding 4). Sealing never used the pending key, so this
+  /// only clears the warning.
+  void dismissPendingKey(String uuid) {
+    final record = _peers[uuid];
+    if (record == null || record.pendingKey == null) return;
+    _peers[uuid] = PeerTrust(
+      uuid: uuid,
+      key: record.key,
+      state: record.state,
+    );
+  }
+
   void clear() => _peers.clear();
 
   int get length => _peers.length;

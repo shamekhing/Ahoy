@@ -210,6 +210,13 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The user reviewed the announced key change and rejected it
+  /// (sixth review, finding 4). Notifies so the banner drops.
+  void dismissPeerKeyChange(String uuid) {
+    _chatService.dismissPeerKeyChange(uuid);
+    notifyListeners();
+  }
+
   /// Applies a profile rename to the sender identity used in identity
   /// replies and inbound handling (audit L-7).
   void updateMyIdentity({

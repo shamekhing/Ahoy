@@ -130,6 +130,10 @@ class ChatService {
   void promotePeerBySafetyNumber(String uuid) =>
       _trust.markSafetyNumberVerified(uuid);
 
+  /// The user reviewed the announced key change and rejected it
+  /// (sixth review, finding 4).
+  void dismissPeerKeyChange(String uuid) => _trust.dismissPendingKey(uuid);
+
   /// Clears all per-session state (called on sign-out, audit #3).
   void reset() {
     _outbox.clear();

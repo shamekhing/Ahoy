@@ -136,6 +136,21 @@ void main() {
 
         expect(find.text('Identity changed'), findsOneWidget);
 
+        // Rejecting the announced change clears the warning and keeps the
+        // known key (sixth review, finding 4).
+        await tester.tap(find.text('Keep current key'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Identity changed'), findsNothing);
+        expect(chat.peerTrust(_peerUuid)!.pendingKey, isNull);
+        expect(chat.peerTrust(_peerUuid)!.key, 'KEY_A');
+
+        // A new announced change raises the banner again; the safety-number
+        // action promotes the peer to verified.
+        chat.registerVerifiedPeerKey(_peerUuid, 'KEY_C');
+        await tester.pumpAndSettle();
+        expect(find.text('Identity changed'), findsOneWidget);
+
         await tester.tap(find.text('Mark as verified'));
         await tester.pumpAndSettle();
 

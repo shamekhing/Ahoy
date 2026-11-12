@@ -121,13 +121,19 @@ class PeerProfileScreen extends StatelessWidget {
                     'the new key.',
                     style: TextStyle(fontSize: 12),
                   ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () =>
-                          chat.promotePeerBySafetyNumber(peer.uuid),
-                      child: const Text('Mark as verified'),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => chat.dismissPeerKeyChange(peer.uuid),
+                        child: const Text('Keep current key'),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            chat.promotePeerBySafetyNumber(peer.uuid),
+                        child: const Text('Mark as verified'),
+                      ),
+                    ],
                   ),
                 ],
               ),
