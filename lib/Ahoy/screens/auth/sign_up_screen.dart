@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/enums.dart';
@@ -124,8 +123,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
               Center(
                 child: Column(
                   children: [
-                    SvgPicture.asset(
-                      'assets/app_icon.svg',
+                    Image.asset(
+                      'assets/auth_logo.png',
                       width: 64,
                       height: 64,
                     ),
