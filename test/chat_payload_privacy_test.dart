@@ -20,20 +20,23 @@ String _wire(Map<String, dynamic> data, String fromUuid) =>
     jsonEncode({...data, 'from': fromUuid});
 
 /// Mirrors ChatService._signatureMaterialV3 (sealed inner payloads).
-String _v3Material(Map<String, dynamic> p) => jsonEncode({
-  'msgType': p['msgType'],
-  'msgId': p['msgId'],
-  'convId': p['convId'],
-  'senderUuid': p['senderUuid'],
-  'senderShortId': p['senderShortId'],
-  'senderName': p['senderName'],
-  'type': p['type'],
-  'content': p['content'],
-  'replyToId': p['replyToId'],
-  'replyToPreview': p['replyToPreview'],
-  'timestamp': p['timestamp'],
-  'senderPublicKeyPEM': p['senderPublicKeyPEM'],
-});
+String _v3Material(Map<String, dynamic> p) {
+  final material = jsonEncode({
+    'msgType': p['msgType'],
+    'msgId': p['msgId'],
+    'convId': p['convId'],
+    'senderUuid': p['senderUuid'],
+    'senderShortId': p['senderShortId'],
+    'senderName': p['senderName'],
+    'type': p['type'],
+    'content': p['content'],
+    'replyToId': p['replyToId'],
+    'replyToPreview': p['replyToPreview'],
+    'timestamp': p['timestamp'],
+    'senderPublicKeyPEM': p['senderPublicKeyPEM'],
+  });
+  return 'ahoy-chat-v3:$material';
+}
 
 class _CapturingTransportManager extends TransportManager {
   Map<String, dynamic>? lastData;

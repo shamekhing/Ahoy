@@ -83,14 +83,15 @@ void main() {
       'senderPublicKeyPEM': peerKeys['publicKey'],
       'timestamp': DateTime.now().toIso8601String(),
     };
-    identity['signature'] = peer.signPayload(jsonEncode({
+    final identityMaterial = jsonEncode({
       'msgType': identity['msgType'],
       'senderUuid': identity['senderUuid'],
       'senderShortId': identity['senderShortId'],
       'senderName': identity['senderName'],
       'senderPublicKeyPEM': identity['senderPublicKeyPEM'],
       'timestamp': identity['timestamp'],
-    }));
+    });
+    identity['signature'] = peer.signPayload('ahoy-identity-v1:$identityMaterial');
 
     // The peer's signed identity arrives through the provider listener so
     // the reply uses ChatProvider's (renamed) sender identity.

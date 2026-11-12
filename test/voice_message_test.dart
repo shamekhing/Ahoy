@@ -219,7 +219,7 @@ Future<String> _sealedInbound(
 }
 
 String _signatureMaterialV3(Map<String, dynamic> payload) {
-  return jsonEncode({
+  final material = jsonEncode({
     'msgType': payload['msgType'],
     'msgId': payload['msgId'],
     'convId': payload['convId'],
@@ -233,6 +233,7 @@ String _signatureMaterialV3(Map<String, dynamic> payload) {
     'timestamp': payload['timestamp'],
     'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
   });
+  return 'ahoy-chat-v3:$material';
 }
 
 class _Harness {

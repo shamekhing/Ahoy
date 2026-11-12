@@ -49,19 +49,21 @@ void main() {
     addTearDown(transport.dispose);
     final announcementFuture = transport.announcementStream.first;
 
+    final identityTs = DateTime.now().toIso8601String();
     final identity = <String, dynamic>{
       'type': 'wdIdentity',
       'uuid': 'peer-1',
       'shortId': 'ABC123',
       'displayName': 'Peer',
       'publicKeyPEM': keys['publicKey'],
-      'timestamp': DateTime.now().toIso8601String(),
+      'timestamp': identityTs,
     };
     identity['signature'] = crypto.signAnnouncement(
       uuid: 'peer-1',
       shortId: 'ABC123',
       displayName: 'Peer',
       publicKeyPEM: keys['publicKey'],
+      timestamp: identityTs,
     );
     transport.debugHandleDataReceived({
       'data': Uint8List.fromList(utf8.encode(jsonEncode(identity))),
@@ -298,19 +300,21 @@ void _deliverIdentity(
   required String key,
   required String senderIP,
 }) {
+  final identityTs = DateTime.now().toIso8601String();
   final identity = <String, dynamic>{
     'type': 'wdIdentity',
     'uuid': uuid,
     'shortId': shortId,
     'displayName': displayName,
     'publicKeyPEM': key,
-    'timestamp': DateTime.now().toIso8601String(),
+    'timestamp': identityTs,
   };
   identity['signature'] = signer.signAnnouncement(
     uuid: uuid,
     shortId: shortId,
     displayName: displayName,
     publicKeyPEM: key,
+    timestamp: identityTs,
   );
   transport.debugHandleDataReceived({
     'data': Uint8List.fromList(utf8.encode(jsonEncode(identity))),

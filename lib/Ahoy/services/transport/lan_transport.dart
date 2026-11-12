@@ -41,7 +41,6 @@ class LanTransport implements TransportInterface {
   String? _myDisplayName;
   String? _myStatusMessage;
   String? _myPublicKeyPEM;
-  String? _myAnnouncementSignature;
 
   // peerUuid → InternetAddress + port for TCP
   final Map<String, _PeerConn> _peerConns = {};
@@ -50,6 +49,11 @@ class LanTransport implements TransportInterface {
   /// received TCP connections from other networks are rejected (audit M-4).
   final Set<String> _announceSubnets = {};
 
+  /// Ahoy UUID → public key from its first verified announcement. A later
+  /// announcement for the same UUID with a different key is refused before
+  /// any route state changes (sixth review, finding 1).
+  final Map<String, String> _uuidKeys = {};
+
   /// Bounded concurrent inbound connections and a per-address message rate
   /// limit so one peer cannot buy unlimited RSA work (audit M-8).
   int _activeConnections = 0;
@@ -57,6 +61,9 @@ class LanTransport implements TransportInterface {
 
   @visibleForTesting
   int get debugActiveConnections => _activeConnections;
+
+  @visibleForTesting
+  Map<String, String> get debugUuidKeys => Map.unmodifiable(_uuidKeys);
 
   DateTime? _localSubnetsAt;
   Set<String> _localSubnetsCache = const {};
@@ -94,7 +101,6 @@ class LanTransport implements TransportInterface {
     _myDisplayName = displayName;
     _myStatusMessage = statusMessage;
     _myPublicKeyPEM = publicKeyPEM;
-    _myAnnouncementSignature = announcementSignature;
     _advertising = true;
     _startBroadcastTimer();
   }
@@ -167,6 +173,31 @@ class LanTransport implements TransportInterface {
     if (!_advertising || _myUuid == null) return;
     // Keep the interface cache fresh for the subnet filters (audit M-4).
     await _refreshLocalSubnets();
+
+    // Re-sign each broadcast with a fresh timestamp: receivers reject
+    // announcements older than the freshness window, so a fixed signature
+    // would go stale mid-session (sixth review, findings 1 and 2).
+    String? signature;
+    var timestamp = '';
+    final crypto = _crypto;
+    if (crypto != null && crypto.isReady) {
+      timestamp = DateTime.now().toIso8601String();
+      try {
+        signature = crypto.signAnnouncement(
+          uuid: _myUuid!,
+          shortId: _myShortId ?? '',
+          displayName: _myDisplayName ?? '',
+          statusMessage: _myStatusMessage,
+          publicKeyPEM: _myPublicKeyPEM,
+          timestamp: timestamp,
+        );
+      } catch (_) {
+        return;
+      }
+    } else {
+      return;
+    }
+
     final data = utf8.encode(
       jsonEncode({
         'type': 'ahoy_announce',
@@ -175,7 +206,8 @@ class LanTransport implements TransportInterface {
         'displayName': _myDisplayName,
         'statusMessage': _myStatusMessage,
         'publicKeyPEM': _myPublicKeyPEM,
-        'signature': _myAnnouncementSignature,
+        'signature': signature,
+        'timestamp': timestamp,
       }),
     );
 
@@ -236,6 +268,7 @@ class LanTransport implements TransportInterface {
       final displayName = json['displayName'] as String? ?? '';
       final shortId = json['shortId'] as String? ?? '';
       final statusMessage = json['statusMessage'] as String?;
+      final timestamp = json['timestamp'] as String?;
       if (pem == null ||
           pem.isEmpty ||
           signature == null ||
@@ -243,6 +276,10 @@ class LanTransport implements TransportInterface {
           !CryptoService.isRealAhoyUuid(uuid) ||
           (shortId.isNotEmpty &&
               shortId.toUpperCase() != CryptoService.shortIdFromUuid(uuid)) ||
+          // Freshness: a captured announcement replayed later must not
+          // repoint routing or refresh a departed peer (sixth review,
+          // findings 1 and 2).
+          !CryptoService.isFreshTimestamp(timestamp) ||
           !crypto.verifyAnnouncement(
             uuid: uuid,
             shortId: shortId,
@@ -250,10 +287,23 @@ class LanTransport implements TransportInterface {
             statusMessage: statusMessage,
             publicKeyPEM: pem,
             signature: signature,
+            timestamp: timestamp!,
           )) {
         ahoyLog('[LAN] dropping announcement that fails verification');
         return;
       }
+
+      // The first verified announcement for a UUID fixes its key. A later
+      // announcement for the same UUID carrying a different key is refused
+      // before any route state changes, so a second node holding a replayed
+      // or differently-keyed announcement cannot steal the route (sixth
+      // review, finding 1).
+      final knownKey = _uuidKeys[uuid];
+      if (knownKey != null && !_sameKey(knownKey, pem)) {
+        ahoyLog('[LAN] dropping announcement with a conflicting key');
+        return;
+      }
+      _uuidKeys[uuid] = pem;
 
       final prefix = _subnetPrefix(dg.address.address);
       if (prefix != null) _announceSubnets.add(prefix);
@@ -268,8 +318,9 @@ class LanTransport implements TransportInterface {
           shortId: json['shortId'] as String? ?? '',
           displayName: json['displayName'] as String? ?? 'Unknown',
           statusMessage: json['statusMessage'] as String?,
-          publicKeyPEM: json['publicKeyPEM'] as String?,
-          signature: json['signature'] as String?,
+          publicKeyPEM: pem,
+          signature: signature,
+          timestamp: timestamp,
           transport: TransportMode.lan,
         ),
       );
@@ -540,6 +591,12 @@ class _PeerConn {
   final InternetAddress address;
   final int port;
   _PeerConn(this.address, this.port);
+}
+
+/// Whitespace-insensitive PEM comparison, matching the other layers.
+bool _sameKey(String a, String b) {
+  final ws = RegExp(r'\s+');
+  return a.replaceAll(ws, '') == b.replaceAll(ws, '');
 }
 
 /// Fixed-window rate limiter state per remote address (audit M-8).

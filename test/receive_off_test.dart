@@ -112,14 +112,14 @@ Map<String, dynamic> _identityPayload(
 }
 
 String _identityMaterial(Map<String, dynamic> payload) {
-  return jsonEncode({
+  return 'ahoy-identity-v1:${jsonEncode({
     'msgType': payload['msgType'],
     'senderUuid': payload['senderUuid'],
     'senderShortId': payload['senderShortId'],
     'senderName': payload['senderName'],
     'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
     'timestamp': payload['timestamp'],
-  });
+  })}';
 }
 
 class _Harness {

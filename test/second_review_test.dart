@@ -37,7 +37,9 @@ void main() {
     );
 
     final sig = tm.debugAnnouncementSignature;
+    final sigTs = tm.debugAnnouncementTimestamp;
     expect(sig, isNotNull);
+    expect(sigTs, isNotNull);
     expect(
       crypto.verifyAnnouncement(
         uuid: _uuid,
@@ -45,6 +47,7 @@ void main() {
         displayName: 'Alice Cooper',
         publicKeyPEM: keys['publicKey']!,
         signature: sig!,
+        timestamp: sigTs!,
       ),
       isTrue,
     );
@@ -55,6 +58,7 @@ void main() {
         displayName: 'Alice',
         publicKeyPEM: keys['publicKey']!,
         signature: sig,
+        timestamp: DateTime.now().toIso8601String(),
       ),
       isFalse,
     );
@@ -73,6 +77,7 @@ void main() {
     addTearDown(transport.dispose);
     final port = transport.debugDiscoveryPort!;
 
+    final announceTs = DateTime.now().toIso8601String();
     Map<String, dynamic> announce({String? signature}) => {
       'type': 'ahoy_announce',
       'uuid': _uuid,
@@ -80,6 +85,7 @@ void main() {
       'displayName': 'Peer',
       'publicKeyPEM': keys['publicKey'],
       'signature': signature,
+      'timestamp': announceTs,
     };
 
     Future<void> sendAnnounce(Map<String, dynamic> json) async {
@@ -100,6 +106,7 @@ void main() {
         shortId: CryptoService.shortIdFromUuid(_uuid),
         displayName: 'Peer',
         publicKeyPEM: keys['publicKey'],
+        timestamp: announceTs,
       )
       ..['displayName'] = 'Mallory';
     await sendAnnounce(tampered);
@@ -113,6 +120,7 @@ void main() {
           shortId: CryptoService.shortIdFromUuid(_uuid),
           displayName: 'Peer',
           publicKeyPEM: keys['publicKey'],
+          timestamp: announceTs,
         ),
       ),
     );

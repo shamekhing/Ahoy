@@ -23,6 +23,12 @@ class AhoyConstants {
   static const int lanMaxMessagesPerAddressPerWindow = 20;
   static const int lanRateWindowSeconds = 10;
 
+  // Announcements carry a signed timestamp and are rejected outside this
+  // window (sixth review, findings 1 and 2): a captured announcement can no
+  // longer be replayed forever. Matches the chat freshness tolerance because
+  // phones on a LAN may lack a shared clock source.
+  static const int announcementFreshnessSeconds = 15 * 60;
+
   // WiFi Direct
   static const int wifiDirectMaxPayloadBytes = 10 * 1024 * 1024;
 

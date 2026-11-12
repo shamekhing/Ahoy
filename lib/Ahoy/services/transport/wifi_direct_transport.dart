@@ -84,7 +84,6 @@ class WiFiDirectTransport implements TransportInterface {
   String? _myDisplayName;
   String? _myStatusMessage;
   String? _myPublicKeyPEM;
-  String? _myAnnouncementSignature;
 
   @override
   Future<void> startAdvertising({
@@ -101,7 +100,6 @@ class WiFiDirectTransport implements TransportInterface {
     _myDisplayName = displayName;
     _myStatusMessage = statusMessage;
     _myPublicKeyPEM = publicKeyPEM;
-    _myAnnouncementSignature = announcementSignature;
 
     // Register the handler here as well as in startScanning() so that
     // Kotlin→Dart callbacks (e.g. onDataReceived) are handled regardless of
@@ -306,8 +304,12 @@ class WiFiDirectTransport implements TransportInterface {
             statusMessage: json['statusMessage'] as String?,
             publicKeyPEM: json['publicKeyPEM'] as String? ?? '',
             signature: json['signature'] as String? ?? '',
+            timestamp: json['timestamp'] as String? ?? '',
           );
-          if (!verified) {
+          if (!verified ||
+              !CryptoService.isFreshTimestamp(
+                json['timestamp'] as String?,
+              )) {
             ahoyLog('[WiFiDirect] dropping identity that fails verification');
             return;
           }
@@ -342,6 +344,7 @@ class WiFiDirectTransport implements TransportInterface {
               statusMessage: json['statusMessage'] as String?,
               publicKeyPEM: json['publicKeyPEM'] as String?,
               signature: json['signature'] as String?,
+              timestamp: json['timestamp'] as String?,
               transport: TransportMode.wifiDirect,
             ),
           );
@@ -424,6 +427,24 @@ class WiFiDirectTransport implements TransportInterface {
 
   void _sendIdentityTo(String? recipientIP) {
     if (_myUuid == null) return;
+    // Re-sign with a fresh timestamp: receivers reject stale identities
+    // (sixth review, findings 1 and 2).
+    final crypto = _crypto;
+    if (crypto == null || !crypto.isReady) return;
+    final timestamp = DateTime.now().toIso8601String();
+    final String signature;
+    try {
+      signature = crypto.signAnnouncement(
+        uuid: _myUuid!,
+        shortId: _myShortId ?? '',
+        displayName: _myDisplayName ?? 'Unknown',
+        statusMessage: _myStatusMessage,
+        publicKeyPEM: _myPublicKeyPEM,
+        timestamp: timestamp,
+      );
+    } catch (_) {
+      return;
+    }
     final packet = jsonEncode({
       'type': 'wdIdentity',
       'uuid': _myUuid,
@@ -431,7 +452,8 @@ class WiFiDirectTransport implements TransportInterface {
       'displayName': _myDisplayName ?? 'Unknown',
       'statusMessage': _myStatusMessage,
       'publicKeyPEM': _myPublicKeyPEM,
-      'signature': _myAnnouncementSignature,
+      'signature': signature,
+      'timestamp': timestamp,
     });
     _sendBytes(utf8.encode(packet), recipientIP);
   }

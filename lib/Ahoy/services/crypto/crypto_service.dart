@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:pointycastle/export.dart' as pc;
+import '../../core/constants.dart';
 import '../../core/errors.dart';
 
 class CryptoService {
@@ -224,32 +225,51 @@ class CryptoService {
 
   // --- Identity binding (audit H-2) ---
 
-  /// Canonical JSON string binding an announced identity to a public key.
-  /// Both sides must derive identical material keep the field set frozen.
+  /// Canonical signed string binding an announced identity to a public key.
+  /// Domain-separated with a context prefix (sixth review, finding 3) so an
+  /// announcement signature can never be transplanted onto another message
+  /// kind, and freshness-bound with a timestamp (sixth review, findings 1
+  /// and 2) so a captured announcement cannot be replayed forever.
   static String announcementMaterial({
     required String uuid,
     required String shortId,
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    required String timestamp,
   }) {
-    return jsonEncode({
+    final material = jsonEncode({
       'uuid': uuid,
       'shortId': shortId,
       'displayName': displayName,
       'statusMessage': statusMessage,
       'publicKeyPEM': publicKeyPEM,
+      'timestamp': timestamp,
     });
+    return 'ahoy-announce-v1:$material';
+  }
+
+  /// True when [iso] parses and sits within [tolerance] of now. Missing or
+  /// unparsable timestamps are never fresh.
+  static bool isFreshTimestamp(String? iso, {Duration? tolerance}) {
+    if (iso == null || iso.isEmpty) return false;
+    final parsed = DateTime.tryParse(iso);
+    if (parsed == null) return false;
+    final skew = DateTime.now().difference(parsed);
+    return skew.abs() <=
+        (tolerance ??
+            const Duration(seconds: AhoyConstants.announcementFreshnessSeconds));
   }
 
   /// Signs an identity announcement with the loaded private key, binding
-  /// (uuid, shortId, displayName) to [publicKeyPEM].
+  /// (uuid, shortId, displayName) to [publicKeyPEM] at [timestamp].
   String signAnnouncement({
     required String uuid,
     required String shortId,
     required String displayName,
     String? statusMessage,
     String? publicKeyPEM,
+    required String timestamp,
   }) {
     return signPayload(
       announcementMaterial(
@@ -258,13 +278,15 @@ class CryptoService {
         displayName: displayName,
         statusMessage: statusMessage,
         publicKeyPEM: publicKeyPEM,
+        timestamp: timestamp,
       ),
     );
   }
 
   /// Verifies that an announcement legitimately binds (uuid, shortId,
   /// displayName) to [publicKeyPEM] i.e. the announcer controls the private
-  /// key for the identity they claim.
+  /// key for the identity they claim. Callers check [isFreshTimestamp] on the
+  /// same timestamp before trusting the announcement.
   bool verifyAnnouncement({
     required String uuid,
     required String shortId,
@@ -272,6 +294,7 @@ class CryptoService {
     String? statusMessage,
     required String publicKeyPEM,
     required String signature,
+    required String timestamp,
   }) {
     return verifyPayloadSignature(
       announcementMaterial(
@@ -280,6 +303,7 @@ class CryptoService {
         displayName: displayName,
         statusMessage: statusMessage,
         publicKeyPEM: publicKeyPEM,
+        timestamp: timestamp,
       ),
       signature,
       publicKeyPEM,

@@ -19,13 +19,16 @@ const _msgId = 'aaaaaaaa-1111-2222-3333-444444444444';
 String _wire(Map<String, dynamic> data, String fromUuid) =>
     jsonEncode({...data, 'from': fromUuid});
 
-String _ackMaterial(Map<String, dynamic> p) => jsonEncode({
-  'msgType': p['msgType'],
-  'ackFor': p['ackFor'],
-  'convId': p['convId'],
-  'senderUuid': p['senderUuid'],
-  'timestamp': p['timestamp'],
-});
+String _ackMaterial(Map<String, dynamic> p) {
+  final material = jsonEncode({
+    'msgType': p['msgType'],
+    'ackFor': p['ackFor'],
+    'convId': p['convId'],
+    'senderUuid': p['senderUuid'],
+    'timestamp': p['timestamp'],
+  });
+  return 'ahoy-ack-v1:$material';
+}
 
 class _CapturingTransportManager extends TransportManager {
   Map<String, dynamic>? lastData;

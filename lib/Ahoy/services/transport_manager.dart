@@ -204,18 +204,25 @@ class TransportManager {
         _myPublicKeyPEM == null) {
       return null;
     }
+    final timestamp = DateTime.now().toIso8601String();
+    debugAnnouncementTimestamp = timestamp;
     return crypto.signAnnouncement(
       uuid: _myUuid!,
       shortId: _myShortId ?? '',
       displayName: _myDisplayName ?? '',
       statusMessage: _myStatusMessage,
       publicKeyPEM: _myPublicKeyPEM,
+      timestamp: timestamp,
     );
   }
 
   /// The announcement signature for the currently cached identity (tests).
   @visibleForTesting
   String? get debugAnnouncementSignature => _myAnnouncementSignature;
+
+  /// The timestamp covered by [debugAnnouncementSignature] (tests).
+  @visibleForTesting
+  String? debugAnnouncementTimestamp;
 
   /// Injects a packet as if a transport delivered it (tests).
   @visibleForTesting
@@ -252,6 +259,9 @@ class TransportManager {
     }
     final signature = announcement.signature;
     if (signature == null || signature.isEmpty) return false;
+    // Freshness: a captured announcement replayed later must not refresh or
+    // repoint anything (sixth review, findings 1 and 2).
+    if (!CryptoService.isFreshTimestamp(announcement.timestamp)) return false;
     return crypto.verifyAnnouncement(
       uuid: announcement.uuid,
       shortId: announcement.shortId,
@@ -259,6 +269,7 @@ class TransportManager {
       statusMessage: announcement.statusMessage,
       publicKeyPEM: announcement.publicKeyPEM!,
       signature: signature,
+      timestamp: announcement.timestamp!,
     );
   }
 

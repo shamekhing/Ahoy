@@ -51,11 +51,13 @@ void main() {
     crypto.activate(keys['privateKey']!, keys['publicKey']!);
     final provider = await createProvider(crypto);
 
+    final announceTs = DateTime.now().toIso8601String();
     final signature = crypto.signAnnouncement(
       uuid: _realUuid,
       shortId: _correctShortId,
       displayName: 'Alice',
       publicKeyPEM: keys['publicKey']!,
+      timestamp: announceTs,
     );
     provider.onAnnouncement(
       PeerAnnouncement(
@@ -64,6 +66,7 @@ void main() {
         displayName: 'Alice',
         publicKeyPEM: keys['publicKey'],
         signature: signature,
+        timestamp: announceTs,
         transport: TransportMode.lan,
       ),
     );
@@ -99,11 +102,13 @@ void main() {
     crypto.activate(keys['privateKey']!, keys['publicKey']!);
     final provider = await createProvider(crypto);
 
+    final announceTs = DateTime.now().toIso8601String();
     final signature = crypto.signAnnouncement(
       uuid: _realUuid,
       shortId: _correctShortId,
       displayName: 'Alice',
       publicKeyPEM: keys['publicKey']!,
+      timestamp: announceTs,
     );
     // Tampered identity field signature no longer matches.
     provider.onAnnouncement(
@@ -143,11 +148,13 @@ void main() {
     final keys = await crypto.generateKeyPair();
     crypto.activate(keys['privateKey']!, keys['publicKey']!);
 
+    final announceTs = DateTime.now().toIso8601String();
     final signature = crypto.signAnnouncement(
       uuid: _realUuid,
       shortId: _correctShortId,
       displayName: 'Alice',
       publicKeyPEM: keys['publicKey']!,
+      timestamp: announceTs,
     );
 
     expect(
@@ -157,6 +164,7 @@ void main() {
         displayName: 'Alice',
         publicKeyPEM: keys['publicKey']!,
         signature: signature,
+        timestamp: announceTs,
       ),
       isTrue,
     );
@@ -167,6 +175,7 @@ void main() {
         displayName: 'Mallory',
         publicKeyPEM: keys['publicKey']!,
         signature: signature,
+        timestamp: announceTs,
       ),
       isFalse,
     );
@@ -304,6 +313,7 @@ void main() {
     final keys = await crypto.generateKeyPair();
     crypto.activate(keys['privateKey']!, keys['publicKey']!);
     final provider = await createProvider(crypto);
+    final announceTs = DateTime.now().toIso8601String();
 
     provider.onAnnouncement(PeerAnnouncement(
       uuid: _realUuid,
@@ -315,7 +325,9 @@ void main() {
         shortId: _correctShortId,
         displayName: 'Real Name',
         publicKeyPEM: keys['publicKey']!,
+        timestamp: announceTs,
       ),
+      timestamp: announceTs,
       transport: TransportMode.lan,
     ));
     await pumpEventQueue();

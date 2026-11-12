@@ -140,6 +140,12 @@ class DiscoveryProvider extends ChangeNotifier {
       ahoyLog('[Discovery] dropping keyed announcement without signature');
       return false;
     }
+    // Freshness: a replayed announcement must not keep a departed peer
+    // online or repoint routing (sixth review, findings 1 and 2).
+    if (!CryptoService.isFreshTimestamp(announcement.timestamp)) {
+      ahoyLog('[Discovery] dropping stale announcement');
+      return false;
+    }
     final ok = _crypto.verifyAnnouncement(
       uuid: announcement.uuid,
       shortId: announcement.shortId,
@@ -147,6 +153,7 @@ class DiscoveryProvider extends ChangeNotifier {
       statusMessage: announcement.statusMessage,
       publicKeyPEM: announcement.publicKeyPEM!,
       signature: signature,
+      timestamp: announcement.timestamp!,
     );
     if (!ok) {
       ahoyLog('[Discovery] dropping announcement with invalid signature');

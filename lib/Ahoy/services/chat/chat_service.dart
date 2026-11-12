@@ -1060,10 +1060,12 @@ class ChatService {
     });
   }
 
-  /// Signature material for sealed (v3) inner payloads. Frozen field set —
-  /// changing it breaks verification of previously sent messages.
+  /// Signature material for sealed (v3) inner payloads. Domain-separated
+  /// (sixth review, finding 3) so a signature for one message kind can never
+  /// verify against another. Frozen field set — changing it breaks
+  /// verification of previously sent messages.
   String _signatureMaterialV3(Map<String, dynamic> payload) {
-    return jsonEncode({
+    return 'ahoy-chat-v3:${jsonEncode({
       'msgType': payload['msgType'],
       'msgId': payload['msgId'],
       'convId': payload['convId'],
@@ -1076,30 +1078,32 @@ class ChatService {
       'replyToPreview': payload['replyToPreview'],
       'timestamp': payload['timestamp'],
       'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
-    });
+    })}';
   }
 
-  /// Signature material for delivery acknowledgments. Frozen field set.
+  /// Signature material for delivery acknowledgments. Domain-separated
+  /// (sixth review, finding 3). Frozen field set.
   String _ackMaterial(Map<String, dynamic> payload) {
-    return jsonEncode({
+    return 'ahoy-ack-v1:${jsonEncode({
       'msgType': payload['msgType'],
       'ackFor': payload['ackFor'],
       'convId': payload['convId'],
       'senderUuid': payload['senderUuid'],
       'timestamp': payload['timestamp'],
-    });
+    })}';
   }
 
   /// Signature material for signed identity exchanges (audit #1).
+  /// Domain-separated (sixth review, finding 3). Frozen field set.
   String _identityMaterial(Map<String, dynamic> payload) {
-    return jsonEncode({
+    return 'ahoy-identity-v1:${jsonEncode({
       'msgType': payload['msgType'],
       'senderUuid': payload['senderUuid'],
       'senderShortId': payload['senderShortId'],
       'senderName': payload['senderName'],
       'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
       'timestamp': payload['timestamp'],
-    });
+    })}';
   }
 
   bool _samePublicKey(String a, String b) {

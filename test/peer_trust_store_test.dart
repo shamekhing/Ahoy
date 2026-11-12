@@ -197,6 +197,7 @@ void main() {
       attacker.activate(attackerKeys['privateKey']!, attackerKeys['publicKey']!);
       final shortId = CryptoService.shortIdFromUuid(_peerUuid);
 
+      final firstTs = DateTime.now().toIso8601String();
       provider.onAnnouncement(PeerAnnouncement(
         uuid: _peerUuid,
         shortId: shortId,
@@ -207,7 +208,9 @@ void main() {
           shortId: shortId,
           displayName: 'Peer',
           publicKeyPEM: peerKeys['publicKey']!,
+          timestamp: firstTs,
         ),
+        timestamp: firstTs,
         transport: TransportMode.lan,
       ));
       expect(captured, [peerKeys['publicKey']]);
@@ -215,6 +218,7 @@ void main() {
       // A self-signed announcement claiming the same UUID with a different
       // key passes both signature vetoes; DiscoveryService keeps the first
       // key and that is what chat must observe (audit H-2).
+      final secondTs = DateTime.now().toIso8601String();
       provider.onAnnouncement(PeerAnnouncement(
         uuid: _peerUuid,
         shortId: shortId,
@@ -225,7 +229,9 @@ void main() {
           shortId: shortId,
           displayName: 'Peer',
           publicKeyPEM: attackerKeys['publicKey']!,
+          timestamp: secondTs,
         ),
+        timestamp: secondTs,
         transport: TransportMode.lan,
       ));
 
@@ -269,14 +275,14 @@ Map<String, dynamic> _identityPayload(
 }
 
 String _identityMaterial(Map<String, dynamic> payload) {
-  return jsonEncode({
+  return 'ahoy-identity-v1:${jsonEncode({
     'msgType': payload['msgType'],
     'senderUuid': payload['senderUuid'],
     'senderShortId': payload['senderShortId'],
     'senderName': payload['senderName'],
     'senderPublicKeyPEM': payload['senderPublicKeyPEM'],
     'timestamp': payload['timestamp'],
-  });
+  })}';
 }
 
 class _Harness {

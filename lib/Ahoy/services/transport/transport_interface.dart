@@ -29,6 +29,10 @@ class PeerAnnouncement {
   /// [publicKeyPEM]'s private key. Null for BLE scan-response announcements
   /// (13-byte budget) identity is bound at the first signed chat message.
   final String? signature;
+
+  /// ISO timestamp covered by the signature (sixth review, findings 1 and 2).
+  /// Null only for keyless BLE announcements.
+  final String? timestamp;
   final TransportMode transport;
 
   const PeerAnnouncement({
@@ -38,6 +42,7 @@ class PeerAnnouncement {
     this.statusMessage,
     this.publicKeyPEM,
     this.signature,
+    this.timestamp,
     required this.transport,
   });
 }

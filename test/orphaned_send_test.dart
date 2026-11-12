@@ -186,14 +186,16 @@ void main() {
       'senderPublicKeyPEM': peerKeys['publicKey'],
       'timestamp': DateTime.now().toIso8601String(),
     };
-    identity['signature'] = peerCrypto.signPayload(jsonEncode({
+    final identityMaterial = jsonEncode({
       'msgType': identity['msgType'],
       'senderUuid': identity['senderUuid'],
       'senderShortId': identity['senderShortId'],
       'senderName': identity['senderName'],
       'senderPublicKeyPEM': identity['senderPublicKeyPEM'],
       'timestamp': identity['timestamp'],
-    }));
+    });
+    identity['signature'] =
+        peerCrypto.signPayload('ahoy-identity-v1:$identityMaterial');
     await serviceB.onInboundPacket(
       rawPayload: jsonEncode(identity),
       peerUuid: _peerUuid,
