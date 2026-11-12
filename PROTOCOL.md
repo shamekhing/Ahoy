@@ -260,7 +260,7 @@ signature      base64(RSA-PKCS1v1.5-SHA256("ahoy-identity-v1:" + JSON({msgType, 
 
 An accepted identity registers the key as `unverified`. It is answered once with the local identity, and the reply is not answered in turn. It may also release queued messages.
 
-**Throttling:** identity messages from one peer are processed at most once every 2 seconds. Identity replies are rate-limited per peer, at most once every 10 seconds. In addition, identity processing runs under a **global budget** of 20 messages per 10-second window, applied before verification, replies, and the per-peer throttle maps: rotating UUIDs cannot purchase more RSA work than the budget allows, and excess identities are dropped (§6.5).
+**Throttling:** identity messages from one peer are processed at most once every 2 seconds. Identity replies are rate-limited per peer, at most once every 10 seconds. In addition, identity processing runs under a **global budget** of 20 messages per 10-second window, applied after the per-peer throttle but before verification and replies: rotating UUIDs cannot purchase more RSA work than the budget allows — every fresh UUID passes the per-peer throttle and charges the budget — while a flood from a single identity is stopped by the throttle without charging it, so one peer cannot starve the rest. Excess identities are dropped (§6.5).
 
 ### 6.2 Receive Off
 
@@ -417,6 +417,7 @@ Each item needs a decision before the protocol is frozen.
 | 2026-11-12 | §8: routing tables split — verified UUIDs capped at 512, temporary transport ids capped at 128 in their own table | External review: ambient BLE devices could churn real peers out of the single shared table |
 | 2026-11-12 | §3.1 rule 9 and §8: per-address UDP announcement rate limit (20 per 10 s) and bounded per-transport route/key maps (512 each); BLE scan cache capped at 256 | Ninth review: the LAN route and key maps and the WiFi Direct key map grew without bound under unique valid announcements, and UDP announcements had no rate limit |
 | 2026-11-12 | §6.3 and §8: alias binding at packet receipt — sends, retry triggers and first-contact conversations rebind to the canonical UUID once a signed payload binds the temporary transport id to it; the BLE transport resolves the canonical UUID to the device address on send | Ninth review: a pure BLE first contact could never complete — the responder's sends and the initiator's retry were keyed under ids the BLE transport could not resolve |
+| 2026-11-12 | §6.1: the global identity budget is charged only by identities that pass the per-peer throttle | Ninth review: a single identity flooding identity packets consumed the whole budget and starved every other peer's handshake |
 
 Record every future change here, with the finding or decision that motivated it. A change to a signed field set must update §5, §6, or §3 as relevant, and must bump the prefix.
 

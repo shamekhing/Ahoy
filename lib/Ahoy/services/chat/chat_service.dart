@@ -708,9 +708,20 @@ class ChatService {
           ahoyLog('[ChatService] receive off: dropping identity probe');
           return null;
         }
-        // Global budget (round 8): UUID rotation defeats per-peer
-        // throttles, so identity processing (verify + possible reply) is
-        // capped across all peers before any expensive work.
+        final now = DateTime.now();
+        final last = _identityReceivedAt[peerUuid];
+        if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+          ahoyLog('[ChatService] dropping identity flood');
+          return null;
+        }
+        _cappedIdentityPut(_identityReceivedAt, peerUuid, now);
+
+        // Global budget (round 8): UUID rotation defeats per-peer throttles,
+        // so identity processing (verify + possible reply) is capped across
+        // all peers before any expensive work. Only identities that pass the
+        // per-peer throttle charge the budget: a flood from a single UUID is
+        // stopped by the throttle and must not starve every other peer's
+        // handshake (ninth review, spec §6.1).
         final budgetNow = DateTime.now();
         final budgetStart = _identityBudgetStart;
         if (budgetStart == null ||
@@ -727,14 +738,7 @@ class ChatService {
           ahoyLog('[ChatService] identity budget exhausted; dropping probe');
           return null;
         }
-        final now = DateTime.now();
-    final last = _identityReceivedAt[peerUuid];
-    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
-      ahoyLog('[ChatService] dropping identity flood');
-      return null;
-    }
-    _cappedIdentityPut(_identityReceivedAt, peerUuid, now);
-    await _handleInboundIdentity(
+        await _handleInboundIdentity(
           outer,
           peerUuid,
           myUuid,

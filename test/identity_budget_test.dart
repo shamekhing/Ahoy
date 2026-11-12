@@ -74,6 +74,92 @@ void main() {
     );
     expect(transport.sent, hasLength(AhoyConstants.maxIdentityProcessedPerWindow));
   });
+
+  test('a flood from one identity cannot starve the budget for another',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = PrefsStore();
+    await prefs.init();
+    final crypto = CryptoService();
+    final myKeys = await crypto.generateKeyPair();
+    crypto.activate(myKeys['privateKey']!, myKeys['publicKey']!);
+    final transport = _CapturingTransport();
+    final service = ChatService(
+      transport,
+      ConversationStore(prefs),
+      MessageStore(prefs),
+      crypto,
+    );
+
+    final flooder = CryptoService();
+    final floodKeys = await flooder.generateKeyPair();
+    flooder.activate(floodKeys['privateKey']!, floodKeys['publicKey']!);
+    const floodUuid = '33333333-0000-4000-8000-000000000000';
+
+    // Far more identity packets than the global budget, all from ONE uuid:
+    // the per-peer throttle must stop them without charging the budget
+    // (ninth review, spec §6.1).
+    for (var i = 0; i < 30; i++) {
+      final payload = _identityPayload(
+        flooder,
+        floodUuid,
+        floodKeys['publicKey']!,
+      );
+      await service.onInboundPacket(
+        rawPayload: jsonEncode(payload),
+        peerUuid: floodUuid,
+        peerShortId: 'FLOOD',
+        peerDisplayName: 'Flood',
+        myUuid: _myUuid,
+        myShortId: 'ME1234',
+        myDisplayName: 'Me',
+        myPublicKeyPEM: myKeys['publicKey'],
+        transport: TransportMode.lan,
+        receiveOff: false,
+        blockedUuids: const {},
+      );
+    }
+    final budgetSpentByFlood = service.debugIdentityRepliedCount;
+
+    // A legitimate peer's identity right after the flood must still be
+    // processed: verified, registered and answered.
+    final peer = CryptoService();
+    final peerKeys = await peer.generateKeyPair();
+    peer.activate(peerKeys['privateKey']!, peerKeys['publicKey']!);
+    const peerUuid = '44444444-0000-4000-8000-000000000000';
+    final before = transport.sent.length;
+    await service.onInboundPacket(
+      rawPayload: jsonEncode(
+        _identityPayload(peer, peerUuid, peerKeys['publicKey']!),
+      ),
+      peerUuid: peerUuid,
+      peerShortId: 'PEER12',
+      peerDisplayName: 'Peer',
+      myUuid: _myUuid,
+      myShortId: 'ME1234',
+      myDisplayName: 'Me',
+      myPublicKeyPEM: myKeys['publicKey'],
+      transport: TransportMode.lan,
+      receiveOff: false,
+      blockedUuids: const {},
+    );
+
+    expect(
+      service.peerTrust(peerUuid),
+      isNotNull,
+      reason: 'the flood must not consume the global identity budget',
+    );
+    expect(
+      transport.sent.length,
+      greaterThan(before),
+      reason: 'the identity reply went out',
+    );
+    expect(
+      budgetSpentByFlood,
+      lessThanOrEqualTo(1),
+      reason: 'the per-peer throttle stopped the flood before the budget',
+    );
+  });
 }
 
 Map<String, dynamic> _identityPayload(
