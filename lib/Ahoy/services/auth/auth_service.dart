@@ -83,7 +83,8 @@ class AuthService {
     final id = const Uuid().v4();
     final shortId = CryptoService.shortIdFromUuid(id);
 
-    // RSA key generation runs in a separate isolate never blocks the UI thread.
+    // RSA key generation runs via Isolate.run, so the UI thread is never
+    // blocked while the 2048-bit pair is generated.
     final keys = await _cryptoService.generateKeyPair();
     await _keyStore.save(keys['privateKey']!, keys['publicKey']!);
     await _keyStore.load(); // activates CryptoService

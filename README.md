@@ -1542,7 +1542,7 @@ Hardware features declared `android:required="false"` so app installs on devices
 | `local_auth` | ^2.3.0 | Biometric sign-in (fingerprint / face) |
 | `uuid` | ^4.5.1 | UUID v4 generation for user ID and message ID |
 | `crypto` | ^3.0.6 | SHA-256 for conversation ID and short ID derivation |
-| `encrypt` | ^5.0.3 | AES-256-GCM message encryption |
+| `encrypt` | ^5.0.3 | AES-256-GCM message encryption (no AAD: the sealed payload signs everything inside it, see `crypto_service.dart`) |
 | `pointycastle` | ^3.9.1 | RSA-2048 key generation and RSA-OAEP key wrapping |
 | `flutter_blue_plus` | ^1.35.5 | BLE scanning, GATT discovery, characteristic writes |
 | `permission_handler` | ^11.3.0 | Runtime permission requests |
@@ -1558,7 +1558,7 @@ Hardware features declared `android:required="false"` so app installs on devices
 
 **Requirements:**
 - Flutter 3.x
-- Android 8.0+ (API 26+) WiFi Direct requires Android 4.0+ but BLE peripheral mode requires Android 5.0+
+- Minimum Android SDK is whatever `flutter.minSdkVersion` resolves to in `android/app/build.gradle.kts` (the Flutter default, currently 21). WiFi Direct needs Android 4.0+, and BLE peripheral mode needs Android 5.0+, so devices below those levels fall back to LAN only.
 - Two physical Android devices (emulators do not support WiFi Direct or BLE advertising)
 
 **Run:**

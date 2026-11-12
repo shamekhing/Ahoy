@@ -169,10 +169,10 @@ class WiFiDirectTransport implements TransportInterface {
 
   @override
   Future<void> stopScanning() async {
+    if (!Platform.isAndroid) return;
     // Auto-connect caps reset on a scan restart so pull-to-refresh can retry
     // devices that never proved they speak Ahoy (audit M-4).
     _autoConnectFailuresReset();
-    if (!Platform.isAndroid) return;
     _discoveryTimer?.cancel();
     _discoveryTimer = null;
     _channel.setMethodCallHandler(null);

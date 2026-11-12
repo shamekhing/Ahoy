@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -75,6 +76,12 @@ class MediaService {
     }
 
     final bytes = await crypto.readEncryptedFile(File(path));
+    if (bytes.isEmpty) {
+      // A quarantined or empty media file has nothing to play (sixth
+      // review, finding 8).
+      ahoyLog('[MediaService] nothing to play for $path');
+      return;
+    }
     final dir = await getTemporaryDirectory();
     final temp = File(
       '${dir.path}/ahoy_audio_${DateTime.now().microsecondsSinceEpoch}.aac',

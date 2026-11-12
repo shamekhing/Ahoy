@@ -140,6 +140,7 @@ class ChatService {
     unawaited(_prefsStore?.remove(_outboxKey));
     _trust.clear();
     _identitySentAt.clear();
+    _identityReceivedAt.clear();
     _identityRepliedTo.clear();
     _seenMessageIds.clear();
     _blockedUuids = const {};
