@@ -130,6 +130,7 @@ class _RootScreenState extends State<RootScreen> {
         bleEnabled: discovery.bleEnabled,
         lanEnabled: discovery.lanEnabled,
         wifiDirectEnabled: discovery.wifiDirectEnabled,
+        offGrid: discovery.offGrid,
       );
 
       if (!mounted) return;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../core/enums.dart';
+import '../core/logging.dart';
 import 'crypto/crypto_service.dart';
 import 'transport/transport_interface.dart';
 import 'transport/wifi_direct_transport.dart';
@@ -27,6 +28,28 @@ class TransportManager {
   bool _bleEnabled = true;
   bool _lanEnabled = true;
   bool _wifiDirectEnabled = true;
+
+  /// Off the Grid lives here, not in the UI layer, so every advertise path
+  /// (cold start, pull-to-refresh, profile edit) is gated in one place
+  /// (audit H-3). Scanning stays enabled: off-grid means invisible, not deaf.
+  bool _offGrid = false;
+
+  /// Number of advertise passes that actually reached the transports
+  /// (tests use this to prove Off the Grid suppresses all of them).
+  @visibleForTesting
+  int debugAdvertiseCount = 0;
+
+  bool get offGrid => _offGrid;
+
+  /// Updates the Off the Grid flag. Turning it on stops all advertising
+  /// immediately; turning it off does not resume on its own, callers decide
+  /// when to broadcast again via [resumeAdvertising] or [refreshAdvertising].
+  Future<void> setOffGrid(bool value) async {
+    _offGrid = value;
+    if (value) {
+      await stopAdvertising();
+    }
+  }
 
   // Cached identity so individual transport enable/disable can re-advertise
   // without requiring the caller to supply credentials again.
@@ -60,10 +83,12 @@ class TransportManager {
     required bool bleEnabled,
     required bool lanEnabled,
     required bool wifiDirectEnabled,
+    bool offGrid = false,
   }) async {
     _bleEnabled = bleEnabled;
     _lanEnabled = lanEnabled;
     _wifiDirectEnabled = wifiDirectEnabled;
+    _offGrid = offGrid;
 
     _myUuid = uuid;
     _myShortId = shortId;
@@ -126,6 +151,13 @@ class TransportManager {
     _myStatusMessage = statusMessage;
     _myPublicKeyPEM = publicKeyPEM;
     _myAnnouncementSignature = _computeAnnouncementSignature();
+    if (_offGrid) {
+      // Identity fields and the signature stay cached so a later
+      // refreshAdvertising() resumes with a correct announcement (audit H-3).
+      ahoyLog('[TransportManager] off the grid: not advertising');
+      return;
+    }
+    debugAdvertiseCount += 1;
     if (_wifiDirectEnabled) {
       await _wifiDirect.startAdvertising(
         uuid: uuid,
@@ -222,9 +254,24 @@ class TransportManager {
   }
 
   /// Re-advertise on all enabled transports using the cached identity.
-  /// Call this when coming back from off-grid mode.
+  /// Call this when coming back from off-grid mode. Suppressed while the
+  /// Off the Grid flag is still set (audit H-3).
   Future<void> resumeAdvertising() async {
-    if (_myUuid == null) return;
+    if (_myUuid == null || _offGrid) return;
+    await startAdvertising(
+      uuid: _myUuid!,
+      shortId: _myShortId!,
+      displayName: _myDisplayName!,
+      statusMessage: _myStatusMessage,
+      publicKeyPEM: _myPublicKeyPEM,
+    );
+  }
+
+  /// Re-advertises with the cached identity after a profile edit. A no-op
+  /// while Off the Grid is on, so editing the profile cannot broadcast the
+  /// identity the user asked to hide (audit H-3).
+  Future<void> refreshAdvertising() async {
+    if (_myUuid == null || _offGrid) return;
     await startAdvertising(
       uuid: _myUuid!,
       shortId: _myShortId!,
@@ -238,7 +285,7 @@ class TransportManager {
     _bleEnabled = enabled;
     if (enabled) {
       await _ble.startScanning();
-      if (_myUuid != null) {
+      if (_myUuid != null && !_offGrid) {
         await _ble.startAdvertising(
           uuid: _myUuid!,
           shortId: _myShortId!,
@@ -258,7 +305,7 @@ class TransportManager {
     _lanEnabled = enabled;
     if (enabled) {
       await _lan.startScanning();
-      if (_myUuid != null) {
+      if (_myUuid != null && !_offGrid) {
         await _lan.startAdvertising(
           uuid: _myUuid!,
           shortId: _myShortId!,
@@ -278,7 +325,7 @@ class TransportManager {
     _wifiDirectEnabled = enabled;
     if (enabled) {
       await _wifiDirect.startScanning();
-      if (_myUuid != null) {
+      if (_myUuid != null && !_offGrid) {
         await _wifiDirect.startAdvertising(
           uuid: _myUuid!,
           shortId: _myShortId!,

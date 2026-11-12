@@ -252,15 +252,11 @@ class _EditProfileScreenState extends State<_EditProfileScreen> {
     if (user != null) {
       // Keep AuthProvider in sync so outgoing messages use the new display name.
       context.read<AuthProvider>().updateUser(user);
-      // Re-advertise so nearby peers see the updated name and status immediately.
+      // Re-advertise so nearby peers see the updated name and status
+      // immediately. refreshAdvertising() is a no-op while Off the Grid is
+      // on, so a profile edit cannot broadcast a hidden identity (audit H-3).
       try {
-        await context.read<TransportManager>().startAdvertising(
-          uuid: user.id,
-          shortId: user.shortId,
-          displayName: user.username,
-          statusMessage: user.statusMessage,
-          publicKeyPEM: user.publicKeyPEM,
-        );
+        await context.read<TransportManager>().refreshAdvertising();
       } catch (_) {}
     }
 

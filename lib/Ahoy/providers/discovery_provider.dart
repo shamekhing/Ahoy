@@ -151,9 +151,11 @@ class DiscoveryProvider extends ChangeNotifier {
   Future<void> setOffGrid(bool value) async {
     _offGrid = value;
     await _prefs.setBool(AhoyConstants.prefOffGrid, value: value);
-    if (value) {
-      await _transport.stopAdvertising();
-    } else {
+    // The flag lives in TransportManager so every advertise path is gated in
+    // one place (audit H-3). Turning it off resumes broadcasting; turning it
+    // on stops advertising inside the manager.
+    await _transport.setOffGrid(value);
+    if (!value) {
       await _transport.resumeAdvertising();
     }
     notifyListeners();
