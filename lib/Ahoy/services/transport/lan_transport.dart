@@ -47,7 +47,7 @@ class LanTransport implements TransportInterface {
   final Map<String, _PeerConn> _peerConns = {};
 
   /// /24 prefixes (e.g. "192.168.1") from which a valid UDP announcement was
-  /// received — TCP connections from other networks are rejected (audit M-4).
+  /// received TCP connections from other networks are rejected (audit M-4).
   final Set<String> _announceSubnets = {};
 
   DateTime? _localSubnetsAt;
@@ -115,7 +115,7 @@ class LanTransport implements TransportInterface {
       ahoyLog('[LAN] UDP bind failed', e);
     }
 
-    // Shared send socket — reused across all broadcast calls to avoid
+    // Shared send socket reused across all broadcast calls to avoid
     // creating a new socket per target per interval.
     try {
       _sendSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
@@ -211,7 +211,7 @@ class LanTransport implements TransportInterface {
       if (uuid == null || uuid == _myUuid) return;
 
       // Only trust announcements that originate from our own interface
-      // subnets (or loopback) — cross-network spoofs are dropped and can
+      // subnets (or loopback) cross-network spoofs are dropped and can
       // never poison the connect targets (audit M-4).
       if (!_isLocalOrLoopback(dg.address)) {
         ahoyLog('[LAN] dropping announcement from foreign subnet');
@@ -398,7 +398,7 @@ class LanTransport implements TransportInterface {
         now.difference(cachedAt) < const Duration(seconds: 15)) {
       return _localSubnetsCache;
     }
-    // Stale or missing — refresh in the background and use what we have.
+    // Stale or missing refresh in the background and use what we have.
     unawaited(_refreshLocalSubnets());
     return _localSubnetsCache;
   }
@@ -410,7 +410,7 @@ class LanTransport implements TransportInterface {
   }
 
   /// True for loopback addresses and addresses inside one of this host's own
-  /// interface subnets — the only legitimate origins of announcements.
+  /// interface subnets the only legitimate origins of announcements.
   bool _isLocalOrLoopback(InternetAddress address) {
     if (address.type == InternetAddressType.IPv4) {
       if (address.address.startsWith('127.')) return true;
@@ -421,7 +421,7 @@ class LanTransport implements TransportInterface {
   }
 
   /// TCP peers must come from a subnet that actually announced itself
-  /// (audit M-4) — or from loopback, which keeps local tooling working.
+  /// (audit M-4) or from loopback, which keeps local tooling working.
   bool _isAllowedTcpPeer(InternetAddress address) {
     if (address.type == InternetAddressType.IPv4 &&
         address.address.startsWith('127.')) {
@@ -471,7 +471,7 @@ class LanTransport implements TransportInterface {
       return true;
     } catch (e) {
       ahoyLog('[LAN] send failed', e);
-      // Remove stale entry — the next UDP announcement will re-add it.
+      // Remove stale entry the next UDP announcement will re-add it.
       _peerConns.remove(peerUuid);
       return false;
     } finally {

@@ -78,7 +78,7 @@ class CryptoService {
       );
       return _constantTimeEquals(dkHex, expectedDkHex);
     }
-    // Legacy SHA-256 format — verify without blocking the UI (fast).
+    // Legacy SHA-256 format verify without blocking the UI (fast).
     final parts = storedHash.split(':');
     if (parts.length != 2) return false;
     final hash = sha256.convert(utf8.encode(parts[0] + password));
@@ -105,7 +105,7 @@ class CryptoService {
     return result == 0;
   }
 
-  // --- RSA key generation (runs in a separate isolate — never blocks UI) ---
+  // --- RSA key generation (runs in a separate isolate never blocks UI) ---
 
   Future<Map<String, String>> generateKeyPair() async {
     return Isolate.run(_generateKeyPairInIsolate);
@@ -190,7 +190,7 @@ class CryptoService {
   // --- Identity binding (audit H-2) ---
 
   /// Canonical JSON string binding an announced identity to a public key.
-  /// Both sides must derive identical material — keep the field set frozen.
+  /// Both sides must derive identical material keep the field set frozen.
   static String announcementMaterial({
     required String uuid,
     required String shortId,
@@ -228,7 +228,7 @@ class CryptoService {
   }
 
   /// Verifies that an announcement legitimately binds (uuid, shortId,
-  /// displayName) to [publicKeyPEM] — i.e. the announcer controls the private
+  /// displayName) to [publicKeyPEM] i.e. the announcer controls the private
   /// key for the identity they claim.
   bool verifyAnnouncement({
     required String uuid,
@@ -263,7 +263,7 @@ class CryptoService {
 
   /// Combined per-conversation safety number: derived from BOTH public keys
   /// (order-independent), so both devices compute the exact same 60 digits
-  /// for the same conversation — read it aloud to detect impersonation.
+  /// for the same conversation read it aloud to detect impersonation.
   static String safetyNumberFor(
     String myPublicKeyPEM,
     String peerPublicKeyPEM,
@@ -350,7 +350,7 @@ String _pbkdf2Hex(String saltHex, String password, int iterations) {
   return dk.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
-// Top-level function — required for Isolate.run / compute.
+// Top-level function required for Isolate.run / compute.
 Map<String, String> _generateKeyPairInIsolate() {
   final secureRandom = pc.SecureRandom('Fortuna')
     ..seed(
@@ -379,7 +379,7 @@ Map<String, String> _generateKeyPairInIsolate() {
   };
 }
 
-// ── DER helpers (no pointycastle ASN1 API — avoids RangeError in v3.x) ────
+// ── DER helpers (no pointycastle ASN1 API avoids RangeError in v3.x) ────
 
 Uint8List _bigIntToDerBytes(BigInt v) {
   if (v == BigInt.zero) return Uint8List.fromList([0x00]);

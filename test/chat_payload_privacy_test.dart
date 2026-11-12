@@ -15,7 +15,7 @@ const _bobUuid = '22222222-2222-4222-8222-222222222222';
 const _malloryUuid = '33333333-3333-4333-8333-333333333333';
 const _validMsgId = 'aaaaaaaa-1111-2222-3333-444444444444';
 
-/// Mirrors TransportManager.send — only the routing UUID rides outside.
+/// Mirrors TransportManager.send only the routing UUID rides outside.
 String _wire(Map<String, dynamic> data, String fromUuid) =>
     jsonEncode({...data, 'from': fromUuid});
 
@@ -256,7 +256,7 @@ void main() {
     final (alice, aliceKeys) = await _identity();
     final bobSide = await _createHarness(CryptoService());
 
-    // Genuinely signed by Alice — but bound to her conversation with Mallory.
+    // Genuinely signed by Alice but bound to her conversation with Mallory.
     // Replaying it over the wire as "from Alice" must fail the binding.
     final payload = _legacyPayload(
       signer: alice,
@@ -337,7 +337,7 @@ void main() {
     final aliceSide = await _createHarness(alice);
     final bobSide = await _createHarness(bob);
 
-    // Alice discovered Bob over BLE — no key for him yet.
+    // Alice discovered Bob over BLE no key for him yet.
     final queued = await aliceSide.service.sendMessage(
       myUuid: _aliceUuid,
       myShortId: 'ALICE1',
@@ -373,7 +373,7 @@ void main() {
     expect(reply['msgType'], 'identity');
     expect(reply['senderPublicKeyPEM'], bobKeys['publicKey']);
 
-    // Alice processes Bob's identity — the queued message is retried sealed.
+    // Alice processes Bob's identity the queued message is retried sealed.
     await aliceSide.service.onInboundPacket(
       rawPayload: _wire(reply, _bobUuid),
       peerUuid: _bobUuid,
@@ -412,7 +412,7 @@ void main() {
     // Bob learned Alice's key from her signed announcement.
     bobSide.service.registerVerifiedPeerKey(_aliceUuid, aliceKeys['publicKey']!);
 
-    // Mallory messages first claiming to be Alice — self-consistent key, but
+    // Mallory messages first claiming to be Alice self-consistent key, but
     // it does not match the discovery-verified one.
     final payload = _legacyPayload(
       signer: mallory,
@@ -431,7 +431,7 @@ void main() {
     expect(rejected, isNull);
     expect(bobSide.convStore.loadAll(), isEmpty);
 
-    // The real Alice — matching key — is accepted.
+    // The real Alice matching key is accepted.
     final genuine = _legacyPayload(
       signer: alice,
       publicKeyPEM: aliceKeys['publicKey']!,

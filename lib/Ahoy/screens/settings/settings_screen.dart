@@ -26,7 +26,7 @@ class SettingsScreen extends StatelessWidget {
           SwitchListTile(
             secondary: const Icon(Icons.wifi),
             title: const Text('WiFi Direct'),
-            subtitle: const Text('Fast P2P connection — best for media'),
+            subtitle: const Text('Fast P2P connection best for media'),
             value: discovery.wifiDirectEnabled,
             onChanged: discovery.setWifiDirectEnabled,
           ),
@@ -40,7 +40,7 @@ class SettingsScreen extends StatelessWidget {
           SwitchListTile(
             secondary: const Icon(Icons.bluetooth),
             title: const Text('Bluetooth (BLE)'),
-            subtitle: const Text('Works without WiFi — uses more battery'),
+            subtitle: const Text('Works without WiFi uses more battery'),
             value: discovery.bleEnabled,
             onChanged: discovery.setBleEnabled,
           ),

@@ -36,7 +36,7 @@ class DiscoveryProvider extends ChangeNotifier {
   final Set<String> blockedUuids = {};
 
   /// Invoked with (uuid, pem) for every accepted announcement that carried a
-  /// public key — wired to ChatService so first contacts pin to the
+  /// public key wired to ChatService so first contacts pin to the
   /// discovery-verified key (audit #7).
   void Function(String uuid, String pem)? onVerifiedKey;
 
@@ -94,7 +94,7 @@ class DiscoveryProvider extends ChangeNotifier {
     if (!_acceptAnnouncement(announcement)) return;
     if (announcement.publicKeyPEM != null &&
         announcement.publicKeyPEM!.isNotEmpty) {
-      // Verified identity — available for first-contact pinning (audit #7).
+      // Verified identity available for first-contact pinning (audit #7).
       onVerifiedKey?.call(announcement.uuid, announcement.publicKeyPEM!);
     }
     final alias = _discovery.onAnnouncement(announcement, blockedUuids);
@@ -109,7 +109,7 @@ class DiscoveryProvider extends ChangeNotifier {
   }
 
   /// Identity-binding policy (audit H-2):
-  /// 1. shortId is deterministically derived from the UUID — any announcement
+  /// 1. shortId is deterministically derived from the UUID any announcement
   ///    whose shortId does not match its claimed UUID is forged and dropped.
   /// 2. Announcements carrying a public key must carry a valid RSA-SHA256
   ///    signature made with that key, binding the key to the claimed identity.
@@ -211,7 +211,7 @@ class DiscoveryProvider extends ChangeNotifier {
 
   Future<void> refreshPeers() async {
     // Restart each enabled transport individually so only one is dark at a
-    // time — the others keep advertising and scanning while it cycles.
+    // time the others keep advertising and scanning while it cycles.
     if (_bleEnabled) {
       await setBleEnabled(false);
       await setBleEnabled(true);

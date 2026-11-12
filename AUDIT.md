@@ -1,6 +1,6 @@
-# Ahoy — Security & Code Audit
+# Ahoy Security & Code Audit
 
-**Date:** 2026-11-11 · **Commit:** 496ebc2 · **Scope:** `lib/` (57 Dart files), `android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt`, platform configs, tests, `pubspec.lock` · **Method:** read-only static review (no Flutter SDK available in audit environment; baseline `flutter analyze`/`test` not run — run locally)
+**Date:** 2026-11-11 · **Commit:** 496ebc2 · **Scope:** `lib/` (57 Dart files), `android/app/src/main/kotlin/com/ahoy/app/MainActivity.kt`, platform configs, tests, `pubspec.lock` · **Method:** read-only static review (no Flutter SDK available in audit environment; baseline `flutter analyze`/`test` not run run locally)
 
 ## Verdict
 
@@ -10,29 +10,29 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 ### High
 
-- **H-1 — First-contact messages accepted with zero authentication.** `_verifyInboundSignature` returned `true` when no trusted key existed (`chat_service.dart`). Any device on a transport (LAN TCP `0.0.0.0:45679`, WiFi Direct port 8765, BLE GATT write) could inject plaintext messages spoofing `from`/`fromName`. **FIXED in this audit** — unkeyed inbound payloads are now dropped before any store writes; regression test added (`test/chat_service_key_pinning_test.dart`).
-- **H-2 — No UUID↔key binding (TOFU without pin-at-discovery).** First signed message pins the key presented in the payload; announcements carry unauthenticated `publicKeyPEM` (`lan_transport.dart`). A first-contact MITM silently pins their key; an attacker announcing a victim's `shortId` poisons `_shortIdToUuid` (`discovery_service.dart`) and hijacks the alias via `TransportManager.registerAlias`. **Implemented in this audit:** LAN/WD announcements now carry an RSA-SHA256 signature over the frozen identity field set (`CryptoService.announcementMaterial`); `DiscoveryProvider._acceptAnnouncement` drops announcements whose `shortId` ≠ `shortIdFromUuid(uuid)` (deterministic → forgery-proof) and drops keyed announcements without a valid signature; BLE scan-response announcements stay display-only (13-byte budget) with identity bound at the first signed chat message. A 60-digit Signal-style safety number (`CryptoService.fingerprintFromPublicKey`) is shown in My Profile and Peer Profile so first-contact MITM is detectable out-of-band.
+- **H-1 First-contact messages accepted with zero authentication.** `_verifyInboundSignature` returned `true` when no trusted key existed (`chat_service.dart`). Any device on a transport (LAN TCP `0.0.0.0:45679`, WiFi Direct port 8765, BLE GATT write) could inject plaintext messages spoofing `from`/`fromName`. **FIXED in this audit** unkeyed inbound payloads are now dropped before any store writes; regression test added (`test/chat_service_key_pinning_test.dart`).
+- **H-2 No UUID↔key binding (TOFU without pin-at-discovery).** First signed message pins the key presented in the payload; announcements carry unauthenticated `publicKeyPEM` (`lan_transport.dart`). A first-contact MITM silently pins their key; an attacker announcing a victim's `shortId` poisons `_shortIdToUuid` (`discovery_service.dart`) and hijacks the alias via `TransportManager.registerAlias`. **Implemented in this audit:** LAN/WD announcements now carry an RSA-SHA256 signature over the frozen identity field set (`CryptoService.announcementMaterial`); `DiscoveryProvider._acceptAnnouncement` drops announcements whose `shortId` ≠ `shortIdFromUuid(uuid)` (deterministic → forgery-proof) and drops keyed announcements without a valid signature; BLE scan-response announcements stay display-only (13-byte budget) with identity bound at the first signed chat message. A 60-digit Signal-style safety number (`CryptoService.fingerprintFromPublicKey`) is shown in My Profile and Peer Profile so first-contact MITM is detectable out-of-band.
 
 ### Medium
 
 | # | Finding | Evidence |
 |---|---------|----------|
-| M-1 | **FIXED (v=3 sealed format):** wire carries only `{v:3, from, ct}` — identity, convId, timestamp, names and content are inside the encrypted+signed blob. Legacy flat format remains only as the no-peer-key fallback (still identity-bound and signed). | `chat_service.dart _buildPayload`, `transport_manager.dart send` |
+| M-1 | **FIXED (v=3 sealed format):** wire carries only `{v:3, from, ct}` identity, convId, timestamp, names and content are inside the encrypted+signed blob. Legacy flat format remains only as the no-peer-key fallback (still identity-bound and signed). | `chat_service.dart _buildPayload`, `transport_manager.dart send` |
 | M-2 | **FIXED:** signed `senderUuid` cross-checked against wire identity; `convId` bound to the computed conversation (kills cross-conversation replay); ±15 min freshness window on signed timestamps; msgId length/charset validation. | `chat_service.dart onInboundPacket` |
 | M-3 | **FIXED:** receivers return a sealed, signed delivery ack; senders upgrade `sent → delivered` after verification (new `MessageStatus.delivered`, ✓✓ icon). Failed text sends enter a per-peer outbox (max 50, max 3 attempts) and are retried automatically when a discovery announcement shows the peer back. | `chat_service.dart _sendAck/_handleInboundAck/retryPendingFor` |
 | M-4 | **FIXED:** LAN announces/connections are filtered to the host's own interface subnets, and TCP connections are only accepted from /24 subnets that actually announced themselves (loopback exempt for local tooling). Kotlin WD server rejects connections outside the group subnet derived from `WifiP2pInfo.groupOwnerAddress` (fail-closed), and `cmdSendData` only sends into that subnet. | `lan_transport.dart`, `MainActivity.kt` |
-| M-5 | **FIXED:** the announce no longer carries a TCP port and inbound announces never trusted it — the messaging port is fixed (45679) on both ends, eliminating the arbitrary host:port connect vector. | `lan_transport.dart _broadcast/_onUdpDatagram` |
-| M-6 | **FIXED:** My Profile shows the own-key fingerprint (identity card) and Peer Profile shows a **combined per-conversation safety number** (`CryptoService.safetyNumberFor` — order-independent over both pinned/announced keys, so both devices compute the identical 60 digits). Peer Profile prefers the pinned conversation key. Read aloud out-of-band to detect impersonation; chat-screen integration remains a UX nicety. | `crypto_service.dart`, `peer_profile_screen.dart`, `my_profile_screen.dart` |
+| M-5 | **FIXED:** the announce no longer carries a TCP port and inbound announces never trusted it the messaging port is fixed (45679) on both ends, eliminating the arbitrary host:port connect vector. | `lan_transport.dart _broadcast/_onUdpDatagram` |
+| M-6 | **FIXED:** My Profile shows the own-key fingerprint (identity card) and Peer Profile shows a **combined per-conversation safety number** (`CryptoService.safetyNumberFor` order-independent over both pinned/announced keys, so both devices compute the identical 60 digits). Peer Profile prefers the pinned conversation key. Read aloud out-of-band to detect impersonation; chat-screen integration remains a UX nicety. | `crypto_service.dart`, `peer_profile_screen.dart`, `my_profile_screen.dart` |
 ### Low
 
-1. macOS release entitlements lacked `network.server`/`network.client` — sandboxed release builds could not run the LAN transport. **FIXED in this audit** (both `DebugProfile.entitlements` and `Release.entitlements`).
+1. macOS release entitlements lacked `network.server`/`network.client` sandboxed release builds could not run the LAN transport. **FIXED in this audit** (both `DebugProfile.entitlements` and `Release.entitlements`).
 2. **FIXED:** incoming WD connections are handled on a bounded 4-thread pool instead of thread-per-connection, and `connectedClients` is a TTL-pruned (10 min) `ConcurrentHashMap<String, Long>` instead of an ever-growing set. `MainActivity.kt`
-3. **FIXED:** removed all dead profile-broadcast code — `PeerProfile` model, `bleProfileCharUuid`, `ProfileService.avatarBase64` (and its test) — the BLE profile characteristic remains unwired by design; `NearbyPeer.rssi` was removed in the first pass.
+3. **FIXED:** removed all dead profile-broadcast code `PeerProfile` model, `bleProfileCharUuid`, `ProfileService.avatarBase64` (and its test) the BLE profile characteristic remains unwired by design; `NearbyPeer.rssi` was removed in the first pass.
 4. README drift: documented non-existent `PeerStatus` enum and functional `rssi`. **FIXED in this audit.** (The stale `com.example` paths in README were also fixed during the M-4/M-5 pass.)
-5. `test/widget_test.dart` was a placeholder. **FIXED** — real tests for `TransportBadge(s)` ordering/rendering and `PasswordField` validation/visibility toggle.
-6. **FIXED:** `ChatProvider.sendMessage` now invalidates the message cache — mirroring the inbound path — instead of seeding a cold cache with only the new message.
+5. `test/widget_test.dart` was a placeholder. **FIXED** real tests for `TransportBadge(s)` ordering/rendering and `PasswordField` validation/visibility toggle.
+6. **FIXED:** `ChatProvider.sendMessage` now invalidates the message cache mirroring the inbound path instead of seeding a cold cache with only the new message.
 7. **FIXED:** wrong envelope versions now throw the new `CryptoFormatError` instead of the misleading `CryptoNotInitialized` (which stays reserved for unloaded key material), with a regression test.
-8. Dependencies: `encrypt` 5.0.3 is effectively unmaintained (routes through pointycastle 3.9.1 — fine today, watch supply chain); `flutter_secure_storage` 9.2.4 uses `EncryptedSharedPreferences`, deprecated by Google in `androidx.security` — watch the plugin's migration. Other pins current; no known CVEs.
+8. Dependencies: `encrypt` 5.0.3 is effectively unmaintained (routes through pointycastle 3.9.1 fine today, watch supply chain); `flutter_secure_storage` 9.2.4 uses `EncryptedSharedPreferences`, deprecated by Google in `androidx.security` watch the plugin's migration. Other pins current; no known CVEs.
 
 ## Verified solid
 
@@ -40,7 +40,7 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 - Hybrid E2EE: RSA-2048-OAEP(SHA-256) wraps per-message AES-256-GCM key, versioned envelope (`crypto_service.dart:114-158`)
 - Pinning: key changes ignored, canonical PEM compare, tested
 - At-rest: profile/conversations/messages AES-256-GCM; media `.ahoyenc` + iOS backup exclusion; migrator covered by tests
-- Bounds: LAN 16MB cap + per-byte buffer cap + 8 msgs/conn + 10s idle; WD length-prefix + 10MB + `soTimeout`; BLE chunk/assembly bounds + eviction — dedicated tests exist
+- Bounds: LAN 16MB cap + per-byte buffer cap + 8 msgs/conn + 10s idle; WD length-prefix + 10MB + `soTimeout`; BLE chunk/assembly bounds + eviction dedicated tests exist
 - Platform: `allowBackup=false` + full-exclusion backup/data-extraction rules, enforced release signing (build fails without `key.properties`), minimal permissions, all iOS usage descriptions, `com.ahoy.app` consistent (no `com.example` anywhere)
 
 ## Roadmap scorecard (external prior audit)
@@ -50,10 +50,10 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 | Identity gap / unsigned envelope fields | Confirmed (H-2, M-1); unkeyed-accept gap fixed as H-1 |
 | Plaintext wire metadata | Confirmed (M-1) |
 | No ACK/retry/queue | Confirmed (M-3) |
-| `com.example.ahoy` mismatch | Refuted — already fixed |
-| README drift / placeholder widget test / unused fields | Confirmed — fixed in this audit |
+| `com.example.ahoy` mismatch | Refuted already fixed |
+| README drift / placeholder widget test / unused fields | Confirmed fixed in this audit |
 | WiFi Direct stub on iOS (+ BLE advertiser Android-only) | Confirmed; macOS additionally broken pre-fix |
-| Hand-rolled DER encoder | Confirmed (`crypto_service.dart:274-333`); correct on review but lacks dedicated round-trip/property tests — candidate for external crypto review |
+| Hand-rolled DER encoder | Confirmed (`crypto_service.dart:274-333`); correct on review but lacks dedicated round-trip/property tests candidate for external crypto review |
 | Forward secrecy (X25519 handshake) | Absent; do after H-2, behind a protocol version field |
 
 ## Recommended fix order (remaining)
@@ -66,7 +66,7 @@ The crypto architecture is sound and well-hardened: RSA-OAEP/AES-GCM hybrid enve
 
 # Second External Review (follow-up audit)
 
-A second review confirmed the primitives and prior fixes, and raised 7 High findings — all verified against the code and fixed:
+A second review confirmed the primitives and prior fixes, and raised 7 High findings all verified against the code and fixed:
 
 | # | Finding | Fix |
 |---|---------|-----|
@@ -102,11 +102,11 @@ Not actioned (accepted as-is): BLE assembly-eviction cost at the 16-assembly cap
 
 # Fourth External Review (WiFi Direct transport focus)
 
-A transport-focused review of `wifi_direct_transport.dart` raised three findings — all verified and fixed:
+A transport-focused review of `wifi_direct_transport.dart` raised three findings all verified and fixed:
 
 | # | Finding | Fix |
 |---|---------|-----|
-| 1 | `onConnectionFailed` guessed the failed peer from the single `_pendingConnectAddress`; concurrent in-flight connects stale-overwrite it, so the wrong address was removed from `_connectingAddresses` and another peer stayed wedged | Replaced the set + pending-address bookkeeping with a TTL-based `_connectingAttempts` map (30 s, injectable): attempts are pruned on discovery cycles, cleared when the group forms, and a thrown connect removes its own address. The guessing handler was deleted — Kotlin does not identify the failed device, so expiry is the only honest bookkeeping. |
+| 1 | `onConnectionFailed` guessed the failed peer from the single `_pendingConnectAddress`; concurrent in-flight connects stale-overwrite it, so the wrong address was removed from `_connectingAddresses` and another peer stayed wedged | Replaced the set + pending-address bookkeeping with a TTL-based `_connectingAttempts` map (30 s, injectable): attempts are pruned on discovery cycles, cleared when the group forms, and a thrown connect removes its own address. The guessing handler was deleted Kotlin does not identify the failed device, so expiry is the only honest bookkeeping. |
 | 2 | Identity completion removed an *IP address* from a MAC-keyed set, so the entry never cleared and reconnects stayed blocked until a group teardown | The mismatched removal was deleted; TTL expiry handles retryability. |
 | 3 | `dispose()` never tore down the native group/server socket | `dispose()` now awaits `stopAdvertising()` (which invokes the Kotlin `disconnect`) before stopping discovery. |
 

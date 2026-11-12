@@ -89,7 +89,7 @@ void main() {
       sock.close();
     }
 
-    // Unsigned announce — routing state must stay empty.
+    // Unsigned announce routing state must stay empty.
     await sendAnnounce(announce());
     expect(transport.debugPeerConnCount, 0);
 
@@ -105,7 +105,7 @@ void main() {
     await sendAnnounce(tampered);
     expect(transport.debugPeerConnCount, 0);
 
-    // Properly signed announce — accepted.
+    // Properly signed announce accepted.
     await sendAnnounce(
       announce(
         signature: crypto.signAnnouncement(

@@ -35,15 +35,15 @@ class BleTransport implements TransportInterface {
   final Map<String, Map<int, Uint8List>> _chunkBuffer = {};
   final Map<String, int> _chunkTotal = {};
   final Map<String, int> _chunkByteCounts = {};
-  // Timestamp of last chunk received per msgId — used to evict stale assemblies.
+  // Timestamp of last chunk received per msgId used to evict stale assemblies.
   final Map<String, DateTime> _chunkTimestamps = {};
   Timer? _chunkCleanupTimer;
 
-  // Devices seen in scan results — keyed by remoteId (BT MAC).
+  // Devices seen in scan results keyed by remoteId (BT MAC).
   final Map<String, BluetoothDevice> _scannedDevices = {};
-  // Active GATT connections for sending — keyed by remoteId.
+  // Active GATT connections for sending keyed by remoteId.
   final Map<String, BluetoothDevice> _connectedDevices = {};
-  // One subscription per connected device — cancelled on disconnect or dispose.
+  // One subscription per connected device cancelled on disconnect or dispose.
   final Map<String, StreamSubscription> _connStateSubs = {};
 
   // Used to filter out our own device from BLE scan results.
@@ -137,7 +137,7 @@ class BleTransport implements TransportInterface {
   // Set to true only after startScan() returns without throwing.
   // The isScanning listener uses this to distinguish "scan ended naturally"
   // (should restart) from "scan failed to start" (catch block already
-  // scheduled the restart — don't schedule a second one).
+  // scheduled the restart don't schedule a second one).
   bool _lastStartSucceeded = false;
 
   @override
@@ -154,7 +154,7 @@ class BleTransport implements TransportInterface {
     _scanStateSub ??= FlutterBluePlus.isScanning.listen((active) {
       // Only react to the scan stopping when the PREVIOUS start actually
       // succeeded.  If it failed, the catch block in _restartScan() already
-      // scheduled a backoff retry — reacting here would create a second timer.
+      // scheduled a backoff retry reacting here would create a second timer.
       if (!active && _scanning && _lastStartSucceeded) {
         _lastStartSucceeded = false;
         _scheduleScanRestart();
@@ -175,7 +175,7 @@ class BleTransport implements TransportInterface {
       await FlutterBluePlus.startScan(
         withServices: [Guid(AhoyConstants.bleServiceUuid)],
       );
-      // Success — reset backoff so the next natural restart uses the minimum.
+      // Success reset backoff so the next natural restart uses the minimum.
       _lastStartSucceeded = true;
       _backoffSeconds = 8;
       ahoyLog('[BLE] scan started');
@@ -247,9 +247,9 @@ class BleTransport implements TransportInterface {
           : 'Unknown';
 
       // Use the remote device address as a stable peer identifier when
-      // scanning — we learn the real UUID on first message exchange.
+      // scanning we learn the real UUID on first message exchange.
       // Filter own device by shortId: the remote ID is a BT MAC, _myUuid is
-      // an Ahoy UUID — they can never match, so shortId is the right signal.
+      // an Ahoy UUID they can never match, so shortId is the right signal.
       final deviceId = result.device.remoteId.str;
       if (_myShortId != null && shortId == _myShortId) return;
 

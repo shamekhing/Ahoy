@@ -49,7 +49,7 @@ class DiscoveryService {
         // We already know the canonical UUID for this shortId.
         // Map temporary IDs (MAC addresses) to the canonical one.
         if (knownUuid != announcement.uuid) {
-          // shortId collisions are grindable (6 base-36 chars) — only merge
+          // shortId collisions are grindable (6 base-36 chars) only merge
           // when the keys agree or the incoming announcement carries no key;
           // a different key claiming a known shortId is an impersonation
           // attempt (audit #6).
@@ -69,7 +69,7 @@ class DiscoveryService {
           canonicalUuid = knownUuid;
         }
       } else if (CryptoService.isRealAhoyUuid(announcement.uuid)) {
-        // This announcement carries the real Ahoy UUID — record the mapping.
+        // This announcement carries the real Ahoy UUID record the mapping.
         _shortIdToUuid[announcement.shortId] = announcement.uuid;
 
         // Scan for an existing temp-ID entry with the same shortId and absorb it.
@@ -138,7 +138,7 @@ class DiscoveryService {
         announcement.publicKeyPEM != null &&
         !_sameKey(existing!.publicKeyPEM!, announcement.publicKeyPEM!)) {
       // Never let a different key silently overwrite an existing verified
-      // key (audit #6) — key changes must be re-verified by the user.
+      // key (audit #6) key changes must be re-verified by the user.
       ahoyLog(
         '[Discovery] key change detected for $canonicalUuid; keeping known key',
       );
@@ -179,7 +179,7 @@ class DiscoveryService {
     return incomingRank < existingRank ? incoming : existing ?? incoming;
   }
 
-  /// Canonical public-key comparison — whitespace-insensitive.
+  /// Canonical public-key comparison whitespace-insensitive.
   static bool _sameKey(String a, String b) {
     final ws = RegExp(r'\s+');
     return a.replaceAll(ws, '') == b.replaceAll(ws, '');

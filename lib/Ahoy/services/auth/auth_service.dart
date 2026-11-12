@@ -51,7 +51,7 @@ class AuthService {
     final id = const Uuid().v4();
     final shortId = CryptoService.shortIdFromUuid(id);
 
-    // RSA key generation runs in a separate isolate — never blocks the UI thread.
+    // RSA key generation runs in a separate isolate never blocks the UI thread.
     final keys = await _cryptoService.generateKeyPair();
     await _keyStore.save(keys['privateKey']!, keys['publicKey']!);
     await _keyStore.load(); // activates CryptoService
@@ -128,7 +128,7 @@ class AuthService {
     await _secureStore.delete(AhoyConstants.keyBiometricEnabled);
   }
 
-  // onTransportStop is async — we await it before wiping storage so transports
+  // onTransportStop is async we await it before wiping storage so transports
   // are fully stopped before their data disappears underneath them.
   Future<void> signOut({
     required Future<void> Function() onTransportStop,
@@ -140,7 +140,7 @@ class AuthService {
     // Install a fresh at-rest key for the next account and remove the
     // previous account's media. Without the reset, a same-process
     // re-registration would encrypt with the in-memory key whose SecureStore
-    // entry was just deleted — and the next launch would brick on decrypt.
+    // entry was just deleted and the next launch would brick on decrypt.
     await _localDataCrypto.reset();
     await _deleteLocalMedia();
   }

@@ -18,7 +18,7 @@ import 'message_store.dart';
 class ChatService {
   static final RegExp _pemWhitespace = RegExp(r'\s+');
 
-  /// msgId ends up in media file paths — keep it a bounded UUID-like token.
+  /// msgId ends up in media file paths keep it a bounded UUID-like token.
   static final RegExp _msgIdPattern = RegExp(r'^[0-9a-fA-F-]{1,64}$');
 
   final TransportManager _transport;
@@ -32,11 +32,11 @@ class ChatService {
   final _outbox = <String, List<_PendingSend>>{};
 
   /// Public keys verified via signed announcements or identity exchanges,
-  /// per peer uuid — first contacts must pin to these when available
+  /// per peer uuid first contacts must pin to these when available
   /// (audit #7).
   final _verifiedKeys = <String, String>{};
 
-  /// Live reference to the discovery-owned blocked set — enforced on the
+  /// Live reference to the discovery-owned blocked set enforced on the
   /// sending path too (third review #4).
   Set<String> _blockedUuids = const {};
 
@@ -51,7 +51,7 @@ class ChatService {
   /// owned by DiscoveryProvider and mutated in place.
   void attachBlockedPeers(Set<String> peers) => _blockedUuids = peers;
 
-  /// Last identity send per peer — throttles identity broadcasts (audit #1).
+  /// Last identity send per peer throttles identity broadcasts (audit #1).
   final _identitySentAt = <String, DateTime>{};
 
   /// Peers we already answered with our own identity (reply-once guard).
@@ -111,7 +111,7 @@ class ChatService {
 
     if (_blockedUuids.contains(peerUuid)) {
       // The UI hides the composer for blocked conversations, but the service
-      // is the authority — block is enforced on the sending path too
+      // is the authority block is enforced on the sending path too
       // (third review #4).
       throw const TransportError('Peer is blocked');
     }
@@ -160,7 +160,7 @@ class ChatService {
     );
 
     if (trustedPeerPublicKeyPEM == null) {
-      // No verified key yet (e.g. BLE-only first contact — scan responses
+      // No verified key yet (e.g. BLE-only first contact scan responses
       // carry no key). Sending plaintext content would contradict the E2EE
       // claim, so announce our signed identity instead, queue the real
       // message, and wait for the peer's signed identity in return
@@ -342,7 +342,7 @@ class ChatService {
       throw const TransportError('No verified recipient key for this peer');
     }
 
-    // v3: the whole message — identity, metadata and content — is encrypted
+    // v3: the whole message identity, metadata and content is encrypted
     // as one blob; only the routing UUID rides outside (audit M-1). The
     // signature over the plaintext inner material travels inside the blob.
     final inner = <String, dynamic>{
@@ -443,7 +443,7 @@ class ChatService {
       }
 
       // v3: everything except the routing UUID lives inside the encrypted
-      // blob — decrypt first, then validate (audit M-1).
+      // blob decrypt first, then validate (audit M-1).
       Map<String, dynamic> json;
       if (isV3) {
         if (!_crypto.isReady) {
@@ -475,7 +475,7 @@ class ChatService {
       );
       if (isNewConversation && receiveOff) return null;
 
-      // The claimed sender must match the transport-level identity — for v3
+      // The claimed sender must match the transport-level identity for v3
       // the claim is inside the signature, so a spoofed `from` cannot pass.
       final senderUuid = json['senderUuid'] as String? ?? peerUuid;
       if (senderUuid != peerUuid) {
@@ -483,7 +483,7 @@ class ChatService {
         return null;
       }
 
-      // Bind the message to this conversation — captured payloads replayed
+      // Bind the message to this conversation captured payloads replayed
       // into another conversation fail here (audit M-2).
       final innerConvId = json['convId'] as String? ?? '';
       if (innerConvId != convId) {
@@ -491,7 +491,7 @@ class ChatService {
         return null;
       }
 
-      // Freshness window — the timestamp is covered by the signature, so
+      // Freshness window the timestamp is covered by the signature, so
       // captured payloads older than the skew bound cannot be replayed.
       final timestamp = DateTime.tryParse(json['timestamp'] as String? ?? '');
       if (timestamp == null) return null;
@@ -502,7 +502,7 @@ class ChatService {
         return null;
       }
 
-      // msgId ends up in media file names — bound length and charset.
+      // msgId ends up in media file names bound length and charset.
       final msgId = json['msgId'] as String? ?? '';
       if (msgId.isEmpty ||
           msgId.length > AhoyConstants.maxMsgIdLength ||
@@ -513,7 +513,7 @@ class ChatService {
 
       final senderPublicKeyPEM = json['senderPublicKeyPEM'] as String?;
       final existingConversation = _findConversation(convId);
-      // A discovery-verified key must match on first contact — otherwise an
+      // A discovery-verified key must match on first contact otherwise an
       // impersonator messaging first pins their own key and the real peer is
       // silently locked out (audit #7).
       final verifiedKey = _verifiedKeys[peerUuid];
@@ -538,7 +538,7 @@ class ChatService {
         return null;
       }
 
-      // Bounded replay guard — a captured packet replayed after the
+      // Bounded replay guard a captured packet replayed after the
       // conversation was deleted must not resurrect messages (third review
       // #2). Only authenticated messages reach this point, so garbage cannot
       // flush the cache.
@@ -691,7 +691,7 @@ class ChatService {
     Message msg,
     TransportMode transport,
   ) async {
-    // Atomic read-modify-write — a concurrent Block or markRead can no
+    // Atomic read-modify-write a concurrent Block or markRead can no
     // longer be clobbered by a stale full-record write-back (third
     // review #3).
     await _convStore.mutateOrCreate(convId, (existing) {
@@ -745,7 +745,7 @@ class ChatService {
     bool v3 = false,
   }) {
     if (trustedPeerPublicKeyPEM == null || trustedPeerPublicKeyPEM.isEmpty) {
-      // No pinned key and none presented — there is nothing to verify against.
+      // No pinned key and none presented there is nothing to verify against.
       // Unauthenticated messages must never be displayed or stored (audit H-1).
       ahoyLog('[ChatService] dropping unkeyed inbound message');
       return false;
@@ -861,7 +861,7 @@ class ChatService {
     if (ackFor.isEmpty) return;
 
     // The ack must reference a message we actually sent to this peer and
-    // that is not already delivered — unknown ids and replays of acks for
+    // that is not already delivered unknown ids and replays of acks for
     // messages in other states are ignored (third review #1).
     final stored =
         _msgStore.loadMessages(convId).where((m) => m.id == ackFor).firstOrNull;
@@ -874,7 +874,7 @@ class ChatService {
     if (stored.status == MessageStatus.delivered) return; // idempotent
 
     // The ack is only trusted when it is signed with the peer key pinned for
-    // this conversation — otherwise ignore it silently.
+    // this conversation otherwise ignore it silently.
     final pinnedKey = _findConversation(convId)?.peerPublicKeyPEM;
     if (pinnedKey == null || pinnedKey.isEmpty) return;
     final signature = json['signature'] as String? ?? '';
@@ -954,7 +954,7 @@ class ChatService {
 
     registerVerifiedPeerKey(senderUuid, pem);
 
-    // Reply once so the peer can pin us too — the reply is itself a signed
+    // Reply once so the peer can pin us too the reply is itself a signed
     // identity, so this cannot loop.
     if (!_identityRepliedTo.contains(peerUuid) && myPublicKeyPEM != null) {
       _identityRepliedTo.add(peerUuid);
@@ -1033,7 +1033,7 @@ class _PendingSend {
   final String? replyToId;
   final String? replyToPreview;
 
-  // Sender identity captured at enqueue time — retries rebuild the payload
+  // Sender identity captured at enqueue time retries rebuild the payload
   // with these plus a fresh timestamp.
   final String myUuid;
   final String myShortId;

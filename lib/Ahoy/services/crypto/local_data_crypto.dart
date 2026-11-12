@@ -39,7 +39,7 @@ class LocalDataCrypto {
 
   /// Generates a fresh at-rest key, persists it, and swaps it into memory.
   /// Called on sign-out so a follow-up sign-up cannot encrypt data with the
-  /// in-memory key whose SecureStore entry was just deleted — that mismatch
+  /// in-memory key whose SecureStore entry was just deleted that mismatch
   /// would brick decryption on the next launch.
   Future<void> reset() async {
     final keyBytes = _randomBytes(32);

@@ -7,7 +7,7 @@ class TransportProvider extends ChangeNotifier {
 
   TransportProvider(this._manager);
 
-  /// Returns the best live transport for a peer — computed fresh every call.
+  /// Returns the best live transport for a peer computed fresh every call.
   TransportMode modeFor(String peerUuid) => _manager.currentModeFor(peerUuid);
 
   bool get isBleOnly => false; // Checked per-peer via modeFor()

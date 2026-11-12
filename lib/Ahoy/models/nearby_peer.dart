@@ -9,7 +9,7 @@ class NearbyPeer {
   /// Best/active transport (highest-bandwidth one currently available).
   final TransportMode transport;
 
-  /// All transports via which this peer has been seen — used to render multi-badges.
+  /// All transports via which this peer has been seen used to render multi-badges.
   final Set<TransportMode> transports;
   final DateTime lastSeen;
   final bool isBlocked;

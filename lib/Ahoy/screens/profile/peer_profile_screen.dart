@@ -95,7 +95,7 @@ class PeerProfileScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Read this number aloud with your peer — it is identical on '
+              'Read this number aloud with your peer it is identical on '
               'both devices for this conversation.',
               style: TextStyle(color: Colors.grey, fontSize: 11),
             ),

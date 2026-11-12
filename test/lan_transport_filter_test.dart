@@ -9,11 +9,11 @@ void main() {
     );
     addTearDown(transport.dispose);
 
-    // Loopback always passes — it serves local tooling and same-device
+    // Loopback always passes it serves local tooling and same-device
     // clients, and the existing bounds tests rely on it.
     expect(transport.debugIsAllowedTcpPeer('127.0.0.1'), isTrue);
 
-    // Nothing has announced itself yet — every other network is rejected.
+    // Nothing has announced itself yet every other network is rejected.
     expect(transport.debugIsAllowedTcpPeer('10.0.0.5'), isFalse);
 
     // Once a subnet announces itself, hosts inside its /24 become reachable…

@@ -36,7 +36,7 @@ class _RootScreenState extends State<RootScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _auth = context.read<AuthProvider>();
       _authInitialized = true;
-      // Listener fires on every auth state change — the guard inside
+      // Listener fires on every auth state change the guard inside
       // _maybeStartTransports() ensures it only runs once per session.
       _auth.addListener(_handleAuthChanged);
       _bootstrap();
@@ -50,7 +50,7 @@ class _RootScreenState extends State<RootScreen> {
     super.dispose();
   }
 
-  // Called whenever AuthProvider notifies — starts or tears down the session.
+  // Called whenever AuthProvider notifies starts or tears down the session.
   void _handleAuthChanged() {
     if (!mounted) return;
     if (_auth.isSignedIn && _auth.user != null && !_transportsStarted) {
@@ -60,7 +60,7 @@ class _RootScreenState extends State<RootScreen> {
       _startTransports(_auth.user!.id);
     } else if (!_auth.isSignedIn && _transportsStarted) {
       // Signing out (or switching accounts) must reset everything the old
-      // session accumulated — otherwise the next account inherits its
+      // session accumulated otherwise the next account inherits its
       // conversations, discovery state, and inbound routing (audit #3).
       _teardownSession();
     }
@@ -94,12 +94,12 @@ class _RootScreenState extends State<RootScreen> {
   }
 
   /// Request all runtime permissions the transports need.
-  /// Silently continues if any are denied — each transport handles
+  /// Silently continues if any are denied each transport handles
   /// its own failure gracefully.
   Future<void> _requestPermissions() async {
     if (!Platform.isAndroid) return;
     await [
-      // Location — required for BLE scan on Android < 12 and
+      // Location required for BLE scan on Android < 12 and
       // for WiFi Direct on Android < 13.
       Permission.locationWhenInUse,
       // Android 12+ granular Bluetooth permissions.
@@ -176,7 +176,7 @@ class _RootScreenState extends State<RootScreen> {
     if (_showSignUp) {
       return SignUpScreen(
         onSignIn: () => setState(() => _showSignUp = false),
-        // onSignedUp is a no-op here — the AuthProvider listener in initState
+        // onSignedUp is a no-op here the AuthProvider listener in initState
         // handles transport start as soon as signUp() sets state to signedIn.
         onSignedUp: () async {},
       );

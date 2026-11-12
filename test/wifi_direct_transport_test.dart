@@ -135,7 +135,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('wifi_direct'), (call) async {
       if (call.method == 'connect') {
-        // Never completes — the attempt stays in flight.
+        // Never completes the attempt stays in flight.
         return Completer<void>().future;
       }
       return;

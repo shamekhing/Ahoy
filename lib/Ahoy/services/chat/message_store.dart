@@ -12,7 +12,7 @@ class MessageStore {
 
   MessageStore(this._prefs, [this._localDataCrypto]);
 
-  // Per-conversation async mutex — mirrors ConversationStore._withLock.
+  // Per-conversation async mutex mirrors ConversationStore._withLock.
   // Prevents concurrent send+receive from overwriting each other via read→dedup→write.
   final _locks = <String, bool>{};
   final _queues = <String, List<Completer<void>>>{};

@@ -28,7 +28,7 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.INTERNET"            />
-    <!-- Android 13+ scoped WiFi permission — neverForLocation avoids location prompt -->
+    <!-- Android 13+ scoped WiFi permission neverForLocation avoids location prompt -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
 

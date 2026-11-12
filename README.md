@@ -1,19 +1,19 @@
 # Ahoy
 
-> **Nothing Between** — privacy-first, peer-to-peer chat for people in the same space.
+> **Nothing Between** privacy-first, peer-to-peer chat for people in the same space.
 
-Ahoy is a Flutter app for nearby-device messaging with no server, no internet, and no account registration beyond a local password. Communication happens on-device over the available transports — WiFi Direct on Android, local network (LAN), or Bluetooth LE — chosen automatically by signal strength and capability. Every message is end-to-end encrypted with a per-user RSA-2048 keypair stored in platform secure storage. Nothing leaves the physical space.
+Ahoy is a Flutter app for nearby-device messaging with no server, no internet, and no account registration beyond a local password. Communication happens on-device over the available transports WiFi Direct on Android, local network (LAN), or Bluetooth LE chosen automatically by signal strength and capability. Every message is end-to-end encrypted with a per-user RSA-2048 keypair stored in platform secure storage. Nothing leaves the physical space.
 
 ---
 
 ## Table of Contents
 1. [Architecture Overview](#1-architecture-overview)
 2. [Project Structure](#2-project-structure)
-3. [Cold Start — App Launch](#3-cold-start--app-launch)
-4. [Auth Flow — First Launch (Sign Up)](#4-auth-flow--first-launch-sign-up)
-5. [Auth Flow — Returning User (Sign In)](#5-auth-flow--returning-user-sign-in)
+3. [Cold Start App Launch](#3-cold-start--app-launch)
+4. [Auth Flow First Launch (Sign Up)](#4-auth-flow--first-launch-sign-up)
+5. [Auth Flow Returning User (Sign In)](#5-auth-flow--returning-user-sign-in)
 6. [Transport Startup](#6-transport-startup)
-7. [Main Shell — Tab Navigation](#7-main-shell--tab-navigation)
+7. [Main Shell Tab Navigation](#7-main-shell--tab-navigation)
 8. [Discover Screen](#8-discover-screen)
 9. [Conversations Screen](#9-conversations-screen)
 10. [Chat Screen](#10-chat-screen)
@@ -66,7 +66,7 @@ Ahoy is a Flutter app for nearby-device messaging with no server, no internet, a
 └──────────────────────────────┬──────────────────────────────┘
                                │  MethodChannel
 ┌──────────────────────────────▼──────────────────────────────┐
-│               Android Native (Kotlin — MainActivity.kt)     │
+│               Android Native (Kotlin MainActivity.kt)     │
 │   WiFi P2P Manager + TCP ServerSocket   BLE GATT Server     │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -93,7 +93,7 @@ PrefsStore (SharedPreferences)
 
 ```
 lib/
-├── main.dart                         Entry point — runApp(AhoyApp())
+├── main.dart                         Entry point runApp(AhoyApp())
 └── Ahoy/
     ├── ahoy_app.dart                 App root: service init, MultiProvider wiring
     ├── core/
@@ -174,7 +174,7 @@ android/app/src/main/kotlin/com/ahoy/app/
 
 ---
 
-## 3. Cold Start — App Launch
+## 3. Cold Start App Launch
 
 ```
 main.dart
@@ -184,14 +184,14 @@ main.dart
 AhoyApp (StatefulWidget)
   └─ initState() → _init() [async]
        │
-       ├─ 1.  SecureStore()                  — platform secure storage wrapper
-       ├─ 2.  PrefsStore()                   — SharedPreferences (await .init())
-       ├─ 3.  CryptoService()                — RSA/AES engine (inactive until keys loaded)
-       ├─ 4.  KeyStore(secureStore, crypto)  — SecureStore ↔ CryptoService bridge
+       ├─ 1.  SecureStore()                  platform secure storage wrapper
+       ├─ 2.  PrefsStore()                   SharedPreferences (await .init())
+       ├─ 3.  CryptoService()                RSA/AES engine (inactive until keys loaded)
+       ├─ 4.  KeyStore(secureStore, crypto)  SecureStore ↔ CryptoService bridge
        ├─ 5.  AuthService(secureStore, prefs, crypto, keyStore)
        ├─ 6.  ProfileService(prefs)
-       ├─ 7.  TransportManager()             — creates WiFiDirectTransport, LanTransport, BleTransport
-       ├─ 8.  DiscoveryService()             — in-memory peer map + cleanup timer
+       ├─ 7.  TransportManager()             creates WiFiDirectTransport, LanTransport, BleTransport
+       ├─ 8.  DiscoveryService()             in-memory peer map + cleanup timer
        ├─ 9.  ConversationStore(prefs)
        ├─ 10. MessageStore(prefs)
        ├─ 11. ChatService(transport, convStore, msgStore, crypto)
@@ -227,7 +227,7 @@ AuthProvider addListener → _maybeStartTransports()   [fires on every auth stat
 
 ---
 
-## 4. Auth Flow — First Launch (Sign Up)
+## 4. Auth Flow First Launch (Sign Up)
 
 **Screen:** `lib/Ahoy/screens/auth/sign_up_screen.dart`
 
@@ -266,11 +266,11 @@ AuthProvider notifyListeners()
 
 ---
 
-## 5. Auth Flow — Returning User (Sign In)
+## 5. Auth Flow Returning User (Sign In)
 
 **Screen:** `lib/Ahoy/screens/auth/sign_in_screen.dart`
 
-**On init — biometric auto-attempt:**
+**On init biometric auto-attempt:**
 ```
 SignInScreen.initState()
   └─ _tryBiometric()
@@ -310,7 +310,7 @@ AuthProvider.signIn(password)
 Triggered once after `AuthState.signedIn` via `RootScreen._maybeStartTransports()`.
 
 ```
-_maybeStartTransports()   [guarded — runs exactly once per session]
+_maybeStartTransports()   [guarded runs exactly once per session]
   │
   ├─ Request Android runtime permissions:
   │    ACCESS_FINE_LOCATION, BLUETOOTH_SCAN, BLUETOOTH_CONNECT,
@@ -335,7 +335,7 @@ _maybeStartTransports()   [guarded — runs exactly once per session]
 
 ---
 
-## 7. Main Shell — Tab Navigation
+## 7. Main Shell Tab Navigation
 
 **File:** `lib/Ahoy/screens/main_shell.dart`
 
@@ -343,10 +343,10 @@ Uses `IndexedStack` so all tabs stay mounted; only the active one is visible.
 
 ```
 NavigationBar destinations:
-  0 — radar icon       →  DiscoverScreen
-  1 — chat icon        →  ConversationsScreen   (Badge with unread count when > 0)
-  2 — person icon      →  MyProfileScreen
-  3 — settings icon    →  SettingsScreen
+  0 radar icon       →  DiscoverScreen
+  1 chat icon        →  ConversationsScreen   (Badge with unread count when > 0)
+  2 person icon      →  MyProfileScreen
+  3 settings icon    →  SettingsScreen
 ```
 
 The unread badge is driven by `ChatProvider.totalUnreadCount`:
@@ -413,7 +413,7 @@ PeerAnnouncement
   → TransportManager._recordTransport(uuid, mode)
   → TransportManager.announcementStream
   → DiscoveryProvider.onAnnouncement()
-  → DiscoveryService.onAnnouncement()   [dedup/merge — see §20]
+  → DiscoveryService.onAnnouncement()   [dedup/merge see §20]
   → DiscoveryService.peerStream
   → DiscoveryProvider._peers updated
   → notifyListeners()
@@ -423,7 +423,7 @@ PeerAnnouncement
 ### 8b. Peer Card
 
 Each `NearbyPeer` renders as a `PeerCard`:
-- **Avatar**: `PeerAvatar` — file path → base64 → gender-colored icon (fallback chain)
+- **Avatar**: `PeerAvatar` file path → base64 → gender-colored icon (fallback chain)
 - **Title**: `peer.displayName`
 - **Subtitle**: status message (if any) + `TransportBadges` (colored chips: green=WiFi Direct, blue=LAN, indigo=BLE)
 - **Trailing**: "Chat" button, or block icon if `peer.isBlocked`
@@ -445,7 +445,7 @@ _openChat()
 ```
 onRefresh → DiscoveryProvider.refreshPeers()
   → Snapshot: ble, lan, wd current flags
-  → setBleEnabled(false) → setBleEnabled(ble)        [uses provider setters — prefs + transport stay in sync]
+  → setBleEnabled(false) → setBleEnabled(ble)        [uses provider setters prefs + transport stay in sync]
   → setLanEnabled(false) → setLanEnabled(lan)
   → setWifiDirectEnabled(false) → setWifiDirectEnabled(wd)
 ```
@@ -453,8 +453,8 @@ onRefresh → DiscoveryProvider.refreshPeers()
 ### 8d. Banners
 
 Two conditional banners above the peer list:
-- **Off the Grid** (grey) — appears when `discovery.offGrid` is true; user is not broadcasting and invisible to others
-- **Receive Off** (orange) — appears when `discovery.receiveOff` is true; new inbound chat requests are silently dropped
+- **Off the Grid** (grey) appears when `discovery.offGrid` is true; user is not broadcasting and invisible to others
+- **Receive Off** (orange) appears when `discovery.receiveOff` is true; new inbound chat requests are silently dropped
 
 ---
 
@@ -467,9 +467,9 @@ Reads `ChatProvider.conversations` (sorted newest-first by `lastMessageAt`).
 Each `_ConversationTile` shows:
 - **Avatar**: blue circle (normal) or red circle with block icon (blocked)
 - **Unread badge**: red overlay on avatar, count capped at "9+"
-- **Title**: peer display name — **bold** if `unreadCount > 0`
+- **Title**: peer display name **bold** if `unreadCount > 0`
 - **Transport chip**: `TransportBadge(conv.lastTransport)`
-- **Subtitle**: `lastMessagePreview` — or `[Blocked]` if `isBlocked`
+- **Subtitle**: `lastMessagePreview` or `[Blocked]` if `isBlocked`
 - **Trailing date**: `HH:MM` if today, `DD/MM` otherwise
 
 **Tap** → reconstruct `NearbyPeer` from conversation metadata → `Navigator.push(ChatScreen(...))`
@@ -685,8 +685,8 @@ Unblock:
 | Bluetooth | Toggle | `prefBleEnabled` | `DiscoveryProvider.setBleEnabled(v)` → `TransportManager.setBleEnabled(v)` → start/stop BLE transport |
 | Off the Grid | Toggle | `prefOffGrid` | `DiscoveryProvider.setOffGrid(v)` → if true: `TransportManager.stopAdvertising()` |
 | Receive Off | Toggle | `prefReceiveOff` | `DiscoveryProvider.setReceiveOff(v)` → flag read by `ChatService.onInboundPacket()` |
-| Biometric Sign-In | Toggle (conditional) | `keyBiometricEnabled` | `AuthProvider.enableBiometric()` → `SecureStore.write('true')` — shown only if `isBiometricAvailable` |
-| Sign Out & Erase | Button | — | See §14 |
+| Biometric Sign-In | Toggle (conditional) | `keyBiometricEnabled` | `AuthProvider.enableBiometric()` → `SecureStore.write('true')` shown only if `isBiometricAvailable` |
+| Sign Out & Erase | Button | | See §14 |
 
 ---
 
@@ -751,7 +751,7 @@ ChatService.sendMessage()
   ├─ _buildPayload():
   │    ├─ For text:  wireContent = content
   │    ├─ For media: wireContent = base64(File(content).readAsBytesSync())
-  │    ├─ If peerPublicKeyPEM != null && crypto.isReady  (v3 — sealed, audit M-1):
+  │    ├─ If peerPublicKeyPEM != null && crypto.isReady  (v3 sealed, audit M-1):
   │         inner = { msgType, msgId, convId, senderUuid, senderShortId,
   │                   senderName, type, content, replyTo*, timestamp,
   │                   senderPublicKeyPEM }      ← all metadata inside the blob
@@ -864,7 +864,7 @@ ChatProvider._inboundSub.listen(packet)
   → ChatService.onInboundPacket(rawPayload, peerUuid, myUuid, transport, receiveOff, blockedUuids)
        ├─ outer = jsonDecode(rawPayload)
        ├─ if peerUuid in blockedUuids: return null
-       ├─ if outer['v'] == 3 (sealed — audit M-1):
+       ├─ if outer['v'] == 3 (sealed audit M-1):
        │    plain = CryptoService.decryptFromPeer(outer['ct'])
        │    json = jsonDecode(plain)     ← metadata was inside the blob
        │    [undecryptable → return null]
@@ -978,7 +978,7 @@ Send (cmdSendData):
 
 Receive (handleIncomingConnection) per connection:
   sender must be inside the WiFi Direct group subnet (derived from the
-    group owner's address — outside connections are closed, audit M-4)
+    group owner's address outside connections are closed, audit M-4)
   socket.soTimeout = 10_000              ← prevents thread blocking forever
   DataInputStream.readInt()              ← 4 bytes → length
   validate: 0 < length ≤ 10 MB
@@ -1012,7 +1012,7 @@ Announcement JSON:
 
 Announcement policy (audit M-4/M-5):
   - Announcements from outside this host's interface subnets are dropped.
-  - The TCP messaging port is fixed (45679) on both ends — announces carry
+  - The TCP messaging port is fixed (45679) on both ends announces carry
     no port and announced ports are never trusted.
   - TCP connections are only accepted from /24 subnets that actually
     announced themselves (or loopback for local tooling).
@@ -1058,9 +1058,9 @@ Permissions: READ | WRITE
 ### Advertising (Peripheral)
 ```
 Scan response payload (max 13 bytes):
-  shortId[0:6]      (6 bytes — ASCII)
-  0x00              (1 byte — separator)
-  displayName[0:6]  (up to 6 bytes — ASCII)
+  shortId[0:6]      (6 bytes ASCII)
+  0x00              (1 byte separator)
+  displayName[0:6]  (up to 6 bytes ASCII)
 
 Serves as initial identity broadcast; Ahoy UUID unknown until first GATT write
 ```
@@ -1108,7 +1108,7 @@ Stale chunk cleanup:
 The Kotlin→Dart GATT write handler must be registered BEFORE any writes can arrive.
 GATT server opens in startAdvertising() → handler registered there.
 startScanning() also registers it to cover any ordering variation.
-(setMethodCallHandler is idempotent — safe to call twice)
+(setMethodCallHandler is idempotent safe to call twice)
 ```
 
 ---
@@ -1121,7 +1121,7 @@ The key challenge: BLE and WiFi Direct initially identify peers by MAC address, 
 
 ### Announcement Processing
 ```
-Announcement verification (before onAnnouncement — DiscoveryProvider._acceptAnnouncement):
+Announcement verification (before onAnnouncement DiscoveryProvider._acceptAnnouncement):
   1. shortId must equal shortIdFromUuid(uuid) for real Ahoy UUIDs
      (forged/spoofed announcements are dropped)
   2. announcements carrying publicKeyPEM must carry a valid RSA-SHA256 signature
@@ -1218,10 +1218,10 @@ Current format (PBKDF2-HMAC-SHA256):
   dk   = PBKDF2(password, salt, 310_000 iterations, 32 output bytes)
   stored: "pbkdf2:v2:{iterations}:{saltHex}:{dkHex}"
 
-Legacy PBKDF2 format — supported for verification and upgraded after login:
+Legacy PBKDF2 format supported for verification and upgraded after login:
   stored: "pbkdf2:{saltHex}:{dkHex}"   (100_000 iterations)
 
-Legacy SHA-256 format — supported for verification and upgraded after login:
+Legacy SHA-256 format supported for verification and upgraded after login:
   stored: "{saltHex}:{sha256Hex}"
 
 verifyPassword(password, storedHash):
@@ -1263,7 +1263,7 @@ shortIdFromUuid(uuid):
 ### Announcement Signing & Identity Binding (audit H-2)
 ```
 announcementMaterial = jsonEncode({ uuid, shortId, displayName, statusMessage, publicKeyPEM })
-                       (frozen field set — both sides must derive identical bytes)
+                       (frozen field set both sides must derive identical bytes)
 
 signAnnouncement(...):    RSA-SHA256(announcementMaterial) with own private key
 verifyAnnouncement(...):  verify with the announced public key
@@ -1280,13 +1280,13 @@ fingerprintFromPublicKey(publicKeyPEM)  →  "Safety number"
 
 safetyNumberFor(myKey, peerKey)  →  per-conversation safety number (audit M-6)
   canonical PEMs sorted → sha256("ahoy-safety-v1:{a}|{b}")[0:51 hex]
-  → same 12×5-digit grouping — order-independent, so both devices compute
+  → same 12×5-digit grouping order-independent, so both devices compute
     the identical 60 digits for the same conversation
   → Shown in Peer Profile; prefers the pinned conversation key over the
     announced key; read aloud out-of-band to detect impersonation
 ```
 
-### Signed Identity Exchange (keyless first contact — second audit #1)
+### Signed Identity Exchange (keyless first contact second audit #1)
 ```
 BLE scan responses carry no key, so a first contact over BLE cannot seal.
 Instead of plaintext content, the sender transmits a signed identity:
@@ -1364,11 +1364,11 @@ Per-conversation async mutex (`_withLock`) serialises all read-modify-write oper
 **Dart → Kotlin:**
 | Method | Arguments | Returns |
 |--------|-----------|---------|
-| `initialize` | — | `bool` — starts TCP ServerSocket on port 8765 |
-| `discoverPeers` | — | `null` — triggers WifiP2pManager.discoverPeers() |
-| `connect` | `{deviceAddress: String}` | `null` — initiates P2P connection |
-| `sendData` | `{data: ByteArray, recipientIP?: String}` | `bool` — sends to explicit IP or broadcasts |
-| `disconnect` | — | `null` — removes P2P group, fires onDisconnected |
+| `initialize` | | `bool` starts TCP ServerSocket on port 8765 |
+| `discoverPeers` | | `null` triggers WifiP2pManager.discoverPeers() |
+| `connect` | `{deviceAddress: String}` | `null` initiates P2P connection |
+| `sendData` | `{data: ByteArray, recipientIP?: String}` | `bool` sends to explicit IP or broadcasts |
+| `disconnect` | | `null` removes P2P group, fires onDisconnected |
 
 **Kotlin → Dart (invoke on UI thread):**
 | Callback | Payload | When |
@@ -1384,8 +1384,8 @@ Per-conversation async mutex (`_withLock`) serialises all read-modify-write oper
 **Dart → Kotlin:**
 | Method | Arguments | Returns |
 |--------|-----------|---------|
-| `startAdvertising` | `{serviceUuid: String, payload?: ByteArray}` | `bool` — opens GATT server + starts LE advertising |
-| `stopAdvertising` | — | `null` — stops advertiser, closes GATT server |
+| `startAdvertising` | `{serviceUuid: String, payload?: ByteArray}` | `bool` opens GATT server + starts LE advertising |
+| `stopAdvertising` | | `null` stops advertiser, closes GATT server |
 
 **Kotlin → Dart:**
 | Callback | Payload | When |
@@ -1439,7 +1439,7 @@ In-memory representation of a discovered peer. Never persisted directly.
 Chat thread metadata. Persisted in `PrefsStore[prefConversations]`.
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | String | `conversationId(myUuid, peerUuid)` — deterministic 32-char hex |
+| `id` | String | `conversationId(myUuid, peerUuid)` deterministic 32-char hex |
 | `peerUuid` | String | Peer's canonical UUID |
 | `peerDisplayName` | String | Cached peer name |
 | `peerShortId` | String | Cached peer shortId |
@@ -1472,22 +1472,22 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 
 ## 25. Enums Reference
 
-**`TransportMode`** — controls routing priority and media capability:
+**`TransportMode`** controls routing priority and media capability:
 | Value | Priority | Media? | How established |
 |-------|----------|--------|-----------------|
 | `wifiDirect` | 0 (best) | yes | Android WiFi P2P group |
 | `lan` | 1 | yes | UDP broadcast on local network |
 | `ble` | 2 | no | Bluetooth LE GATT |
-| `none` | 3 | — | Peer not reachable |
+| `none` | 3 | | Peer not reachable |
 
-**`MessageType`** — controls payload encoding:
+**`MessageType`** controls payload encoding:
 | Value | Encoding | Restriction |
 |-------|----------|-------------|
 | `text` | raw string | any transport |
 | `image` | base64-encoded JPEG file | LAN or WiFi Direct only |
 | `voice` | base64-encoded AAC file | LAN or WiFi Direct only |
 
-**`MessageStatus`** — shown as icon on message bubble:
+**`MessageStatus`** shown as icon on message bubble:
 | Value | Icon | Meaning |
 |-------|------|---------|
 | `sending` | spinner / clock | awaiting transport ACK |
@@ -1495,7 +1495,7 @@ Single message. Persisted in `PrefsStore[ahoy_msgs_{convId}]`.
 | `delivered` | ✓✓ | peer returned a signed delivery ack |
 | `failed` | ✗ | transport returned false (text messages auto-retry when the peer returns) |
 
-**`Gender`** — profile and avatar display:
+**`Gender`** profile and avatar display:
 | Value | Avatar color |
 |-------|-------------|
 | `male` | blue |
@@ -1524,7 +1524,7 @@ Declared in `android/app/src/main/AndroidManifest.xml`:
 | `CHANGE_NETWORK_STATE` | all | Socket binding for WiFi Direct |
 | `ACCESS_NETWORK_STATE` | all | Detect active network interface |
 | `INTERNET` | all | TCP sockets for LAN and WiFi Direct |
-| `NEARBY_WIFI_DEVICES` | ≥ 33 | Android 13+ scoped WiFi access (`neverForLocation` — avoids location prompt) |
+| `NEARBY_WIFI_DEVICES` | ≥ 33 | Android 13+ scoped WiFi access (`neverForLocation` avoids location prompt) |
 | `USE_BIOMETRIC` | all | Fingerprint / face authentication |
 | `USE_FINGERPRINT` | all | Legacy fingerprint support |
 | `READ_MEDIA_IMAGES` | ≥ 33 | Gallery image picker (Android 13+) |
@@ -1561,7 +1561,7 @@ Hardware features declared `android:required="false"` so app installs on devices
 
 **Requirements:**
 - Flutter 3.x
-- Android 8.0+ (API 26+) — WiFi Direct requires Android 4.0+ but BLE peripheral mode requires Android 5.0+
+- Android 8.0+ (API 26+) WiFi Direct requires Android 4.0+ but BLE peripheral mode requires Android 5.0+
 - Two physical Android devices (emulators do not support WiFi Direct or BLE advertising)
 
 **Run:**
@@ -1591,4 +1591,4 @@ flutter build apk --release
 
 ## License
 
-GPL v3 — see `LICENSE`. Commercial licensing available.
+GPL v3 see `LICENSE`. Commercial licensing available.

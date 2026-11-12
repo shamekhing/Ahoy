@@ -27,7 +27,7 @@ class PeerAnnouncement {
 
   /// RSA-SHA256 signature over the announcement material, made with
   /// [publicKeyPEM]'s private key. Null for BLE scan-response announcements
-  /// (13-byte budget) — identity is bound at the first signed chat message.
+  /// (13-byte budget) identity is bound at the first signed chat message.
   final String? signature;
   final TransportMode transport;
 

@@ -105,7 +105,7 @@ void main() {
       displayName: 'Alice',
       publicKeyPEM: keys['publicKey']!,
     );
-    // Tampered identity field — signature no longer matches.
+    // Tampered identity field signature no longer matches.
     provider.onAnnouncement(
       PeerAnnouncement(
         uuid: _realUuid,
@@ -192,7 +192,7 @@ void main() {
     }
   });
 
-  test('safety number is symmetric — both devices compute the same digits', () {
+  test('safety number is symmetric both devices compute the same digits', () {
     final a = '-----BEGIN RSA PUBLIC KEY-----\nKEY_A\n-----END RSA PUBLIC KEY-----';
     final b = '-----BEGIN RSA PUBLIC KEY-----\nKEY_B\n-----END RSA PUBLIC KEY-----';
 
@@ -245,7 +245,7 @@ void main() {
     );
 
     // An attacker ground a uuid whose shortId collides with the victim's and
-    // announces with their own key — the merge must be rejected outright.
+    // announces with their own key the merge must be rejected outright.
     const collisionUuid = 'aaaaaaaa-1111-4111-8111-111111111111';
     final alias = discovery.onAnnouncement(
       PeerAnnouncement(

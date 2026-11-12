@@ -32,7 +32,7 @@ class _AhoyAppState extends State<AhoyApp> {
   bool _ready = false;
   String? _initError;
 
-  // Services — created once, injected via Provider
+  // Services created once, injected via Provider
   late final SecureStore _secureStore;
   late final PrefsStore _prefsStore;
   late final CryptoService _cryptoService;
@@ -136,7 +136,7 @@ class _AhoyAppState extends State<AhoyApp> {
 
     return MultiProvider(
       providers: [
-        // Plain services — accessible via context.read<T>()
+        // Plain services accessible via context.read<T>()
         Provider<SecureStore>.value(value: _secureStore),
         Provider<PrefsStore>.value(value: _prefsStore),
         Provider<CryptoService>.value(value: _cryptoService),
@@ -145,7 +145,7 @@ class _AhoyAppState extends State<AhoyApp> {
         Provider<ProfileService>.value(value: _profileService),
         Provider<MediaService>.value(value: _mediaService),
 
-        // State providers — notify listeners on change
+        // State providers notify listeners on change
         ChangeNotifierProvider(
           create: (_) => AuthProvider(_authService, _transportManager),
         ),

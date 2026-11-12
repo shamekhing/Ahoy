@@ -20,7 +20,7 @@ class AhoyConstants {
   // WiFi Direct
   static const int wifiDirectMaxPayloadBytes = 10 * 1024 * 1024;
 
-  // Storage keys — SecureStore
+  // Storage keys SecureStore
   static const String keyUserId = 'ahoy_user_id';
   static const String keyPasswordHash = 'ahoy_password_hash';
   static const String keyPrivateKey = 'ahoy_private_key';
@@ -28,7 +28,7 @@ class AhoyConstants {
   static const String keyBiometricEnabled = 'ahoy_biometric_enabled';
   static const String keyLocalDataKey = 'ahoy_local_data_key';
 
-  // Storage keys — PrefsStore
+  // Storage keys PrefsStore
   static const String prefProfile = 'ahoy_profile';
   static const String prefConversations = 'ahoy_conversations';
   static const String prefOffGrid = 'ahoy_off_grid';

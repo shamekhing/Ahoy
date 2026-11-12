@@ -36,13 +36,13 @@ class DiscoverScreen extends StatelessWidget {
           if (discovery.offGrid)
             _Banner(
               icon: Icons.cloud_off,
-              message: 'Off the Grid — you are invisible to others',
+              message: 'Off the Grid you are invisible to others',
               color: Colors.grey.shade700,
             ),
           if (discovery.receiveOff)
             _Banner(
               icon: Icons.do_not_disturb,
-              message: 'Receive Off — new chat requests are blocked',
+              message: 'Receive Off new chat requests are blocked',
               color: Colors.orange.shade700,
             ),
           Expanded(

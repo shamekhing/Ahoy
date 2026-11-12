@@ -77,7 +77,7 @@ class MainActivity : FlutterActivity() {
     private var groupOwnerAddress: String? = null
 
     // /24 prefix of the WiFi Direct group (derived from the group owner's
-    // address) — connections from outside it are rejected (audit M-4).
+    // address) connections from outside it are rejected (audit M-4).
     private var p2pSubnetPrefix: String? = null
 
     // IPs of clients that have connected to our server socket (group-owner side).
@@ -85,7 +85,7 @@ class MainActivity : FlutterActivity() {
     // wd-client background threads → ConcurrentHashMap (audit L-2).
     private val connectedClients = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    // Bounded pool for incoming-connection handlers — a flood of connections
+    // Bounded pool for incoming-connection handlers a flood of connections
     // can no longer spawn unbounded threads (audit L-2).
     private val clientExecutor = java.util.concurrent.Executors.newFixedThreadPool(4)
 
@@ -188,7 +188,7 @@ class MainActivity : FlutterActivity() {
                 value: ByteArray?
             ) {
                 if (responseNeeded) {
-                    // Capture the server reference — stopBleAdvertising may
+                    // Capture the server reference stopBleAdvertising may
                     // null the field from the UI thread while this binder
                     // callback runs (third review #8).
                     val server = bleGattServer
@@ -374,7 +374,7 @@ class MainActivity : FlutterActivity() {
             else                            -> emptyList()
         }
 
-        // Only send into the WiFi Direct group subnet (audit M-4) — fail
+        // Only send into the WiFi Direct group subnet (audit M-4) fail
         // closed when the group subnet is not (yet) known.
         val prefix = p2pSubnetPrefix
         val safeTargets = if (prefix == null) {
@@ -442,7 +442,7 @@ class MainActivity : FlutterActivity() {
         val senderIP = socket.inetAddress.hostAddress ?: ""
 
         // Reject connections from outside the WiFi Direct group subnet
-        // (audit M-4) — fail closed when the group subnet is unknown.
+        // (audit M-4) fail closed when the group subnet is unknown.
         val prefix = p2pSubnetPrefix
         if (prefix == null || !senderIP.startsWith("$prefix.")) {
             logWarn("Rejected WiFi Direct connection from outside the group subnet")
@@ -458,7 +458,7 @@ class MainActivity : FlutterActivity() {
             connectedClients[senderIP] = now
         }
         try {
-            socket.soTimeout = 10_000 // 10 s — prevent threads from blocking forever
+            socket.soTimeout = 10_000 // 10 s prevent threads from blocking forever
             val input = DataInputStream(socket.getInputStream())
             val length = input.readInt()
             if (length <= 0 || length > MAX_PAYLOAD) {

@@ -59,7 +59,7 @@ class WiFiDirectTransport implements TransportInterface {
   final Map<String, DateTime> _connectingAttempts = {};
 
   // Kotlin's onConnectionFailed does not identify the failed device, so
-  // exact bookkeeping is impossible — TTL expiry keeps the state honest
+  // exact bookkeeping is impossible TTL expiry keeps the state honest
   // (review #1).
   final Duration _connectAttemptTtl;
 
@@ -114,7 +114,7 @@ class WiFiDirectTransport implements TransportInterface {
     } catch (e) {
       ahoyLog('[WiFiDirect] disconnect failed', e);
     } finally {
-      // Reset connection/routing state only — keep identity fields (_myUuid etc.)
+      // Reset connection/routing state only keep identity fields (_myUuid etc.)
       // so that _sendIdentity() can still complete a handshake if the OS
       // auto-reconnects, and so startAdvertising() can reinitialise correctly.
       _initialized = false;
@@ -174,7 +174,7 @@ class WiFiDirectTransport implements TransportInterface {
         break;
       case 'onConnectionFailed':
         ahoyLog('[WiFiDirect] connection failed');
-        // Kotlin does not identify which device failed — guessing from the
+        // Kotlin does not identify which device failed guessing from the
         // single pending address removed the wrong peer under concurrency
         // (review #1). The attempt entry expires via TTL instead.
         break;
@@ -197,7 +197,7 @@ class WiFiDirectTransport implements TransportInterface {
         final address = p['deviceAddress'] as String? ?? '';
         ahoyLog('[WiFiDirect] peer found');
 
-        // Do NOT emit a stub announcement here — the peer has no Ahoy identity yet
+        // Do NOT emit a stub announcement here the peer has no Ahoy identity yet
         // (shortId/UUID unknown) and would show as a duplicate "@" entry in the UI.
         // The real announcement is emitted after TCP identity exchange in _handleDataReceived.
 
@@ -221,7 +221,7 @@ class WiFiDirectTransport implements TransportInterface {
       _isGroupOwner = args['isGroupOwner'] as bool? ?? false;
       final addr = args['address'] as String? ?? '';
       _groupOwnerAddress = addr.isEmpty ? null : addr;
-      // The group formed — any in-flight connect attempts are moot; peers
+      // The group formed any in-flight connect attempts are moot; peers
       // outside the group are re-attempted on the next discovery cycle
       // (review #1).
       _connectingAttempts.clear();
@@ -267,7 +267,7 @@ class WiFiDirectTransport implements TransportInterface {
         final uuid = json['uuid'] as String? ?? '';
         if (uuid.isNotEmpty) {
           // Verify the signed identity BEFORE learning routes or announcing
-          // the peer — wdIdentity packets are otherwise spoofable (audit #5).
+          // the peer wdIdentity packets are otherwise spoofable (audit #5).
           // Fail closed when verification is unavailable.
           final crypto = _crypto;
           if (crypto == null) return;
@@ -292,7 +292,7 @@ class WiFiDirectTransport implements TransportInterface {
             _addressToUuid[routeIP] = uuid;
             _uuidToAddress[uuid] = routeIP;
           }
-          // Connect-attempt bookkeeping expires via TTL — the sender's MAC
+          // Connect-attempt bookkeeping expires via TTL the sender's MAC
           // is not derivable from its IP here, so no targeted removal
           // (review #2).
           _announcementController.add(
@@ -315,7 +315,7 @@ class WiFiDirectTransport implements TransportInterface {
       } else {
         final fromUuid = json['from'] as String? ?? '';
         if (fromUuid.isEmpty) return;
-        // Routing is learned only from verified identity exchanges — a chat
+        // Routing is learned only from verified identity exchanges a chat
         // packet claiming an unknown uuid is dropped (audit #5).
         if (!_uuidToAddress.containsKey(fromUuid)) {
           ahoyLog('[WiFiDirect] dropping packet from unknown peer identity');
@@ -425,7 +425,7 @@ class WiFiDirectTransport implements TransportInterface {
 
   @override
   Future<void> dispose() async {
-    // Tear down the native group and server socket too — stopScanning only
+    // Tear down the native group and server socket too stopScanning only
     // stops discovery, so without this the group and server socket stay
     // alive after disposal (review #3).
     await stopAdvertising();

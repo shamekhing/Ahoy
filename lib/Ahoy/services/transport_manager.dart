@@ -118,7 +118,7 @@ class TransportManager {
     String? publicKeyPEM,
   }) async {
     // Refresh the cached identity FIRST so the signature always matches the
-    // identity being advertised — profile edits used to sign the stale name
+    // identity being advertised profile edits used to sign the stale name
     // while broadcasting the new one, and receivers dropped us (audit #4).
     _myUuid = uuid;
     _myShortId = shortId;
@@ -159,7 +159,7 @@ class TransportManager {
   }
 
   /// Signs the currently cached identity with the loaded private key.
-  /// Returns null when crypto is unavailable or not ready — receivers then
+  /// Returns null when crypto is unavailable or not ready receivers then
   /// treat the announcement as legacy and bind identity at the first chat
   /// message instead.
   String? _computeAnnouncementSignature() {

@@ -152,7 +152,7 @@ void main() {
     expect(ack['ct'], isNotEmpty);
     expect(ack.containsKey('ackFor'), isFalse);
 
-    // Alice processes the ack — her message upgrades to delivered.
+    // Alice processes the ack her message upgrades to delivered.
     await aliceH.service.onInboundPacket(
       rawPayload: _wire(ack, _bobUuid),
       peerUuid: _bobUuid,
@@ -260,7 +260,7 @@ void main() {
     );
 
     // Mallory signs the ack, but the wire claims Bob sent it. Alice verifies
-    // against Bob's pinned key — the forgery fails.
+    // against Bob's pinned key the forgery fails.
     final inner = <String, dynamic>{
       'msgType': 'ack',
       'ackFor': _msgId,

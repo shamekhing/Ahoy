@@ -20,7 +20,7 @@ class TransportError implements Exception {
 }
 
 /// Thrown when a crypto envelope is malformed or from an unsupported
-/// protocol version — distinct from [CryptoNotInitialized], which means the
+/// protocol version distinct from [CryptoNotInitialized], which means the
 /// key material has not been loaded yet.
 class CryptoFormatError implements Exception {
   final String reason;
