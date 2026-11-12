@@ -54,8 +54,14 @@ class AuthService {
     // peers pinned to the previous key, so an explicit confirmation is
     // required (audit M-2).
     final existingHash = await _secureStore.read(AhoyConstants.keyPasswordHash);
-    if (existingHash != null && !replaceExisting) {
-      throw const AuthFailed('An account already exists on this device');
+    if (existingHash != null) {
+      if (!replaceExisting) {
+        throw const AuthFailed('An account already exists on this device');
+      }
+      // The confirmed replacement starts from a clean slate: the old
+      // conversations reference a keypair that no longer exists, and their
+      // encrypted content is unreadable under the reset at-rest key.
+      await _prefsStore.clearAll();
     }
 
     final id = const Uuid().v4();

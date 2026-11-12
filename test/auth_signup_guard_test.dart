@@ -1,6 +1,8 @@
 import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/core/errors.dart';
+import 'package:ahoy/Ahoy/models/conversation.dart';
 import 'package:ahoy/Ahoy/services/auth/auth_service.dart';
+import 'package:ahoy/Ahoy/services/chat/conversation_store.dart';
 import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
 import 'package:ahoy/Ahoy/services/crypto/key_store.dart';
 import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
@@ -14,7 +16,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AuthService> createAuth() async {
+  Future<({AuthService auth, PrefsStore prefs, LocalDataCrypto localDataCrypto})>
+      createAuth() async {
     FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
     final secure = SecureStore();
@@ -25,7 +28,7 @@ void main() {
     final localDataCrypto = LocalDataCrypto(secure);
     await localDataCrypto.init();
     final profileService = ProfileService(prefs, localDataCrypto);
-    return AuthService(
+    final auth = AuthService(
       secure,
       prefs,
       profileService,
@@ -33,10 +36,12 @@ void main() {
       keyStore,
       localDataCrypto,
     );
+    return (auth: auth, prefs: prefs, localDataCrypto: localDataCrypto);
   }
 
   test('sign up with no existing account succeeds', () async {
-    final auth = await createAuth();
+    final created = await createAuth();
+    final auth = created.auth;
 
     final user = await auth.signUp(
       username: 'First',
@@ -49,7 +54,8 @@ void main() {
   });
 
   test('a second sign up is refused unless explicitly confirmed', () async {
-    final auth = await createAuth();
+    final created = await createAuth();
+    final auth = created.auth;
     await auth.signUp(
       username: 'First',
       password: 'password1',
@@ -73,11 +79,27 @@ void main() {
   });
 
   test('explicit confirmation replaces the identity', () async {
-    final auth = await createAuth();
+    final created = await createAuth();
+    final auth = created.auth;
     final first = await auth.signUp(
       username: 'First',
       password: 'password1',
       gender: Gender.unspecified,
+    );
+
+    // A conversation from the old identity must not survive the replacement.
+    final convStore = ConversationStore(
+      created.prefs,
+      created.localDataCrypto,
+    );
+    await convStore.upsert(
+      Conversation(
+        id: 'conv-old',
+        peerUuid: 'peer-1',
+        peerDisplayName: 'Old Peer',
+        lastTransport: TransportMode.lan,
+        createdAt: DateTime.utc(2026),
+      ),
     );
 
     final second = await auth.signUp(
@@ -94,6 +116,8 @@ void main() {
       auth.signIn(password: 'password1'),
       throwsA(isA<AuthFailed>()),
     );
+    expect(convStore.loadAll(), isEmpty,
+        reason: 'the confirmed replacement clears the old identity data');
   });
 }
 
