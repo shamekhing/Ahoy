@@ -442,6 +442,15 @@ against the source first:
 | 10 | Peer reachability was unclear, and an offline send was rejected outright | Text messages to an unreachable peer are now queued (stored, shown as failed, auto-retried when the peer returns) instead of thrown away; media still requires LAN/WiFi Direct; the chat header shows "Not nearby" and the composer hint explains the queueing |
 | 16 | No encryption indicator inside the chat | An empty conversation shows the end-to-end-encryption promise with a pointer to safety numbers, and the app bar carries a lock that opens the peer's profile (the trust surface) |
 
+## Batch 3 fixed (same review, follow-up commit)
+
+The contrast and legibility pair — the review's "fast win":
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 21 | Dark-mode contrast: `PeerProfileScreen` painted the safety-number panel on `Colors.orange.shade50` and the blocked panel on `Colors.red.shade50` with default (near-white) text, and ~15 sites hardcoded `Colors.red` for destructive semantics | Semantic theme colors everywhere: the safety-number panel uses `tertiaryContainer`/`onTertiaryContainer`, the blocked panels and destructive actions use `errorContainer`/`error`/`onErrorContainer`, and the conversation-list avatars use theme surfaces instead of `shade100` tints |
+| 22 | Tiny text: timestamps at 10px/60% alpha, badge and hint labels at 11px — all below legibility and contrast floors | No text below 12px anywhere in `lib/`; the message footer keeps its bubble's text color at 0.85 alpha instead of 0.6; enforced by `ui_batch3_test.dart`, which scans `lib/` for `Colors.red`, pale `shade50/100` tints and sub-12px font sizes, and asserts the message footer in both light and dark themes |
+
 ## Recorded, open (P1/P2)
 
 The remaining items from the same review are accepted as a backlog, not
@@ -450,7 +459,7 @@ hardening, per-conversation error scoping, queued/failed message
 affordances (queueing done in batch 2; tap-to-retry still open), BLE
 media-button handling, blocked-thread unblock path, voice recorder UX,
 fullscreen image viewing, safety-number UX, sign-up hardening copy,
-dropping the gender field, dark-mode contrast, minimum text sizes, avatar
-unification, message and conversation-list actions, navigation
-consolidation, settings copy, startup error recovery, tooltips and
-semantics, color independence, localization, and layout constraints.
+dropping the gender field, dark-mode contrast and text sizes (done in
+batch 3), avatar unification, message and conversation-list actions,
+navigation consolidation, settings copy, startup error recovery, tooltips
+and semantics, color independence, localization, and layout constraints.
