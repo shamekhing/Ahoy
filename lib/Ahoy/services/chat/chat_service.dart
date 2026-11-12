@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/enums.dart';
@@ -51,6 +51,38 @@ class ChatService {
   /// flush it.
   final _seenMessageIds = <String>{};
   static const int _maxSeenMessageIds = 512;
+
+  /// Media limits (audit L-11): per-file cap and a total quota for the
+  /// owned ahoy_media_* collection. Injectable for tests.
+  int _maxMediaBytes = AhoyConstants.maxMediaBytes;
+  int _mediaQuotaBytes = AhoyConstants.mediaQuotaBytes;
+
+  @visibleForTesting
+  void debugMediaLimits({int? maxBytes, int? quotaBytes}) {
+    if (maxBytes != null) _maxMediaBytes = maxBytes;
+    if (quotaBytes != null) _mediaQuotaBytes = quotaBytes;
+  }
+
+  /// Bytes currently stored in owned media files.
+  Future<int> _ownedMediaBytes() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      var total = 0;
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.isEmpty
+            ? ''
+            : entity.uri.pathSegments.last;
+        if (!name.startsWith('ahoy_media_')) continue;
+        try {
+          total += await entity.length();
+        } catch (_) {}
+      }
+      return total;
+    } catch (_) {
+      return 0;
+    }
+  }
 
   /// Hands the live blocked-peers set to the service (audit #4). The set is
   /// owned by DiscoveryProvider and mutated in place.
@@ -424,6 +456,13 @@ class ChatService {
     final bytes = await source.readAsBytes();
     if (bytes.isEmpty) {
       throw const TransportError('Media source unavailable');
+    }
+    if (bytes.length > _maxMediaBytes) {
+      throw const TransportError('Media file is too large to send');
+    }
+    final used = await _ownedMediaBytes();
+    if (used + bytes.length > _mediaQuotaBytes) {
+      throw const TransportError('Media storage quota is full');
     }
     final wire = await Isolate.run(() => base64.encode(bytes));
     final stored = await _writeEncryptedMedia(bytes, msgId, type);
@@ -807,6 +846,15 @@ class ChatService {
       // Decoding up to a 16 MB LAN frame off the UI thread (audit M-5).
       final bytes = await Isolate.run(() => base64.decode(base64Content));
       if (bytes.isEmpty) return null;
+      if (bytes.length > _maxMediaBytes) {
+        ahoyLog('[ChatService] dropping oversized inbound media');
+        return null;
+      }
+      final used = await _ownedMediaBytes();
+      if (used + bytes.length > _mediaQuotaBytes) {
+        ahoyLog('[ChatService] dropping inbound media over the storage quota');
+        return null;
+      }
       return await _writeEncryptedMedia(bytes, msgId, type);
     } catch (e) {
       ahoyLog('[ChatService] media decode failed', e);

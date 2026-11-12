@@ -154,7 +154,7 @@ void main() {
 
     expect(authService.isSignedIn, completion(isFalse));
     expect(await secure.read('ahoy_user_id'), isNull);
-    expect(await crypto.isReady, isFalse,
+    expect(crypto.isReady, isFalse,
         reason: 'the stale keypair must not stay activated');
   });
 

@@ -41,6 +41,11 @@ class AhoyConstants {
   static const int inboundMaxClockSkewSeconds = 15 * 60;
   static const int maxMsgIdLength = 64;
 
+  // Media limits (audit M-5/L-11): one file and a total disk budget for the
+  // ahoy_media_* collection.
+  static const int maxMediaBytes = 5 * 1024 * 1024;
+  static const int mediaQuotaBytes = 200 * 1024 * 1024;
+
   // Delivery retries (audit M-3)
   static const int maxSendRetries = 3;
   static const int maxOutboxPerPeer = 50;
