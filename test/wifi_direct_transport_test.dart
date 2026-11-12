@@ -239,6 +239,54 @@ void main() {
     expect(announcements, hasLength(2));
     expect(transport.debugUuidToAddress['peer-1'], '10.0.0.3');
   });
+
+  test('auto-connect gives up on devices that never speak Ahoy (audit M-4)',
+      () async {
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('wifi_direct'),
+            (call) async {
+      calls.add(call);
+      return;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding.instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('wifi_direct'), null));
+
+    final transport = WiFiDirectTransport(
+      maxPayloadBytes: 4096,
+      connectAttemptTtl: const Duration(milliseconds: 5),
+    );
+    addTearDown(transport.dispose);
+    final printer = <String, String>{
+      'deviceAddress': 'AA:BB:CC:DD:EE:99',
+      'deviceName': 'Office Printer',
+      'status': '0',
+    };
+
+    transport.debugHandlePeersDiscovered([printer]);
+    expect(calls.where((c) => c.method == 'connect'), hasLength(1));
+
+    // The attempt expires without any identity: strike one. Real delays keep
+    // the TTL expiry independent of clock granularity.
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    transport.debugPruneConnectingAttempts();
+    transport.debugHandlePeersDiscovered([printer]);
+    expect(calls.where((c) => c.method == 'connect'), hasLength(2));
+
+    // Strike two: the cap trips and the device is left alone.
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    transport.debugPruneConnectingAttempts();
+    transport.debugHandlePeersDiscovered([printer]);
+    expect(calls.where((c) => c.method == 'connect'), hasLength(2));
+    expect(transport.debugIsNonAhoyAddress, isTrue);
+
+    // A group teardown clears the marks for a fresh session.
+    transport.debugOnDisconnected();
+    await Future<void>.delayed(Duration.zero);
+    transport.debugHandlePeersDiscovered([printer]);
+    expect(calls.where((c) => c.method == 'connect'), hasLength(3));
+  });
 }
 
 void _deliverIdentity(

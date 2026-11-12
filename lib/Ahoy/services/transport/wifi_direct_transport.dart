@@ -63,6 +63,16 @@ class WiFiDirectTransport implements TransportInterface {
   // until the next group teardown (review #1/#2).
   final Map<String, DateTime> _connectingAttempts = {};
 
+  // Devices that were auto-connected but never proved they speak Ahoy.
+  // Auto-connect gives up after two expired attempts per address per group
+  // session, so printers and TVs are not harassed every discovery cycle
+  // (audit M-4). A scan restart or a group teardown clears the marks.
+  final Set<String> _nonAhoyAddresses = {};
+  static const int _maxAutoConnectAttempts = 2;
+
+  /// Expired-attempt counter per address feeding [_nonAhoyAddresses].
+  final Map<String, int> _nonAhoyMarkCounts = {};
+
   // Kotlin's onConnectionFailed does not identify the failed device, so
   // exact bookkeeping is impossible TTL expiry keeps the state honest
   // (review #1).
@@ -158,12 +168,20 @@ class WiFiDirectTransport implements TransportInterface {
 
   @override
   Future<void> stopScanning() async {
+    // Auto-connect caps reset on a scan restart so pull-to-refresh can retry
+    // devices that never proved they speak Ahoy (audit M-4).
+    _autoConnectFailuresReset();
     if (!Platform.isAndroid) return;
     _discoveryTimer?.cancel();
     _discoveryTimer = null;
     _channel.setMethodCallHandler(null);
     // Don't call disconnect here as it might cause issues when just stopping scanning
     // The disconnect should only be called when completely stopping WiFi Direct
+  }
+
+  void _autoConnectFailuresReset() {
+    _nonAhoyAddresses.clear();
+    _nonAhoyMarkCounts.clear();
   }
 
   // Receives method calls that Kotlin initiates on us (Kotlin → Dart direction).
@@ -188,6 +206,7 @@ class WiFiDirectTransport implements TransportInterface {
         _isGroupOwner = false;
         _groupOwnerAddress = null;
         _connectingAttempts.clear();
+        _autoConnectFailuresReset();
         ahoyLog('[WiFiDirect] disconnected');
         break;
     }
@@ -207,10 +226,13 @@ class WiFiDirectTransport implements TransportInterface {
         // (shortId/UUID unknown) and would show as a duplicate "@" entry in the UI.
         // The real announcement is emitted after TCP identity exchange in _handleDataReceived.
 
-        // Auto-connect to newly found peers if not already connected.
+        // Auto-connect to newly found peers if not already connected. Gives
+        // up after two expired attempts so non-Ahoy devices stop being
+        // contacted on every cycle (audit M-4).
         if (address.isNotEmpty &&
             !_addressToUuid.containsKey(address) &&
-            !_connectingAttempts.containsKey(address)) {
+            !_connectingAttempts.containsKey(address) &&
+            !_nonAhoyAddresses.contains(address)) {
           _connectingAttempts[address] = DateTime.now();
           _tryConnect(address);
         }
@@ -366,9 +388,21 @@ class WiFiDirectTransport implements TransportInterface {
 
   void _pruneConnectingAttempts() {
     final now = DateTime.now();
-    _connectingAttempts.removeWhere(
-      (address, startedAt) => now.difference(startedAt) > _connectAttemptTtl,
-    );
+    final expired = _connectingAttempts.entries
+        .where((entry) => now.difference(entry.value) > _connectAttemptTtl)
+        .map((entry) => entry.key)
+        .toList();
+    for (final address in expired) {
+      _connectingAttempts.remove(address);
+      // An attempt that expired without the device ever proving it speaks
+      // Ahoy counts toward the auto-connect cap (audit M-4). The cap trips
+      // after the second expired attempt.
+      final attempts = (_nonAhoyMarkCounts[address] ?? 0) + 1;
+      _nonAhoyMarkCounts[address] = attempts;
+      if (attempts >= _maxAutoConnectAttempts) {
+        _nonAhoyAddresses.add(address);
+      }
+    }
   }
 
   @visibleForTesting
@@ -434,6 +468,16 @@ class WiFiDirectTransport implements TransportInterface {
 
   @visibleForTesting
   void debugHandleDataReceived(dynamic raw) => _handleDataReceived(raw);
+
+  @visibleForTesting
+  void debugHandlePeersDiscovered(dynamic raw) => _handlePeersDiscovered(raw);
+
+  @visibleForTesting
+  void debugOnDisconnected() =>
+      _onKotlinCall(const MethodCall('onDisconnected'));
+
+  @visibleForTesting
+  bool get debugIsNonAhoyAddress => _nonAhoyAddresses.isNotEmpty;
 
   @visibleForTesting
   void debugHandleConnectionEstablished(dynamic raw) =>

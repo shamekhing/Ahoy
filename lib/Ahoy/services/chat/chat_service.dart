@@ -455,6 +455,14 @@ class ChatService {
       if (blockedUuids.contains(peerUuid)) return null;
 
       if (outer['msgType'] == 'identity') {
+        // Receive Off also covers the identity handshake: a stranger cannot
+        // probe presence or force an identity reply. A peer we already have a
+        // conversation with is still answered so reconnects keep working
+        // (audit M-4).
+        if (receiveOff && !_conversationExists(myUuid, peerUuid)) {
+          ahoyLog('[ChatService] receive off: dropping identity probe');
+          return null;
+        }
         await _handleInboundIdentity(
           outer,
           peerUuid,
@@ -769,6 +777,13 @@ class ChatService {
       if (conversation.id == convId) return conversation;
     }
     return null;
+  }
+
+  /// True when a conversation with [peerUuid] exists. Receive Off uses this
+  /// to keep answering known peers while ignoring strangers (audit M-4).
+  bool _conversationExists(String myUuid, String peerUuid) {
+    final convId = MessageStore.conversationId(myUuid, peerUuid);
+    return _convStore.loadAll().any((c) => c.id == convId);
   }
 
   String? _resolvePeerPublicKey({
