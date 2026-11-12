@@ -1,10 +1,14 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:ahoy/Ahoy/core/constants.dart';
 import 'package:ahoy/Ahoy/core/enums.dart';
 import 'package:ahoy/Ahoy/models/conversation.dart';
+import 'package:ahoy/Ahoy/services/auth/auth_service.dart';
 import 'package:ahoy/Ahoy/services/chat/conversation_store.dart';
 import 'package:ahoy/Ahoy/services/chat/message_store.dart';
+import 'package:ahoy/Ahoy/services/crypto/crypto_service.dart';
+import 'package:ahoy/Ahoy/services/crypto/key_store.dart';
 import 'package:ahoy/Ahoy/services/crypto/local_data_crypto.dart';
 import 'package:ahoy/Ahoy/services/profile/profile_service.dart';
 import 'package:ahoy/Ahoy/services/storage/prefs_store.dart';
@@ -100,6 +104,89 @@ void main() {
     expect(crypto.readEncryptedFileSync(file2), isEmpty);
     expect(file2.existsSync(), isFalse);
     expect(File('${file2.path}.ahoycorrupt').existsSync(), isTrue);
+  });
+
+  test('quarantining sets the one-time notice flag', () async {
+    SharedPreferences.setMockInitialValues({
+      'ahoy_conversations': _corruptEnvelope,
+    });
+    final prefs = PrefsStore();
+    await prefs.init();
+    final store = ConversationStore(
+      prefs,
+      LocalDataCrypto.withKeyForTesting(
+        Uint8List.fromList(List.generate(32, (i) => i + 1)),
+      ),
+    );
+
+    expect(store.loadAll(), isEmpty);
+    await pumpEventQueue();
+    expect(prefs.getBool(AhoyConstants.prefQuarantineNotice), isTrue);
+  });
+
+  test('a reinstall is detected when the Keychain outlives prefs', () async {
+    // Simulates an iOS reinstall: secure storage keeps the identity, prefs
+    // (with the account marker) are gone (audit M-1).
+    FlutterSecureStorage.setMockInitialValues({
+      'ahoy_user_id': 'old-id',
+      'ahoy_password_hash': 'old-hash',
+      'ahoy_private_key': 'old-key',
+    });
+    SharedPreferences.setMockInitialValues({});
+    final secure = SecureStore();
+    final prefs = PrefsStore();
+    await prefs.init();
+    final crypto = CryptoService();
+    final keyStore = KeyStore(secure, crypto);
+    final localDataCrypto = LocalDataCrypto(secure);
+    await localDataCrypto.init();
+    final authService = AuthService(
+      secure,
+      prefs,
+      ProfileService(prefs, localDataCrypto),
+      crypto,
+      keyStore,
+      localDataCrypto,
+    );
+    expect(await authService.isSignedIn, isTrue);
+
+    await authService.reconcileReinstall();
+
+    expect(authService.isSignedIn, completion(isFalse));
+    expect(await secure.read('ahoy_user_id'), isNull);
+    expect(await crypto.isReady, isFalse,
+        reason: 'the stale keypair must not stay activated');
+  });
+
+  test('an account marker prevents reinstall detection from wiping data',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'ahoy_user_id': 'current-id',
+      'ahoy_password_hash': 'current-hash',
+    });
+    SharedPreferences.setMockInitialValues({
+      'ahoy_account_marker': 'current-id',
+    });
+    final secure = SecureStore();
+    final prefs = PrefsStore();
+    await prefs.init();
+    final crypto = CryptoService();
+    final keyStore = KeyStore(secure, crypto);
+    final localDataCrypto = LocalDataCrypto(secure);
+    await localDataCrypto.init();
+    final authService = AuthService(
+      secure,
+      prefs,
+      ProfileService(prefs, localDataCrypto),
+      crypto,
+      keyStore,
+      localDataCrypto,
+    );
+
+    await authService.reconcileReinstall();
+
+    expect(await authService.isSignedIn, isTrue);
+    expect(await secure.read('ahoy_user_id'), 'current-id');
   });
 
   test('keychain accessibility migration is a safe no-op off iOS', () async {

@@ -53,4 +53,12 @@ class AhoyConstants {
 
   // Blocked peers
   static const String prefBlockedUuids = 'ahoy_blocked_uuids';
+
+  // Written at sign-up; a password hash without this marker means the prefs
+  // were wiped while the Keychain survived (iOS reinstall, audit M-1).
+  static const String prefAccountMarker = 'ahoy_account_marker';
+
+  // Set when undecryptable local data was quarantined, consumed once by the
+  // startup notice (audit M-1).
+  static const String prefQuarantineNotice = 'ahoy_quarantine_notice';
 }

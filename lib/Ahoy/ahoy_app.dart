@@ -89,6 +89,9 @@ class _AhoyAppState extends State<AhoyApp> {
         _keyStore,
         _localDataCrypto,
       );
+      // Detects a Keychain-survives-reinstall stale identity before the
+      // migrator touches anything (audit M-1).
+      await _authService.reconcileReinstall();
       _chatService = ChatService(
         _transportManager,
         _convStore,

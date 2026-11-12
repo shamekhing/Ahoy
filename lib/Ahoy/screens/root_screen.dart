@@ -7,7 +7,9 @@ import '../providers/auth_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/discovery_provider.dart';
+import '../core/constants.dart';
 import '../core/logging.dart';
+import '../services/storage/prefs_store.dart';
 import '../services/transport_manager.dart';
 import 'auth/sign_in_screen.dart';
 import 'auth/sign_up_screen.dart';
@@ -80,6 +82,22 @@ class _RootScreenState extends State<RootScreen> {
     try {
       await _auth.checkSession();
       if (!mounted) return;
+
+      // One-time notice for local data that was quarantined during startup
+      // because it could not be decrypted (audit M-1).
+      final prefs = context.read<PrefsStore>();
+      if (prefs.getBool(AhoyConstants.prefQuarantineNotice)) {
+        await prefs.setBool(AhoyConstants.prefQuarantineNotice, value: false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Some local data could not be decrypted and was moved aside.',
+              ),
+            ),
+          );
+        }
+      }
 
       if (_auth.isSignedIn && _auth.user == null) {
         // Attempt biometric fast-path; falls through to password screen if denied.

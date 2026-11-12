@@ -34,6 +34,22 @@ class AuthService {
   Future<bool> get isSignedIn =>
       _secureStore.has(AhoyConstants.keyPasswordHash);
 
+  /// Detects an iOS reinstall: the Keychain survives uninstall while prefs do
+  /// not, so a stored password hash without the prefs account marker is a
+  /// stale identity whose profile is gone and whose conversations were never
+  /// restored. Clear it so the user sees sign-up instead of a "Profile data
+  /// missing" dead end (audit M-1).
+  Future<void> reconcileReinstall() async {
+    final hash = await _secureStore.read(AhoyConstants.keyPasswordHash);
+    if (hash == null) return;
+    final marker = _prefsStore.getString(AhoyConstants.prefAccountMarker);
+    if (marker != null && marker.isNotEmpty) return;
+    await _keyStore.clear();
+    await _prefsStore.clearAll();
+    await _secureStore.clearAll();
+    await _localDataCrypto.reset();
+  }
+
   Future<LocalUser> signUp({
     required String username,
     required String password,
@@ -75,6 +91,9 @@ class AuthService {
     final hash = await _cryptoService.hashPassword(password);
     await _secureStore.write(AhoyConstants.keyUserId, id);
     await _secureStore.write(AhoyConstants.keyPasswordHash, hash);
+    // Reinstall detector: the Keychain survives uninstall, prefs do not. A
+    // hash without this marker is a stale identity (audit M-1).
+    await _prefsStore.setString(AhoyConstants.prefAccountMarker, id);
 
     final user = LocalUser(
       id: id,

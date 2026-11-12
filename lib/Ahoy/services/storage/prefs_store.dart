@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/constants.dart';
+
 class PrefsStore {
   late SharedPreferences _prefs;
 
@@ -50,13 +52,15 @@ class PrefsStore {
 
   /// Moves an undecryptable value out of the live namespace so repeated
   /// reads cannot keep failing, keeping the original bytes for diagnostics
-  /// (audit M-1). The first quarantined copy wins.
+  /// (audit M-1). The first quarantined copy wins and sets the one-time
+  /// startup notice flag.
   Future<void> quarantineValue(String key) async {
     final raw = _prefs.getString(key);
     if (raw == null) return;
     final quarantineKey = 'ahoy_corrupt_$key';
     if (_prefs.getString(quarantineKey) == null) {
       await _prefs.setString(quarantineKey, raw);
+      await _prefs.setBool(AhoyConstants.prefQuarantineNotice, true);
     }
     await _prefs.remove(key);
   }
