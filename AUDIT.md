@@ -409,3 +409,37 @@ blob cannot ship under an `.svg` name again. Two Flutter-migrator flags
 landed in `android/gradle.properties` during the first device build
 (AGP compatibility, added automatically). Verified on device: clean launch,
 no exceptions in logcat. Suite now 191 tests.
+
+---
+
+# Tenth Review (UI/UX, external)
+
+Input: an external static UI/UX review of the post-ninth tree. Unlike the
+security rounds this review targets behavior and product, not the crypto.
+Every finding was verified against the source before fixing; five P0
+findings were confirmed and fixed in one commit; the remaining P1/P2 items
+are recorded at the end as open work.
+
+## P0 findings, confirmed and fixed
+
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | The reply preview leaks a local file path: composing a reply to a photo or voice message quotes `_replyTo!.content` — the stored `…/ahoy_media_x.jpg.ahoyenc` path — both in the reply bar and inside the sealed payload sent to the peer | `ReplyPreview.labelFor` quotes `[Photo]` / `[Voice message]` for media and truncates text; inbound reply headers pass through `ReplyPreview.sanitize`, so a path-shaped preview from any client renders as `[Media]` |
+| 2 | A failed send discards the user's text: `MessageInputBar._send` cleared the field before `sendMessage` resolved, so an unreachable or blocked peer swallowed the message | `onSendText` now returns `Future<bool>`; the field and the reply context are cleared only on success, and the send button shows progress and is disabled while sending |
+| 3 | Double biometric prompt on cold start: `RootScreen._bootstrap` attempts biometric sign-in, then `SignInScreen.initState` attempts again the moment the first prompt is cancelled | `SignInScreen` takes `autoPromptBiometric`; RootScreen suppresses the second automatic prompt (bootstrap already tried) while the manual "Use Biometric" button stays |
+| 4 | Pull-to-refresh kills active WiFi Direct chats: `DiscoveryProvider.refreshPeers` toggled each transport off and on, and toggling WiFi Direct off calls `stopAdvertising`, which invokes the Kotlin `disconnect` → `removeGroup` (the mechanism is one layer deeper than the review stated: `stopScanning` alone is safe) | New `TransportManager.restartScanning` restarts discovery only and re-announces on the connectionless transports; the settings toggle keeps its destructive semantics on purpose. Spy-transport tests assert restart never stops advertising |
+| 5 | Sign-out was mislabeled and duplicated: the Profile app-bar icon said "Sign Out" but erased everything, Profile had a second destructive button, and the Settings dialog omitted "cannot be undone"; no non-destructive lock existed | One destructive action remains (Settings, dialog title now matches the tile and carries the irreversible-erasure warning); Profile's app bar and list action are now a real `Lock` (`AuthProvider.lock`: transports stop, UI returns to sign-in, storage untouched; unlock is the normal password/biometric flow, asserted by test) |
+
+## Recorded, open (P1/P2)
+
+The remaining items from the same review are accepted as a backlog, not
+silently dropped: permission rationale and per-transport status, offline
+model onboarding, `ListView(reverse: true)` and scroll hardening,
+per-conversation error scoping, reachability in the chat header,
+queued/failed message affordances, BLE media-button handling, blocked-thread
+unblock path, voice recorder UX, fullscreen image viewing, encryption-state
+visibility, safety-number UX, sign-up hardening copy, dropping the gender
+field, dark-mode contrast, minimum text sizes, avatar unification, message
+and conversation-list actions, navigation consolidation, settings copy,
+startup error recovery, tooltips and semantics, color independence,
+localization, and layout constraints.
