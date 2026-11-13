@@ -95,6 +95,7 @@ class DiscoveryService {
     // a fresh key and flood the list with copies of one device. Absorb all
     // of them into a single record before the upsert.
     var existing = _peers[canonicalUuid];
+    var absorbedAny = false;
     if (announcement.shortId.isNotEmpty) {
       final duplicates = _peers.entries
           .where(
@@ -126,9 +127,16 @@ class DiscoveryService {
         for (final e in duplicates) {
           final absorbed = _peers.remove(e.key)!;
           existing = _mergeAbsorbed(existing, absorbed);
+          absorbedAny = true;
         }
+        ahoyLog(
+          '[Discovery] absorbed ${duplicates.length} duplicate(s) of '
+          'shortId=${announcement.shortId} into key=$canonicalUuid '
+          '(incoming=${announcement.uuid})',
+        );
       }
     }
+    final isNew = !_peers.containsKey(canonicalUuid);
 
     // Normal upsert under the canonical UUID.
     final bestTransport = _bestTransport(
@@ -171,6 +179,16 @@ class DiscoveryService {
       statusMessage: announcement.statusMessage ?? existing?.statusMessage,
       publicKeyPEM: verifiedKey,
     );
+    // Forensics for the duplicate-flood report: log only new keys and
+    // absorption events so a spam repro shows exactly which identities are
+    // being filed under which keys.
+    if (isNew || absorbedAny) {
+      ahoyLog(
+        '[Discovery] peer ${announcement.transport} in=${announcement.uuid} '
+        'shortId=${announcement.shortId} -> key=$canonicalUuid '
+        'total=${_peers.length}',
+      );
+    }
     _emit();
     return alias;
   }
@@ -275,6 +293,7 @@ class DiscoveryService {
       }
     }
     if (staleKeys.isNotEmpty) {
+      ahoyLog('[Discovery] stale peers removed: $staleKeys');
       _onRemoved?.call(staleKeys);
       _emit();
     }
